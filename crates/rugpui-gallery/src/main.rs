@@ -20,9 +20,10 @@ use gpui::{
     SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 use rugpui::{
-    Button, ButtonVariant, Checkbox, DraggedThumb, EditorTheme, MenuButton, MenuEntry, Scrollbar,
-    ScrollbarAxis, Segmented, Select, TabBar, TabItem, TabStatus, TextInput, Theme, TreeView,
-    scroll_to, set_editor_theme, set_theme, theme, tooltip_label,
+    Button, ButtonVariant, Checkbox, DraggedThumb, EditorTheme, MenuButton, MenuEntry, ProgressBar,
+    Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Switch, TabBar, TabItem,
+    TabStatus, TextInput, Theme, TreeView, scroll_to, set_editor_theme, set_theme, theme,
+    tooltip_label,
 };
 use rugpui_editor::{EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::GridView;
@@ -164,7 +165,7 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(1180.), px(820.)),
+                    size(px(1180.), px(1020.)),
                     cx,
                 ))),
                 titlebar: Some(TitlebarOptions {
@@ -192,6 +193,10 @@ struct Gallery {
     checked: bool,
     /// Which segment of the segmented control is picked.
     segment: usize,
+    /// Whether the first switch is on.
+    switch_on: bool,
+    /// The slider's value, also what the progress bar beside it shows.
+    amount: f32,
     /// The dropdown's choice, and whether its list is showing.
     choice: SharedString,
     select_open: bool,
@@ -267,6 +272,8 @@ impl Gallery {
             tab: 1,
             checked: true,
             segment: 1,
+            switch_on: true,
+            amount: 0.4,
             choice: "PostgreSQL".into(),
             select_open: false,
             menu_open: false,
@@ -338,6 +345,44 @@ impl Gallery {
                 )
                 .child(Checkbox::new("nulls", "Show nulls"))
                 .child(Checkbox::new("locked-check", "Read only").checked(true)),
+        );
+
+        let switches = section("Switches", &palette).child(
+            row()
+                .child(
+                    Switch::new("wifi", "Auto-reconnect")
+                        .checked(self.switch_on)
+                        .on_toggle({
+                            let this = this.clone();
+                            move |value, _window, cx| {
+                                this.update(cx, |gallery, cx| {
+                                    gallery.switch_on = value;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                )
+                .child(Switch::new("telemetry", "Send telemetry")),
+        );
+
+        let amount = self.amount;
+        let slider = section("Slider and progress", &palette)
+            .child(Slider::new("amount").value(amount).step(0.05).on_change({
+                let this = this.clone();
+                move |value, _window, cx| {
+                    this.update(cx, |gallery, cx| {
+                        gallery.amount = value;
+                        cx.notify();
+                    });
+                }
+            }))
+            .child(ProgressBar::new("amount-progress").fraction(amount))
+            .child(ProgressBar::new("loading").indeterminate());
+
+        let spinners = section("Spinner", &palette).child(
+            row()
+                .child(Spinner::new("spinner-small"))
+                .child(Spinner::new("spinner-large").size(px(24.))),
         );
 
         let segmented = section("Segmented", &palette).child(
@@ -436,6 +481,9 @@ impl Gallery {
             .gap(px(16.))
             .child(buttons)
             .child(checkboxes)
+            .child(switches)
+            .child(slider)
+            .child(spinners)
             .child(segmented)
             .child(select)
             .child(fields)
@@ -497,8 +545,8 @@ impl Gallery {
     fn data(&self, cx: &mut Context<Self>) -> Div {
         let palette = theme(cx);
 
-        // The one section that fills whatever height is left, so that the
-        // column does not end in a band of nothing.
+        // Fills whatever height is left in its column, so that the column does
+        // not end in a band of nothing.
         let tree = section("Tree", &palette)
             .flex_1()
             .min_h_0()
@@ -515,9 +563,12 @@ impl Gallery {
                 .child(self.sql.clone()),
         );
 
-        let json = section("Editor — JSON", &palette).child(
+        // Like the tree, this one takes whatever height is left in its column,
+        // so neither column ends in a band of nothing.
+        let json = section("Editor — JSON", &palette).flex_1().min_h_0().child(
             framed(&palette)
-                .h(px(172.))
+                .flex_1()
+                .min_h(px(172.))
                 .font_family(self.mono.clone())
                 .text_size(px(12.5))
                 .child(self.json.clone()),
