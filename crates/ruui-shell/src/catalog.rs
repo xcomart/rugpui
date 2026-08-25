@@ -344,6 +344,17 @@ pub trait ThemeCatalog: 'static {
         None
     }
 
+    /// Whether the format has a dark/light flag at all.
+    ///
+    /// The editor draws a checkbox for it when it does, and leaves the value
+    /// [`ThemeCatalog::values_of`] reported untouched when it does not — a
+    /// format that carries no such flag has [`ThemeCatalog::file_from`] handed
+    /// back exactly what it gave out, rather than a `false` the editor
+    /// invented. Both formats here carry one, so the default is `true`.
+    fn has_dark_flag(&self) -> bool {
+        true
+    }
+
     /// The entry `id` names, or `None` when nothing answers to it.
     fn entry(&self, id: &str, cx: &App) -> Option<CatalogEntry> {
         self.entries(cx)

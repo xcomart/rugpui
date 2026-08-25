@@ -487,6 +487,36 @@ impl ThemeEditor {
             .collect()
     }
 
+    /// The dark/light checkbox, or nothing at all for a format without such a
+    /// flag.
+    ///
+    /// A catalogue answering `false` to [`ThemeCatalog::has_dark_flag`] gets no
+    /// checkbox *and* no invented value: `self.dark` stays whatever
+    /// [`ThemeCatalog::values_of`] reported when the editor opened, and that is
+    /// what [`ThemeCatalog::file_from`] is handed back on save.
+    ///
+    /// Answers the control rather than the form row around it, so that a test
+    /// can ask the question without an `AnyElement` being built: gpui allocates
+    /// those in the per-frame element arena, which only a draw sweeps, and one
+    /// built outside a render pass strands whatever it captured — here a handle
+    /// on the editor itself.
+    fn dark_checkbox(&self, cx: &mut Context<Self>) -> Option<Checkbox> {
+        if !self.catalog.has_dark_flag() {
+            return None;
+        }
+        let this = cx.entity();
+        let dark = Checkbox::new("theme-editor-dark", label(cx, "settings.editor.dark"))
+            .checked(self.dark)
+            .tab_index(tab::DARK)
+            .on_toggle(move |checked, _window, cx| {
+                this.update(cx, |editor, cx| {
+                    editor.dark = checked;
+                    cx.notify();
+                });
+            });
+        Some(dark)
+    }
+
     /// The message strip and the two buttons that end the editor.
     fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let chrome = theme(cx);
@@ -573,16 +603,7 @@ impl Render for ThemeEditor {
             .clone()
             .render_preview(&self.id, name, &values, self.dark, cx);
 
-        let this = cx.entity();
-        let dark = Checkbox::new("theme-editor-dark", label(cx, "settings.editor.dark"))
-            .checked(self.dark)
-            .tab_index(tab::DARK)
-            .on_toggle(move |checked, _window, cx| {
-                this.update(cx, |editor, cx| {
-                    editor.dark = checked;
-                    cx.notify();
-                });
-            });
+        let dark_row = self.dark_checkbox(cx).map(|dark| form_row("", dark));
 
         // A format's optional slots get a heading of their own: without it they
         // would run on from the required ones with nothing to say that these
@@ -606,7 +627,7 @@ impl Render for ThemeEditor {
             .restrict_scroll_to_axis()
             .child(preview)
             .child(form_row(name_label, self.name_input.clone()))
-            .child(form_row("", dark))
+            .children(dark_row)
             .children(self.render_fields(required, cx))
             .children(derived.map(|derived| {
                 div()
@@ -791,9 +812,116 @@ pub(crate) fn render_ui_preview(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
-    use crate::catalog::{EditorThemeCatalog, UiThemeCatalog};
+    use crate::catalog::{CatalogEntry, EditorThemeCatalog, ImportError, UiThemeCatalog, slot};
     use ruui::ThemeDirs;
+
+    /// The slots [`Flagless`] carries; four, so a heading can fall in the
+    /// middle of a row as well as at the start of one.
+    const FLAGLESS_SLOTS: [Slot; 4] = [
+        slot("one", "slot.one", false),
+        slot("two", "slot.two", false),
+        slot("three", "slot.three", false),
+        slot("four", "slot.four", false),
+    ];
+
+    /// A host's own catalogue, over a format with no dark/light flag.
+    ///
+    /// Every path that writes anything refuses: the editor under test is never
+    /// saved, and a stub that could write would be a stub that could write
+    /// somewhere real.
+    struct Flagless;
+
+    impl ThemeCatalog for Flagless {
+        fn kind_label_key(&self) -> &'static str {
+            "flagless.kind"
+        }
+
+        fn element_prefix(&self) -> &'static str {
+            "flagless"
+        }
+
+        fn delete_confirm_key(&self) -> &'static str {
+            "flagless.delete"
+        }
+
+        fn entries(&self, _cx: &App) -> Vec<CatalogEntry> {
+            Vec::new()
+        }
+
+        fn slots(&self) -> &'static [Slot] {
+            &FLAGLESS_SLOTS
+        }
+
+        fn load(&self, _id: &str, _cx: &App) -> Option<CatalogFile> {
+            None
+        }
+
+        fn values_of(&self, _file: &CatalogFile) -> (Vec<String>, bool) {
+            // `true` on purpose: the editor has no checkbox to read it from, so
+            // this is the only place the flag can come from, and it has to
+            // survive to `file_from`.
+            (vec!["#101010".to_owned(); FLAGLESS_SLOTS.len()], true)
+        }
+
+        fn file_from(&self, name: String, values: &[String], dark: bool) -> CatalogFile {
+            CatalogFile::Other(std::sync::Arc::new((name, values.to_vec(), dark)))
+        }
+
+        fn dir(&self) -> anyhow::Result<std::path::PathBuf> {
+            anyhow::bail!("this catalogue has no directory")
+        }
+
+        fn default_id(&self) -> String {
+            "flagless".to_owned()
+        }
+
+        fn generated_id_prefix(&self) -> &'static str {
+            "flagless"
+        }
+
+        fn save(&self, _id: &str, _file: &CatalogFile) -> anyhow::Result<std::path::PathBuf> {
+            anyhow::bail!("this catalogue is never written")
+        }
+
+        fn write(&self, _file: &CatalogFile, _path: &Path) -> anyhow::Result<()> {
+            anyhow::bail!("this catalogue is never written")
+        }
+
+        fn delete(&self, _id: &str) -> anyhow::Result<()> {
+            anyhow::bail!("this catalogue is never written")
+        }
+
+        fn read(&self, _path: &Path) -> std::result::Result<CatalogFile, ImportError> {
+            Err(ImportError::WrongKind("flagless.wrong_kind"))
+        }
+
+        fn reload(&self, _cx: &mut App) {}
+
+        fn render_preview(
+            &self,
+            _id: &str,
+            _name: SharedString,
+            _values: &[String],
+            _dark: bool,
+            _cx: &mut App,
+        ) -> AnyElement {
+            div().into_any_element()
+        }
+
+        fn has_dark_flag(&self) -> bool {
+            false
+        }
+    }
+
+    /// The editor over [`Flagless`], with nothing else installed.
+    fn flagless(cx: &mut App) -> Entity<ThemeEditor> {
+        let catalog: Arc<dyn ThemeCatalog> = Arc::new(Flagless);
+        let file = CatalogFile::Other(std::sync::Arc::new(()));
+        cx.new(|cx| ThemeEditor::new(catalog, "flagless", &file, cx))
+    }
 
     /// The two catalogues that ship here, over a directory nothing writes to.
     fn shipped() -> [Box<dyn ThemeCatalog>; 2] {
@@ -842,5 +970,38 @@ mod tests {
                 "a slot inside the group is required"
             );
         }
+    }
+
+    /// The whole of [`ThemeCatalog::has_dark_flag`]: a format that carries no
+    /// dark/light flag must not be given a checkbox for one, because the
+    /// checkbox would be editing a value the format has nowhere to put.
+    #[gpui::test]
+    fn a_format_with_no_dark_flag_gets_no_checkbox_for_one(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let editor = flagless(cx);
+            editor.update(cx, |editor, cx| {
+                assert!(
+                    editor.dark_checkbox(cx).is_none(),
+                    "a flagless catalogue was given a dark/light checkbox"
+                );
+                // And the flag `values_of` reported is what `file_from` gets
+                // back, rather than a `false` the editor invented.
+                assert!(editor.dark, "the catalogue's own flag was overwritten");
+            });
+
+            // The two catalogues that do carry one are unaffected.
+            let ui: Arc<dyn ThemeCatalog> = Arc::new(UiThemeCatalog::new(
+                ThemeDirs {
+                    ui_themes: std::path::PathBuf::from("/nowhere/themes"),
+                    editor_themes: None,
+                },
+                "dark",
+            ));
+            let file = CatalogFile::UiTheme(Box::new(ThemeFile::new("Dark", true, ui_colors(&[]))));
+            let editor = cx.new(|cx| ThemeEditor::new(ui, "dark", &file, cx));
+            editor.update(cx, |editor, cx| {
+                assert!(editor.dark_checkbox(cx).is_some());
+            });
+        });
     }
 }

@@ -219,6 +219,12 @@ let editor: Arc<dyn ThemeCatalog> =
     Arc::new(EditorThemeCatalog::new(dirs, AppSettings::default().editor_theme));
 ```
 
+A third kind of palette is a `ThemeCatalog` of your own over
+`CatalogFile::Other`. One of the trait's defaults is there for a format that
+differs from these two: `has_dark_flag` answering `false` takes the dark/light
+checkbox out of the editor, and leaves the flag your `values_of` reported
+untouched on the way back to `file_from`.
+
 What stays in the application, deliberately: the workspace (every dialog reports
 through an `EventEmitter` and you decide what it means — including the restart
 after an update, which is the two lines above); what a tab is; the body of the
