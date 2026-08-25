@@ -122,6 +122,25 @@ const IDENTITY: AppIdentity = AppIdentity {
 ruui_shell::init(IDENTITY, cx);
 ```
 
+`init` needs a `gpui::App`, and two of the shell's calls run before there is
+one: `update::apply_pending`, which performs the renames a staged update left
+for the next launch, and `update::clean_leftovers`, which sweeps up the
+previous one's `.old` copies. Both read the identity out of a process global
+rather than out of gpui, so a host that calls either of them first thing in
+`main` installs it first thing too:
+
+```rust
+ruui_shell::init_process_identity(IDENTITY);
+if ruui_shell::update::apply_pending() {
+    return; // the new build is running; this process has nothing left to do.
+}
+```
+
+`init` performs that call itself, so a host that reaches an `App` before it
+needs the update paths never writes it. With no identity installed at all the
+two functions log an error and do nothing — a mis-ordered `main` costs an
+update, not a launch.
+
 **The words.** The shell looks its strings up by the keys your locale files
 already carry — `common.close`, `update.available`, `settings.manage.import` —
 so adopting it changes no translation. Interpolation is the shell's: a template

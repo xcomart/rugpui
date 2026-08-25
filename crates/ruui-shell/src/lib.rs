@@ -17,7 +17,10 @@
 //! ```
 //!
 //! Those three calls are the whole of the wiring, and the README walks through
-//! them. What follows is the map.
+//! them. A host that has to apply a staged update before it can build an
+//! [`App`](gpui::App) calls [`init_process_identity`] ahead of all three; it is
+//! the half of [`init`] that needs no `App`, and [`init`] performs it itself.
+//! What follows is the map.
 //!
 //! # What is here
 //!
@@ -101,8 +104,8 @@ pub use icons::{
     icon, window_control_icons,
 };
 pub use inject::{
-    AppIdentity, Strings, UpdatePolicy, identity, ignored_release, init, label,
-    set_ignored_release, set_strings, set_update_policy, text,
+    AppIdentity, Strings, UpdatePolicy, identity, ignored_release, init, init_process_identity,
+    label, set_ignored_release, set_strings, set_update_policy, text,
 };
 pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};

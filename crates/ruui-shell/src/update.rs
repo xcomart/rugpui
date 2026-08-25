@@ -187,6 +187,15 @@ use crate::inject::{self};
 /// except a user picking a menu item.
 static STARTUP_CHECK: AtomicBool = AtomicBool::new(true);
 
+/// What every path here says when the host wired nothing up.
+///
+/// [`apply_pending`] and [`clean_leftovers`] are the two functions a host is
+/// asked to call before it has an [`App`], which makes them the two it is
+/// likeliest to reach with no identity installed. Panicking there would take
+/// down a launch over a mis-ordered start-up; the honest answer is a line in
+/// the log saying which call is missing, and a start-up that carries on.
+const NO_IDENTITY: &str = "identity not installed — call init_process_identity first";
+
 /// How long the whole *check* may take, connection included.
 ///
 /// Short on purpose. Nothing waits on this — the window is already up — but a
@@ -510,6 +519,13 @@ pub fn remember_ignored(tag: &str, cx: &mut App) {
 /// make the three platforms differ — so it renames them aside and leaves them
 /// for the next launch. That is here. Every failure is a debug line: a leftover
 /// costs disk space and nothing else, and the next update will try again.
+///
+/// # Order
+///
+/// [`crate::init`] or [`crate::init_process_identity`] first: this reads the
+/// payload out of the identity, and with none installed it logs an error and
+/// removes nothing. It does not panic — a start-up housekeeping sweep is not
+/// worth a launch over.
 pub fn clean_leftovers() {
     let Ok(plan) = install_plan() else {
         return;
@@ -847,6 +863,14 @@ fn defer(payload: &Path, pending: &Path) -> Result<(), String> {
 /// failures, which means "carry on starting up normally"; there is no pending
 /// directory left either way, so the next launch is an ordinary one and this can
 /// never loop.
+///
+/// # Order
+///
+/// [`crate::init_process_identity`] has to have run — it is the one piece of
+/// wiring that does not need an [`App`], and it exists for exactly this call.
+/// With no identity installed this logs an error and answers `false`, which
+/// starts the application on the build already on disk rather than taking the
+/// launch down over a mis-ordered `main`.
 pub fn apply_pending() -> bool {
     let Ok(plan) = install_plan() else {
         return false;
@@ -1216,7 +1240,10 @@ fn roll_back(done: Vec<Done>) -> Option<String> {
 fn install_plan() -> Result<Vec<Entry>, String> {
     let exe = std::env::current_exe()
         .map_err(|error| format!("could not locate the running program: {error}"))?;
-    let app = inject::current_identity();
+    let Some(app) = inject::try_current_identity() else {
+        log::error!("{NO_IDENTITY}");
+        return Err(NO_IDENTITY.to_string());
+    };
     let payload = app.payload;
     if payload.is_empty() {
         return Err("the application publishes no payload to install".to_string());

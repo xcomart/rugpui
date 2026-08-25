@@ -126,10 +126,20 @@ pub fn identity(cx: &App) -> AppIdentity {
 ///
 /// Panics when [`init`] has not run, for the same reason [`identity`] does.
 pub(crate) fn current_identity() -> AppIdentity {
-    PROCESS_IDENTITY
+    try_current_identity().expect("ruui_shell::init has to run before the update paths do")
+}
+
+/// The identity, off the UI thread, for a caller that has something better to
+/// do than panic.
+///
+/// The start-up paths — [`crate::update::apply_pending`] and
+/// [`crate::update::clean_leftovers`] — run before a host has necessarily
+/// wired anything up, and a host that forgot to is owed a log line and a
+/// no-op rather than a process that dies on launch.
+pub(crate) fn try_current_identity() -> Option<AppIdentity> {
+    *PROCESS_IDENTITY
         .read()
         .expect("the identity lock is never held across a panic")
-        .expect("ruui_shell::init has to run before the update paths do")
 }
 
 /// Installs `identity` for the background paths alone, without an [`App`].
