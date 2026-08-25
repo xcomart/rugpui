@@ -141,6 +141,7 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07
 # --- internal crates ---
 ruui = { path = "crates/ruui" }
 ruui-grid = { path = "crates/ruui-grid" }
+ruui-editor = { path = "crates/ruui-editor" }
 
 [profile.dev]
 # gpui + its dependency tree is large; keep debug builds usable.
