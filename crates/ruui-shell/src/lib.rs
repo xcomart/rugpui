@@ -29,6 +29,8 @@
 //! | [`menu_rows`] | [`MenuRow`], a context menu as a list a test can read. |
 //! | [`icons`] | [`IconSet`], and the four caption glyphs every self-drawn title bar needs. |
 //! | [`about`] | [`AboutDialog`]. |
+//! | [`update`] | The release check and the self-update: download, verify, unpack, swap, roll back, and stage when a rename cannot happen yet. |
+//! | [`update_dialog`] | [`UpdateDialog`], the state machine around all of that. |
 //!
 //! # What stays in the application
 //!
@@ -68,6 +70,8 @@ pub mod icons;
 mod inject;
 pub mod menu_rows;
 pub mod pane;
+pub mod update;
+pub mod update_dialog;
 
 pub use about::{AboutDialog, AboutDialogEvent};
 pub use caption::apply_caption_theme;
@@ -85,3 +89,5 @@ pub use inject::{
 };
 pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
+pub use update::{Asset, Check, Installed, Progress, Release};
+pub use update_dialog::{UpdateDialog, UpdateDialogEvent};
