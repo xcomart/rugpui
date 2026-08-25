@@ -35,6 +35,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 use gpui::{App, Global, SharedString};
+use ruui::InputMenuLabels;
 
 /// Everything about the host application the shell has to be told.
 ///
@@ -258,6 +259,28 @@ pub fn text(cx: &App, key: &str, args: &[(&str, &str)]) -> SharedString {
 /// The translation of `key`, with nothing to fill in.
 pub fn label(cx: &App, key: &str) -> SharedString {
     text(cx, key, &[])
+}
+
+/// The wording of a text field's right-click menu, in the host's own words.
+///
+/// [`ruui::TextInput`] draws no edit menu until it is told what to call the
+/// four commands on it, deliberately: a widget kit has no opinion about what
+/// language it is being used in. Every field the shell builds is given this
+/// one, and a host that builds fields of its own can hand it the same
+/// function — `TextInput::new(cx).context_menu(ruui_shell::input_menu_labels)`
+/// — so that one set of keys covers every field in the application.
+///
+/// The keys are `input.menu_cut`, `input.menu_copy`, `input.menu_paste` and
+/// `input.menu_select_all`. A host that has not translated them sees the keys
+/// themselves in the menu, which is [`text`]'s usual bargain: visible, and
+/// therefore reportable.
+pub fn input_menu_labels(cx: &App) -> InputMenuLabels {
+    InputMenuLabels {
+        cut: label(cx, "input.menu_cut"),
+        copy: label(cx, "input.menu_copy"),
+        paste: label(cx, "input.menu_paste"),
+        select_all: label(cx, "input.menu_select_all"),
+    }
 }
 
 /// Replaces every `%{name}` in `template` that `args` names.

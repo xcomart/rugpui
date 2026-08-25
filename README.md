@@ -169,6 +169,21 @@ impl ruui_shell::Strings for Words {
 ruui_shell::set_strings(Box::new(Words), cx);
 ```
 
+Four of those keys are ones an existing application may not have yet, because
+they name the rows of a text field's right-click menu: `input.menu_cut`,
+`input.menu_copy`, `input.menu_paste` and `input.menu_select_all`. Every field
+the shell builds is given them through `ruui_shell::input_menu_labels`, and a
+host's own fields take the same function so that one set of keys covers the
+whole application:
+
+```rust
+TextInput::new(cx).context_menu(ruui_shell::input_menu_labels)
+```
+
+A key you have not translated shows as the key itself, which is visible and
+therefore reportable — no field goes without a menu because a line of text is
+missing.
+
 **The ignored release.** "Never tell me about this version again" belongs in
 your settings file, which the shell does not own:
 

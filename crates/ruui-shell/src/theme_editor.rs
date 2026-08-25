@@ -147,7 +147,9 @@ impl ThemeEditor {
         let name = catalog.name_of(file);
 
         let name_input = cx.new(|cx| {
-            let mut input = TextInput::new(cx).tab_index(tab::NAME);
+            let mut input = TextInput::new(cx)
+                .tab_index(tab::NAME)
+                .context_menu(crate::input_menu_labels);
             input.set_content(name, cx);
             input
         });
@@ -167,7 +169,8 @@ impl ThemeEditor {
             let input = cx.new(|cx| {
                 let mut input = TextInput::new(cx)
                     .placeholder("#000000")
-                    .tab_index(tab::FIRST_COLOR + 2 * index as isize);
+                    .tab_index(tab::FIRST_COLOR + 2 * index as isize)
+                    .context_menu(crate::input_menu_labels);
                 input.set_content(value, cx);
                 input.set_invalid(!valid, cx);
                 input
