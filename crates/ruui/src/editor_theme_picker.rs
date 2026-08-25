@@ -50,7 +50,7 @@ type SelectHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// Which slot of an [`EditorTheme`] paints one run of the preview.
 ///
-/// A subset of the palette: the slots a five-line `SELECT` can actually show.
+/// A subset of the palette: the slots the previewed snippet can actually show.
 /// [`EditorTheme::error`] and [`EditorTheme::warning`] are left out on purpose
 /// — a card advertising a theme should not be drawing a broken statement — and
 /// so are the frame slots, which the card renders directly.
@@ -70,6 +70,10 @@ enum PreviewSlot {
     Operator,
     /// See [`EditorTheme::punctuation`].
     Punctuation,
+    /// See [`EditorTheme::key`].
+    Key,
+    /// See [`EditorTheme::variable`].
+    Variable,
     /// See [`EditorTheme::foreground`]; the spaces between the rest.
     Plain,
 }
@@ -85,6 +89,8 @@ impl PreviewSlot {
             Self::Comment => theme.comment,
             Self::Operator => theme.operator,
             Self::Punctuation => theme.punctuation,
+            Self::Key => theme.key,
+            Self::Variable => theme.variable,
             Self::Plain => theme.foreground,
         }
     }
@@ -121,11 +127,18 @@ const fn picked(text: &'static str, slot: PreviewSlot) -> PreviewSpan {
 
 /// The statement every card renders.
 ///
-/// Chosen so that seven slots land on five short lines and no line runs past
+/// Chosen so that nine slots land on six short lines and no line runs past
 /// seventeen characters: a comment, two flavours of literal, two operators, the
 /// punctuation between the columns, and identifiers on both sides of a `FROM`.
 /// The reader is meant to be able to answer "can I tell these apart" without
 /// reading the statement at all.
+///
+/// The last line is not part of the statement, and is there because the editor
+/// colours configuration formats as well as SQL. A `SELECT` has no member name
+/// and no `$VAR` in it, so the two slots those formats spend half a screen on
+/// would go unseen on a card that showed a statement alone — and a palette
+/// whose keys are the colour of its identifiers is exactly what somebody
+/// picking a theme for a YAML file needs to be able to see.
 const PREVIEW_LINES: &[&[PreviewSpan]] = &[
     &[span("-- recent", PreviewSlot::Comment)],
     &[
@@ -160,6 +173,11 @@ const PREVIEW_LINES: &[&[PreviewSpan]] = &[
         span(" ", PreviewSlot::Plain),
         span("'new'", PreviewSlot::Str),
         span(";", PreviewSlot::Punctuation),
+    ],
+    &[
+        span("host", PreviewSlot::Key),
+        span(": ", PreviewSlot::Plain),
+        span("$HOME", PreviewSlot::Variable),
     ],
 ];
 
@@ -534,6 +552,8 @@ mod tests {
             PreviewSlot::Comment,
             PreviewSlot::Operator,
             PreviewSlot::Punctuation,
+            PreviewSlot::Key,
+            PreviewSlot::Variable,
         ] {
             assert!(used.contains(&slot), "{slot:?} is never drawn");
         }
@@ -559,6 +579,9 @@ mod tests {
                 (PreviewSlot::Comment, PreviewSlot::Identifier),
                 (PreviewSlot::Number, PreviewSlot::Str),
                 (PreviewSlot::Operator, PreviewSlot::Identifier),
+                (PreviewSlot::Key, PreviewSlot::Identifier),
+                (PreviewSlot::Variable, PreviewSlot::Identifier),
+                (PreviewSlot::Key, PreviewSlot::Variable),
             ] {
                 assert_ne!(
                     left.color(&theme),

@@ -4,7 +4,7 @@
 //! own directory, because the two answer different questions. The chrome
 //! palette is eleven semantic slots — a surface, a border, a danger — and it
 //! has to hold for buttons and tabs and dialogs alike. An editor palette is a
-//! *syntax* palette: nineteen slots that only mean anything once a lexer has
+//! *syntax* palette: twenty-one slots that only mean anything once a lexer has
 //! said which run of characters is a keyword and which is a string, and the
 //! published palettes people actually want — Dracula, Gruvbox, Monokai,
 //! whatever their editor of choice ships — are written in those terms and no
@@ -37,12 +37,12 @@ use crate::theme::{parse_hex, to_hex};
 
 /// A syntax palette: the colors an editor paints one buffer with.
 ///
-/// The nineteen slots split three ways. Four are the *canvas* —
+/// The twenty-one slots split three ways. Four are the *canvas* —
 /// [`background`](Self::background), [`foreground`](Self::foreground),
 /// [`cursor`](Self::cursor), [`selection`](Self::selection) — three are the
 /// *frame* around it — [`line_highlight`](Self::line_highlight),
 /// [`gutter`](Self::gutter), [`gutter_active`](Self::gutter_active) — and the
-/// remaining twelve are token classes a lexer hands out.
+/// remaining fourteen are token classes a lexer hands out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorTheme {
     /// Whether this is a dark palette.
@@ -80,6 +80,19 @@ pub struct EditorTheme {
     pub operator: Hsla,
     /// Table, column and alias names.
     pub identifier: Hsla,
+    /// The left-hand side of a mapping: a YAML or JSON member name, an `ini`
+    /// `[section]`, a Markdown heading, a `KEY=` in a shell script.
+    ///
+    /// Absent from a theme file written before this slot existed, in which case
+    /// it takes that file's [`type`](Self::type) colour — the two are the same
+    /// kind of thing to a palette that never had to tell them apart.
+    pub key: Hsla,
+    /// A named reference to something defined elsewhere: `$HOME`, `${TARGET}`,
+    /// a YAML anchor or alias, a Markdown link's text.
+    ///
+    /// Absent from a theme file written before this slot existed, in which case
+    /// it takes that file's [`function`](Self::function) colour.
+    pub variable: Hsla,
     /// Commas, semicolons, parentheses and dots.
     pub punctuation: Hsla,
     /// The bracket under the caret and its partner.
@@ -116,6 +129,8 @@ impl EditorTheme {
             r#type: hex("#e5c07b"),
             operator: hex("#56b6c2"),
             identifier: hex("#abb2bf"),
+            key: hex("#e06c75"),
+            variable: hex("#d19a66"),
             punctuation: hex("#abb2bf"),
             bracket_match: hex("#56b6c2"),
             error: hex("#e06c75"),
@@ -125,7 +140,7 @@ impl EditorTheme {
 
     /// One Light, the light counterpart of [`EditorTheme::one_dark`].
     ///
-    /// Atom's `one-light-syntax`, hue for hue: the same twelve token classes
+    /// Atom's `one-light-syntax`, hue for hue: the same token classes
     /// pointed at the light end of the same palette.
     pub fn one_light() -> Self {
         Self {
@@ -145,6 +160,8 @@ impl EditorTheme {
             r#type: hex("#c18401"),
             operator: hex("#0184bc"),
             identifier: hex("#383a42"),
+            key: hex("#e45649"),
+            variable: hex("#986801"),
             punctuation: hex("#383a42"),
             bracket_match: hex("#0184bc"),
             error: hex("#e45649"),
@@ -198,6 +215,8 @@ impl EditorTheme {
             // Violet, the accent Solarized keeps spare, as in the light variant.
             operator: hex("#6c71c4"),
             identifier: hex("#839496"),
+            key: hex("#268bd2"),
+            variable: hex("#cb4b16"),
             punctuation: hex("#839496"),
             bracket_match: hex("#cb4b16"),
             error: hex("#dc322f"),
@@ -233,6 +252,8 @@ impl EditorTheme {
             // accent for; operators are what SQL needs one for.
             operator: hex("#6c71c4"),
             identifier: hex("#657b83"),
+            key: hex("#268bd2"),
+            variable: hex("#cb4b16"),
             punctuation: hex("#657b83"),
             bracket_match: hex("#cb4b16"),
             error: hex("#dc322f"),
@@ -286,6 +307,8 @@ impl EditorTheme {
             r#type: hex("#fabd2f"),
             operator: hex("#fe8019"),
             identifier: hex("#ebdbb2"),
+            key: hex("#83a598"),
+            variable: hex("#fe8019"),
             punctuation: hex("#ebdbb2"),
             bracket_match: hex("#fe8019"),
             error: hex("#fb4934"),
@@ -338,6 +361,8 @@ impl EditorTheme {
             // is the one pairing its spec spells out for punctuation-like runs.
             operator: hex("#ff79c6"),
             identifier: hex("#f8f8f2"),
+            key: hex("#8be9fd"),
+            variable: hex("#ffb86c"),
             punctuation: hex("#f8f8f2"),
             bracket_match: hex("#ffb86c"),
             error: hex("#ff5555"),
@@ -605,14 +630,20 @@ pub struct EditorThemeFile {
 /// The color slots of an [`EditorThemeFile`].
 ///
 /// Each value is `#RRGGBB`, or `#RRGGBBAA` where the author wants alpha —
-/// which, of the nineteen, only the two background bands and the selection
+/// which, of the twenty-one, only the two background bands and the selection
 /// have much use for.
 ///
-/// All nineteen are required. Unlike the chrome palette's grid slots there is
-/// nothing here to derive a missing one *from*, and a file missing a token
-/// class is more likely a truncated copy than a deliberate omission, so it is
-/// better reported — [`crate::theme_store`] logs it and skips the file — than
-/// silently half-applied.
+/// Nineteen of the twenty-one are required. Unlike the chrome palette's grid
+/// slots there is nothing here to derive a missing one *from*, and a file
+/// missing a token class is more likely a truncated copy than a deliberate
+/// omission, so it is better reported — [`crate::theme_store`] logs it and
+/// skips the file — than silently half-applied.
+///
+/// The two exceptions are [`key`](Self::key) and [`variable`](Self::variable),
+/// which were added after the format was published. Requiring them would have
+/// rejected every theme file already written, so they are optional and stand in
+/// for a neighbouring slot when absent — the one case where a file *is* known
+/// to be an older copy rather than a truncated one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditorThemeColors {
     /// Background of the text area.
@@ -645,6 +676,20 @@ pub struct EditorThemeColors {
     pub operator: String,
     /// Table, column and alias names.
     pub identifier: String,
+    /// The left-hand side of a mapping, and a section header.
+    ///
+    /// Optional, unlike the seventeen slots around it: it was added after the
+    /// format was published, and a file written before it has to keep loading.
+    /// An empty value — which is what a missing key deserializes to — takes the
+    /// file's own `type` colour. See [`EditorThemeFile::to_theme`].
+    #[serde(default)]
+    pub key: String,
+    /// A `$NAME`, a `${...}`, a YAML anchor, a link's text.
+    ///
+    /// Optional for the same reason as [`key`](Self::key), and standing in for
+    /// the file's own `function` colour when it is missing.
+    #[serde(default)]
+    pub variable: String,
     /// Commas, semicolons, parentheses and dots.
     pub punctuation: String,
     /// The bracket under the caret and its partner.
@@ -676,7 +721,7 @@ impl EditorThemeFile {
     /// theme's color for that slot — and the fallback theme is chosen by the
     /// file's own `dark` key, [`EditorTheme::one_dark`] or
     /// [`EditorTheme::one_light`]. That choice matters more here than in the
-    /// chrome palette: a syntax palette is nineteen colors on one page, so a
+    /// chrome palette: a syntax palette is twenty-one colors on one page, so a
     /// single typo in a light theme borrowing from a dark one puts a
     /// near-invisible keyword in the middle of every statement. Borrowing from
     /// the same side of light/dark keeps a mistyped slot merely *wrong* rather
@@ -706,6 +751,21 @@ impl EditorThemeFile {
             r#type: color(&self.colors.r#type, fallback.r#type),
             operator: color(&self.colors.operator, fallback.operator),
             identifier: color(&self.colors.identifier, fallback.identifier),
+            // The two slots the format grew late. A file that carries neither
+            // is a file whose author never had them to choose, so rather than
+            // dropping a built-in theme's colour into the middle of theirs, the
+            // nearest thing they *did* choose stands in: a member name is a
+            // name, which is what `type` already colours, and an expansion
+            // points at something defined elsewhere, which is what `function`
+            // does.
+            key: color(
+                &self.colors.key,
+                color(&self.colors.r#type, fallback.r#type),
+            ),
+            variable: color(
+                &self.colors.variable,
+                color(&self.colors.function, fallback.function),
+            ),
             punctuation: color(&self.colors.punctuation, fallback.punctuation),
             bracket_match: color(&self.colors.bracket_match, fallback.bracket_match),
             error: color(&self.colors.error, fallback.error),
@@ -735,6 +795,8 @@ impl EditorThemeFile {
                 r#type: to_hex(theme.r#type),
                 operator: to_hex(theme.operator),
                 identifier: to_hex(theme.identifier),
+                key: to_hex(theme.key),
+                variable: to_hex(theme.variable),
                 punctuation: to_hex(theme.punctuation),
                 bracket_match: to_hex(theme.bracket_match),
                 error: to_hex(theme.error),
@@ -768,7 +830,7 @@ mod tests {
     ///
     /// Not WCAG's 4.5:1, and the gap is worth being explicit about. The
     /// palettes here are published ones reproduced faithfully, and not one of
-    /// them meets 4.5:1 across all twelve classes — Solarized Light's keyword
+    /// them meets 4.5:1 across all fourteen classes — Solarized Light's keyword
     /// is 2.97:1 against `base3` and its author knew it, One Dark's comment is
     /// 2.32:1. Holding them to the body-text figure would mean shipping
     /// palettes under those names that are not those palettes, which is a worse
@@ -803,6 +865,8 @@ mod tests {
             ("type", theme.r#type),
             ("operator", theme.operator),
             ("identifier", theme.identifier),
+            ("key", theme.key),
+            ("variable", theme.variable),
             ("punctuation", theme.punctuation),
             ("bracket_match", theme.bracket_match),
             ("error", theme.error),
@@ -966,7 +1030,40 @@ mod tests {
         assert_eq!(to_hex(theme.background), "#1a1b26");
         assert_eq!(to_hex(theme.r#type), "#2ac3de");
         assert_eq!(to_hex(theme.bracket_match), "#f7768e");
-        assert_eq!(EditorThemeFile::from_theme("Tokyo Night", &theme), file);
+
+        // The document predates `key` and `variable`, so the file carries
+        // neither and each stands in for the neighbour named in
+        // `EditorThemeColors`. Writing the palette back therefore fills them
+        // in, which is the one way the round trip is not the identity.
+        assert_eq!(to_hex(theme.key), "#2ac3de");
+        assert_eq!(to_hex(theme.variable), "#7aa2f7");
+        let mut filled = file.clone();
+        filled.colors.key = "#2ac3de".into();
+        filled.colors.variable = "#7aa2f7".into();
+        assert_eq!(EditorThemeFile::from_theme("Tokyo Night", &theme), filled);
+    }
+
+    /// The compatibility rule the two late slots exist under: a file that
+    /// carries them is taken at its word, and a file that does not gets the
+    /// colour it *did* choose for the neighbouring slot rather than a built-in
+    /// theme's.
+    #[test]
+    fn the_two_late_slots_stand_in_for_a_neighbour_when_a_file_omits_them() {
+        let mut file = EditorThemeFile::from_theme("Older", &EditorTheme::gruvbox_dark());
+        file.colors.key = String::new();
+        file.colors.variable = String::new();
+
+        let theme = file.to_theme();
+        assert_eq!(theme.key, theme.r#type);
+        assert_eq!(theme.variable, theme.function);
+        // Not the built-in fallback, which is what a plain unparseable slot
+        // would have given.
+        assert_ne!(theme.key, EditorTheme::one_dark().key);
+
+        // And a file that does carry them keeps them.
+        let carried = EditorThemeFile::from_theme("Newer", &EditorTheme::gruvbox_dark()).to_theme();
+        assert_eq!(carried.key, EditorTheme::gruvbox_dark().key);
+        assert_ne!(carried.key, carried.r#type);
     }
 
     #[test]

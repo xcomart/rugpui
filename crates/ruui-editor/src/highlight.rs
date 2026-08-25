@@ -54,11 +54,11 @@ use crate::buffer::Buffer;
 
 /// One of the token colours an editor palette hands out.
 ///
-/// Every variant but [`Token::QuotedIdentifier`] names one of the twelve token
-/// slots of [`EditorTheme`](ruui::EditorTheme), so that mapping a span onto a
-/// colour is a total function with no fallback and no invented slot;
+/// Every variant but [`Token::QuotedIdentifier`] names one of the fourteen
+/// token slots of [`EditorTheme`](ruui::EditorTheme), so that mapping a span
+/// onto a colour is a total function with no fallback and no invented slot;
 /// `QuotedIdentifier` shares [`Token::Identifier`]'s slot rather than adding a
-/// thirteenth. Text a highlighter classifies as nothing at all gets no span,
+/// fifteenth. Text a highlighter classifies as nothing at all gets no span,
 /// and the renderer draws it in the palette's foreground colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Token {
@@ -83,6 +83,21 @@ pub enum Token {
     /// matcher the way a string is: a `;` or a bracket inside it is part of
     /// the name.
     QuotedIdentifier,
+    /// The left-hand side of a mapping, and a section header.
+    ///
+    /// What a configuration format spends half its screen on: the `port` of
+    /// `port: 22`, the `[server]` of an `ini` file, the `PATH` of `PATH=/bin`,
+    /// the `"host"` of a JSON member, a Markdown heading. The SQL and C-like
+    /// lexers never emit it — there is no mapping in a `SELECT` — and the
+    /// configuration lexers of [`lang`](crate::lang) emit little else.
+    Key,
+    /// A named reference to something defined elsewhere.
+    ///
+    /// A shell expansion (`$HOME`, `${TARGET:-x}`), a YAML anchor or alias
+    /// (`&defaults`, `*defaults`), a Markdown link's text. Not a *declaration*
+    /// of a name, which is [`Token::Key`]: the two are told apart by which side
+    /// of the binding they are on, not by their spelling.
+    Variable,
     /// Brackets, semicolons, dots and a template's `${`/`}`.
     Punctuation,
     /// The bracket under the caret and its partner.
@@ -91,7 +106,7 @@ pub enum Token {
     /// [`crate::syntax::bracket_pair`] over the caret, not by a line lexer, and
     /// the element paints it as a quad under the text rather than as a colour
     /// on it. The variant exists so that the enum is exactly the palette's
-    /// twelve token slots.
+    /// fourteen token slots.
     BracketMatch,
     /// Text that cannot be read at all: an unbalanced `}`, an unknown statement.
     Error,
