@@ -346,6 +346,14 @@ impl TextInput {
         self
     }
 
+    /// The text shown while the field is empty.
+    ///
+    /// The read side of [`TextInput::placeholder`], for a host that pushed one
+    /// in and wants to know what a field is currently hinting.
+    pub fn current_placeholder(&self) -> &SharedString {
+        &self.placeholder
+    }
+
     /// Replaces the text shown while the field is empty.
     ///
     /// The builder above covers a hint that is fixed for the life of the field.
@@ -396,6 +404,22 @@ impl TextInput {
     pub fn context_menu(mut self, labels: impl Fn(&App) -> InputMenuLabels + 'static) -> Self {
         self.menu_labels = Some(Rc::new(labels));
         self
+    }
+
+    /// Replaces the edit menu's wording, or gives a field one it was built
+    /// without.
+    ///
+    /// The counterpart of [`TextInput::context_menu`] for a field whose entity
+    /// already exists, which is the same reason [`TextInput::set_placeholder`]
+    /// stands beside [`TextInput::placeholder`]: a widget that holds its own
+    /// inputs cannot reach the builder once it has run.
+    pub fn set_context_menu(
+        &mut self,
+        labels: impl Fn(&App) -> InputMenuLabels + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu_labels = Some(Rc::new(labels));
+        cx.notify();
     }
 
     /// Whether this field breaks lines rather than submitting on `Enter`.

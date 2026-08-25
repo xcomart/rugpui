@@ -58,16 +58,18 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use std::rc::Rc;
+
 use gpui::{
     App, Bounds, ClipboardItem, Context, DragMoveEvent, Entity, EntityInputHandler, EventEmitter,
-    FocusHandle, Focusable, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, ScrollWheelEvent, ShapedLine, UTF16Selection, Window, actions, div, point,
-    prelude::*, px,
+    FocusHandle, Focusable, Font, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, ScrollWheelEvent, ShapedLine, SharedString, UTF16Selection,
+    Window, actions, div, point, prelude::*, px,
 };
 use ruui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now,
 };
-use ruui::{Checkbox, TextInput, editor_theme, theme};
+use ruui::{Checkbox, EditorTheme, InputMenuLabels, TextInput, editor_theme, theme};
 
 use crate::buffer::Buffer;
 use crate::element::EditorElement;
@@ -376,6 +378,37 @@ pub struct EditorView {
     marks: Vec<(usize, MarkKind)>,
     /// Whether the five keys of [`NavKey`] are handed to the host.
     intercept: bool,
+    /// The palette this one editor draws in, when the host has pushed one.
+    ///
+    /// `None` — the default — reads [`ruui::editor_theme`] instead, which is
+    /// the application-wide choice and what nearly every editor wants. An
+    /// override is for a host whose *documents* carry a palette of their own:
+    /// a terminal session with a colour scheme attached, a diff view that
+    /// wants both sides in the same colours whatever the app is set to.
+    palette: Option<EditorTheme>,
+    /// The font this one editor is shaped and drawn in, when the host has
+    /// pushed one.
+    ///
+    /// `None` — the default — takes the window's text style and line height,
+    /// which is what an editor embedded in an ordinary layout wants. See
+    /// [`EditorView::set_font`].
+    font: Option<FontOverride>,
+}
+
+/// A font pushed into one editor, in place of the window's text style.
+///
+/// The line height is carried rather than derived, because the ratio a host
+/// wants between a font size and a row is the host's: a terminal-shaped editor
+/// wants its terminal's ratio, and a code editor beside a form wants the
+/// window's. See [`EditorView::set_font`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FontOverride {
+    /// The family and its weight, style and features.
+    pub(crate) font: Font,
+    /// The size the text is shaped at.
+    pub(crate) size: Pixels,
+    /// The distance between one row and the next.
+    pub(crate) line_height: Pixels,
 }
 
 /// Registers the key bindings every [`EditorView`] relies on.
@@ -493,6 +526,8 @@ impl EditorView {
             horizontal_bar: ScrollbarState::new(),
             marks: Vec::new(),
             intercept: false,
+            palette: None,
+            font: None,
         }
     }
 
@@ -525,6 +560,137 @@ impl EditorView {
     /// The highlighter in force, if there is one.
     pub fn current_highlighter(&self) -> Option<&Arc<dyn Highlighter>> {
         self.syntax.highlighter()
+    }
+
+    /// Draws this one editor in `palette` from the next frame on.
+    ///
+    /// `None` puts it back on [`ruui::editor_theme`], the application-wide
+    /// palette, which is where it starts and where nearly every editor should
+    /// stay: an override exists for a host whose *document* carries colours of
+    /// its own — a terminal session with a scheme attached, say — and not as a
+    /// way to style one pane differently from another for its own sake.
+    ///
+    /// Cheap to call on every frame, which is how such a host keeps up with a
+    /// scheme that can change under it: an unchanged palette repaints nothing.
+    pub fn set_palette(&mut self, palette: Option<EditorTheme>, cx: &mut Context<Self>) {
+        if self.palette == palette {
+            return;
+        }
+        self.palette = palette;
+        cx.notify();
+    }
+
+    /// The palette this editor draws in: its own, or the application's.
+    ///
+    /// A clone rather than a borrow, because the application-wide answer is
+    /// itself a clone out of a gpui global and there is nothing to borrow from.
+    pub fn palette(&self, cx: &App) -> EditorTheme {
+        self.palette.clone().unwrap_or_else(|| editor_theme(cx))
+    }
+
+    /// Shapes and draws the text surface in `font` at `size`, with `line_height`
+    /// between one row and the next, from the next frame on.
+    ///
+    /// Until a host calls this the editor takes the window's text style and
+    /// line height, which is what an editor laid out among ordinary widgets
+    /// wants. A host that owns the font — one whose editor has to match a
+    /// terminal beside it, or whose font is a setting of its own — pushes it in
+    /// here instead, and [`EditorView::clear_font`] hands the question back to
+    /// the window.
+    ///
+    /// The row pitch is a parameter rather than a ratio applied to `size`,
+    /// because the ratio is the host's to choose and there is no answer this
+    /// crate could pick that would be right for both a code pane and a
+    /// terminal-shaped one.
+    ///
+    /// Cheap to call on every frame, on the same terms as
+    /// [`EditorView::set_palette`]: an unchanged font repaints nothing.
+    pub fn set_font(
+        &mut self,
+        font: Font,
+        size: Pixels,
+        line_height: Pixels,
+        cx: &mut Context<Self>,
+    ) {
+        let pushed = FontOverride {
+            font,
+            size,
+            line_height,
+        };
+        if self.font.as_ref() == Some(&pushed) {
+            return;
+        }
+        self.font = Some(pushed);
+        cx.notify();
+    }
+
+    /// Puts the editor back on the window's text style and line height.
+    pub fn clear_font(&mut self, cx: &mut Context<Self>) {
+        if self.font.is_none() {
+            return;
+        }
+        self.font = None;
+        cx.notify();
+    }
+
+    /// The font pushed in by the host, if there is one.
+    pub(crate) fn font_override(&self) -> Option<&FontOverride> {
+        self.font.as_ref()
+    }
+
+    /// The text the find and replace fields show while they are empty.
+    ///
+    /// Empty by default, since this crate holds no strings a translator could
+    /// reach: the find bar is drawn out of `ruui`'s own widgets and the words
+    /// on it belong to the host, exactly as [`ruui::TextInput`]'s own
+    /// placeholder does. Callable again whenever the application's language
+    /// changes, since the fields outlive the locale they were built under.
+    pub fn find_labels(
+        &mut self,
+        find: impl Into<SharedString>,
+        replace: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        let (find, replace) = (find.into(), replace.into());
+        self.find_query
+            .update(cx, |input, cx| input.set_placeholder(find, cx));
+        self.find_replacement
+            .update(cx, |input, cx| input.set_placeholder(replace, cx));
+        cx.notify();
+    }
+
+    /// Gives the find and replace fields a right-click menu of the four
+    /// clipboard commands.
+    ///
+    /// `labels` is asked for its wording every time a menu is opened rather
+    /// than once here, so an application that changes language while a window
+    /// is open shows the new words on the next click. A find bar that is never
+    /// given one has no menu, which is the default and the same rule
+    /// [`ruui::TextInput::context_menu`] follows.
+    pub fn input_menu(
+        &mut self,
+        labels: impl Fn(&App) -> InputMenuLabels + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let labels: Rc<dyn Fn(&App) -> InputMenuLabels> = Rc::new(labels);
+        for input in [&self.find_query, &self.find_replacement] {
+            let labels = labels.clone();
+            input.update(cx, |input, cx| {
+                input.set_context_menu(move |cx| labels(cx), cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// The find bar's two fields.
+    ///
+    /// For the tests that check what [`EditorView::find_labels`] and
+    /// [`EditorView::input_menu`] pushed in actually arrived; the fields
+    /// themselves are the editor's own and no host has any business holding
+    /// one.
+    #[cfg(test)]
+    pub(crate) fn find_inputs(&self) -> (Entity<TextInput>, Entity<TextInput>) {
+        (self.find_query.clone(), self.find_replacement.clone())
     }
 
     /// Makes the editor refuse every change, or stop refusing them.
@@ -661,6 +827,34 @@ impl EditorView {
         } else {
             self.selected_range.end
         }
+    }
+
+    /// The caret's place in the document the way a person counts it: the line
+    /// and the column, both from one.
+    ///
+    /// The column is counted in *graphemes*, not bytes, which is the only
+    /// count that answers "how far along the line is the caret" — the same
+    /// measure a vertical move aims for, so the number in a status bar agrees
+    /// with where <kbd>↑</kbd> puts the caret. A byte column would say 7 in the
+    /// middle of a Korean word and 3 for the same place in an English one.
+    ///
+    /// One-based here rather than at the caller, because there is only one
+    /// reason to ask — to show it — and every caller would add the same one.
+    /// [`EditorEvent::SelectionChanged`] is what tells a host to ask again.
+    pub fn caret_position(&self) -> (usize, usize) {
+        let caret = self.caret();
+        (
+            self.buffer.line_of(caret) + 1,
+            self.buffer.grapheme_column(caret) + 1,
+        )
+    }
+
+    /// How many lines the buffer holds.
+    ///
+    /// A buffer ending in a newline counts the empty line after it, which is
+    /// the line the caret can be put on and so the line a reader counts.
+    pub fn line_count(&self) -> usize {
+        self.buffer.line_count()
     }
 
     /// Moves the caret to `offset`, collapsing the selection.
@@ -2146,7 +2340,7 @@ impl Render for EditorView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_matches(cx);
         let theme = theme(cx);
-        let palette = editor_theme(cx);
+        let palette = self.palette(cx);
         let read_only = self.read_only;
 
         let surface = div()

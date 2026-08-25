@@ -43,11 +43,12 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
-    Hsla, InspectorElementId, LayoutId, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style,
-    TextAlign, TextRun, UnderlineStyle, Window, fill, point, prelude::*, px, relative, size,
+    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font,
+    GlobalElementId, Hsla, InspectorElementId, LayoutId, PaintQuad, Pixels, Point, ShapedLine,
+    SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window, fill, point, prelude::*, px,
+    relative, size,
 };
-use ruui::{EditorTheme, editor_theme};
+use ruui::EditorTheme;
 
 use crate::editor::EditorView;
 use crate::highlight::Token;
@@ -153,12 +154,25 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let palette = editor_theme(cx);
-        let style = window.text_style();
-        let font_size = style.font_size.to_pixels(window.rem_size());
-        let line_height = window.line_height();
         let editor = self.editor.read(cx);
         let buffer = editor.buffer();
+        let palette = editor.palette(cx);
+        // The font is the window's text style unless the host has pushed one
+        // in. Both halves have to come from the same place: a caret placed
+        // against text shaped in one font and drawn beside another is exactly
+        // the bug an `EditorView::set_font` that reached only half of this
+        // would produce.
+        let (font, font_size, line_height) = match editor.font_override() {
+            Some(pushed) => (pushed.font.clone(), pushed.size, pushed.line_height),
+            None => {
+                let style = window.text_style();
+                (
+                    style.font(),
+                    style.font_size.to_pixels(window.rem_size()),
+                    window.line_height(),
+                )
+            }
+        };
 
         // The gutter is as wide as the largest line number, so it does not
         // twitch as the view scrolls past a power of ten.
@@ -168,7 +182,7 @@ impl Element for EditorElement {
             .shape_line(
                 SharedString::from("0".repeat(digits)),
                 font_size,
-                &[plain_run(digits, palette.gutter, &style)],
+                &[plain_run(digits, palette.gutter, &font)],
                 None,
             )
             .width;
@@ -223,7 +237,7 @@ impl Element for EditorElement {
                 below.push(fill(row, palette.line_highlight));
             }
 
-            let runs = runs_for(editor, line, &text, &palette, &style);
+            let runs = runs_for(editor, line, &text, &palette, &font);
             let shaped = window.text_system().shape_line(
                 SharedString::from(text.clone()),
                 font_size,
@@ -321,7 +335,7 @@ impl Element for EditorElement {
             numbers.push(window.text_system().shape_line(
                 SharedString::from(number.clone()),
                 font_size,
-                &[plain_run(number.len(), color, &style)],
+                &[plain_run(number.len(), color, &font)],
                 None,
             ));
 
@@ -466,11 +480,11 @@ fn span_bounds(
     )
 }
 
-/// A run of `len` bytes in one color, with the window's font.
-fn plain_run(len: usize, color: Hsla, style: &gpui::TextStyle) -> TextRun {
+/// A run of `len` bytes in one color, in the editor's font.
+fn plain_run(len: usize, color: Hsla, font: &Font) -> TextRun {
     TextRun {
         len,
-        font: style.font(),
+        font: font.clone(),
         color,
         background_color: None,
         underline: None,
@@ -491,7 +505,7 @@ fn runs_for(
     line: usize,
     text: &str,
     palette: &EditorTheme,
-    style: &gpui::TextStyle,
+    font: &Font,
 ) -> Vec<TextRun> {
     if text.is_empty() {
         return Vec::new();
@@ -508,15 +522,15 @@ fn runs_for(
         let from = span.range.start.clamp(at, text.len());
         let to = span.range.end.clamp(from, text.len());
         if from > at {
-            runs.push(plain_run(from - at, palette.foreground, style));
+            runs.push(plain_run(from - at, palette.foreground, font));
         }
         if to > from {
-            runs.push(plain_run(to - from, color_for(span.token, palette), style));
+            runs.push(plain_run(to - from, color_for(span.token, palette), font));
         }
         at = to;
     }
     if at < text.len() {
-        runs.push(plain_run(text.len() - at, palette.foreground, style));
+        runs.push(plain_run(text.len() - at, palette.foreground, font));
     }
 
     let Some(marked) = editor.marked() else {
@@ -563,7 +577,7 @@ fn runs_for(
 /// The palette slot a token draws in.
 ///
 /// One arm per variant and no fallback: every [`Token`] maps to one of the
-/// palette's twelve slots, which is what keeps a highlighter from inventing a
+/// palette's fourteen slots, which is what keeps a highlighter from inventing a
 /// class no theme has a color for. [`Token::QuotedIdentifier`] shares
 /// [`Token::Identifier`]'s slot rather than needing one of its own.
 const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
@@ -577,6 +591,8 @@ const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
         Token::Operator => palette.operator,
         Token::Punctuation => palette.punctuation,
         Token::Identifier | Token::QuotedIdentifier => palette.identifier,
+        Token::Key => palette.key,
+        Token::Variable => palette.variable,
         Token::BracketMatch => palette.bracket_match,
         Token::Error => palette.error,
         Token::Warning => palette.warning,

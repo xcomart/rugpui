@@ -17,9 +17,10 @@ use crate::editor::{EditorEvent, EditorView, MarkKind, NavKey};
 use crate::highlight::Highlighter;
 use crate::sql_syntax::SqlHighlighter;
 use gpui::{
-    Context, Entity, EntityInputHandler, Focusable, IntoElement, Render, TestAppContext,
-    VisualTestContext, Window, div, prelude::*,
+    Context, Entity, EntityInputHandler, Focusable, IntoElement, Pixels, Render, TestAppContext,
+    VisualTestContext, Window, div, font, prelude::*, px,
 };
+use ruui::EditorTheme;
 
 /// A view that does nothing but hold the editor, as a pane would.
 struct Harness {
@@ -1186,4 +1187,352 @@ fn an_intercepted_key_is_handed_over_instead_of_acted_on(cx: &mut TestAppContext
             .any(|event| matches!(event, EditorEvent::Intercepted(_))),
         "the find bar's Escape was taken by the popup"
     );
+}
+
+// --- where the caret is ------------------------------------------------------
+
+#[gpui::test]
+fn the_caret_reports_its_place_the_way_a_reader_counts(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("one\ntwo\nthree\n", cx);
+
+    // The very start of the document is line one, column one — not the zero the
+    // buffer counts in, which is the whole reason these accessors exist.
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (1, 1));
+    // Four lines: a document ending in a newline has an empty last one, and the
+    // caret can be put on it.
+    assert_eq!(editor.read(&mut cx, EditorView::line_count), 4);
+
+    // Onto the third line, two graphemes in.
+    editor.update(&mut cx, |editor, cx| editor.move_to(10, cx));
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (3, 3));
+
+    // And the end of the buffer, which is the empty line after the last break.
+    editor.update(&mut cx, |editor, cx| {
+        let end = editor.text().len();
+        editor.move_to(end, cx);
+    });
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (4, 1));
+}
+
+#[gpui::test]
+fn the_column_counts_graphemes_and_not_bytes(cx: &mut TestAppContext) {
+    // Three Hangul syllables of three bytes each, and a family emoji written as
+    // three four-byte people joined by two zero-width joiners.
+    let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+    let (editor, mut cx) = open(&format!("한국어{family}x"), cx);
+    editor.update(&mut cx, |editor, cx| {
+        let end = editor.text().len();
+        editor.move_to(end, cx);
+    });
+
+    // Twenty-eight bytes in, and five things a reader would count: three
+    // syllables, one family, one `x`. A byte column would say 29.
+    assert_eq!(editor.caret(&mut cx), 28);
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (1, 6));
+}
+
+#[gpui::test]
+fn an_empty_buffer_is_one_line_with_the_caret_at_its_head(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    assert_eq!(editor.read(&mut cx, EditorView::line_count), 1);
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (1, 1));
+}
+
+#[gpui::test]
+fn a_caret_move_is_announced_so_a_host_can_follow_it(cx: &mut TestAppContext) {
+    // What a status bar's line number rides on: the editor draws the caret
+    // itself, so nothing else would repaint if the move were kept quiet.
+    let (editor, mut cx) = open("one\ntwo\n", cx);
+    editor.drain_events();
+
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.read(&mut cx, EditorView::caret_position), (2, 1));
+    assert!(
+        editor
+            .drain_events()
+            .contains(&EditorEvent::SelectionChanged)
+    );
+}
+
+// --- the palette -------------------------------------------------------------
+
+#[gpui::test]
+fn a_pushed_palette_is_what_the_editor_draws_in(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1;", cx);
+    cx.update(|_, cx| ruui::set_editor_theme(EditorTheme::one_light(), cx));
+    draw(&mut cx);
+    assert_eq!(
+        cx.update(|_, cx| editor.editor.read(cx).palette(cx)),
+        EditorTheme::one_light(),
+        "with nothing pushed in, the application's palette is the answer"
+    );
+
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_palette(Some(EditorTheme::dracula()), cx);
+    });
+    draw(&mut cx);
+    assert_eq!(
+        cx.update(|_, cx| editor.editor.read(cx).palette(cx)),
+        EditorTheme::dracula()
+    );
+
+    // The application-wide palette moving under an override changes nothing.
+    cx.update(|_, cx| ruui::set_editor_theme(EditorTheme::gruvbox_dark(), cx));
+    draw(&mut cx);
+    assert_eq!(
+        cx.update(|_, cx| editor.editor.read(cx).palette(cx)),
+        EditorTheme::dracula()
+    );
+
+    // And handing the question back picks the application's up again.
+    editor.update(&mut cx, |editor, cx| editor.set_palette(None, cx));
+    draw(&mut cx);
+    assert_eq!(
+        cx.update(|_, cx| editor.editor.read(cx).palette(cx)),
+        EditorTheme::gruvbox_dark()
+    );
+}
+
+#[gpui::test]
+fn pushing_the_same_palette_again_repaints_nothing(cx: &mut TestAppContext) {
+    // The host is free to push its palette in on every frame, which is how it
+    // keeps up with a scheme that can change under it.
+    let (editor, mut cx) = open("select 1;", cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_palette(Some(EditorTheme::dracula()), cx);
+    });
+    draw(&mut cx);
+
+    let notified = Rc::new(RefCell::new(0_usize));
+    let observation = cx.update(|_, cx| {
+        let seen = notified.clone();
+        cx.observe(&editor.editor, move |_, _| *seen.borrow_mut() += 1)
+    });
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_palette(Some(EditorTheme::dracula()), cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        *notified.borrow(),
+        0,
+        "an unchanged palette asked for a frame"
+    );
+
+    // And the other half of the same claim, so that the silence above is the
+    // guard doing its work rather than the observation never firing at all.
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_palette(Some(EditorTheme::one_light()), cx);
+    });
+    cx.run_until_parked();
+    drop(observation);
+    assert!(
+        *notified.borrow() > 0,
+        "a changed palette asked for no frame"
+    );
+}
+
+// --- the font ----------------------------------------------------------------
+
+/// The row pitch the tests push in with a size, which is a host's choice and
+/// not this crate's — see [`EditorView::set_font`].
+const TEST_LINE_HEIGHT_RATIO: f32 = 1.3;
+
+/// The width line zero was last shaped at, and the row pitch it was drawn at.
+fn shaped_geometry(editor: &Handles, cx: &mut VisualTestContext) -> (Pixels, Pixels) {
+    editor.read(cx, |editor| {
+        let width = editor
+            .layout
+            .lines
+            .iter()
+            .find_map(|(line, shaped)| (*line == 0).then_some(shaped.width))
+            .expect("the first line was drawn");
+        (width, editor.layout.line_height)
+    })
+}
+
+/// Pushes `size` in, with the row pitch a host would derive from it.
+fn push_font(editor: &Handles, cx: &mut VisualTestContext, size: f32) {
+    editor.update(cx, |editor, cx| {
+        editor.set_font(
+            font("Consolas"),
+            px(size),
+            px(size * TEST_LINE_HEIGHT_RATIO),
+            cx,
+        );
+    });
+}
+
+/// A host that owns the font — one whose editor has to match a terminal beside
+/// it — pushes it in, so what has to hold is that doing so reaches the
+/// measuring rather than only the drawing.
+#[gpui::test]
+fn the_injected_font_size_reaches_the_shaping_and_the_row_pitch(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 22", cx);
+
+    push_font(&editor, &mut cx, 10.);
+    draw(&mut cx);
+    let (narrow, short) = shaped_geometry(&editor, &mut cx);
+
+    push_font(&editor, &mut cx, 20.);
+    draw(&mut cx);
+    let (wide, tall) = shaped_geometry(&editor, &mut cx);
+
+    // Both, and by the same factor: the glyphs and the rows they sit on are
+    // derived from the one size, so a caret placed against the shaped text
+    // lands on the glyph it points at instead of beside it.
+    assert!(
+        wide > narrow * 1.9,
+        "the text did not grow: {narrow:?} -> {wide:?}"
+    );
+    assert!(
+        tall > short * 1.9,
+        "the rows did not grow: {short:?} -> {tall:?}"
+    );
+
+    // And handing the question back to the window undoes it.
+    editor.update(&mut cx, |editor, cx| editor.clear_font(cx));
+    draw(&mut cx);
+    assert_ne!(shaped_geometry(&editor, &mut cx), (wide, tall));
+}
+
+/// Hit testing reads the shaped lines of the last frame, so a click has to
+/// follow the injected size without anything else being told about it.
+#[gpui::test]
+fn a_click_lands_on_the_column_the_injected_size_puts_under_it(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Point};
+
+    let (editor, mut cx) = open("select 22", cx);
+    push_font(&editor, &mut cx, 20.);
+    draw(&mut cx);
+
+    // The headless text system advances every character by six tenths of the
+    // font size, which is what makes the column arithmetic here exact.
+    let advance = px(12.);
+    let gutter = editor.read(&mut cx, |editor| editor.layout.gutter);
+    let line_height = editor.read(&mut cx, |editor| editor.layout.line_height);
+    let position = Point {
+        // Just past the middle of the fourth character, so the nearest boundary
+        // is unambiguous.
+        x: gutter + advance * 3.2,
+        y: line_height / 2.,
+    };
+    cx.simulate_event(MouseDownEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.run_until_parked();
+
+    assert_eq!(editor.caret(&mut cx), 3, "the click missed its column");
+}
+
+/// The host pushes the font every frame, exactly as it pushes the palette, so
+/// an unchanged one has to cost nothing.
+#[gpui::test]
+fn pushing_the_same_font_again_repaints_nothing(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 22", cx);
+    push_font(&editor, &mut cx, 20.);
+    draw(&mut cx);
+    let before = shaped_geometry(&editor, &mut cx);
+
+    let notified = Rc::new(RefCell::new(0_usize));
+    let observation = cx.update(|_, cx| {
+        let seen = notified.clone();
+        cx.observe(&editor.editor, move |_, _| *seen.borrow_mut() += 1)
+    });
+    push_font(&editor, &mut cx, 20.);
+    cx.run_until_parked();
+
+    assert_eq!(*notified.borrow(), 0, "an unchanged font asked for a frame");
+    assert_eq!(
+        shaped_geometry(&editor, &mut cx),
+        before,
+        "an unchanged font reshaped the text"
+    );
+
+    // And the other half of the same claim, so that the silence above is the
+    // guard doing its work rather than the observation never firing at all.
+    push_font(&editor, &mut cx, 21.);
+    cx.run_until_parked();
+    drop(observation);
+    assert!(*notified.borrow() > 0, "a changed font asked for no frame");
+}
+
+// --- what the find bar is called ---------------------------------------------
+
+#[gpui::test]
+fn the_find_bar_shows_the_words_the_host_gave_it(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1;", cx);
+
+    // Nothing by default: this crate holds no strings a translator could reach.
+    let (query, replacement) = editor.read(&mut cx, EditorView::find_inputs);
+    let placeholders = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            (
+                query.read(cx).current_placeholder().to_string(),
+                replacement.read(cx).current_placeholder().to_string(),
+            )
+        })
+    };
+    assert_eq!(placeholders(&mut cx), (String::new(), String::new()));
+
+    editor.update(&mut cx, |editor, cx| {
+        editor.find_labels("찾기", "바꾸기", cx);
+    });
+    cx.simulate_keystrokes("cmd-h ctrl-h");
+    draw(&mut cx);
+    assert_eq!(
+        placeholders(&mut cx),
+        ("찾기".to_owned(), "바꾸기".to_owned())
+    );
+
+    // Callable again, because the fields outlive the locale they were built
+    // under.
+    editor.update(&mut cx, |editor, cx| {
+        editor.find_labels("Find", "Replace", cx);
+    });
+    assert_eq!(
+        placeholders(&mut cx),
+        ("Find".to_owned(), "Replace".to_owned())
+    );
+}
+
+#[gpui::test]
+fn an_edit_menu_reaches_both_of_the_find_bar_s_fields(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1;", cx);
+    let (query, replacement) = editor.read(&mut cx, EditorView::find_inputs);
+
+    let notified = Rc::new(RefCell::new(0_usize));
+    let observations = cx.update(|_, cx| {
+        [&query, &replacement].map(|input| {
+            let seen = notified.clone();
+            cx.observe(input, move |_, _| *seen.borrow_mut() += 1)
+        })
+    });
+    editor.update(&mut cx, |editor, cx| {
+        editor.input_menu(
+            |_cx| ruui::InputMenuLabels {
+                cut: "잘라내기".into(),
+                copy: "복사".into(),
+                paste: "붙여넣기".into(),
+                select_all: "모두 선택".into(),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    drop(observations);
+    assert_eq!(*notified.borrow(), 2, "the menu did not reach both fields");
+
+    // And the bar still draws with one attached.
+    cx.simulate_keystrokes("cmd-h ctrl-h");
+    draw(&mut cx);
 }
