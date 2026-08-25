@@ -53,7 +53,7 @@ pub use editor_theme::{
     EditorThemeRegistry, editor_theme, set_editor_theme,
 };
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
-pub use menu::{ContextMenu, MenuButton, MenuEntry};
+pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{

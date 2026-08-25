@@ -174,11 +174,11 @@ impl EditorTheme {
     /// next tone Solarized actually names, `base01`, is the comment color and
     /// would swallow a commented-out line the moment it were selected.
     ///
-    /// Worth noting against the sibling project: rulogman's terminal scheme
-    /// spends `base02` on the *selection*, because a terminal palette has four
-    /// slots and no current-line band at all, so the highlight tone has nowhere
-    /// else to go. An editor palette has both bands, and here `base02` goes to
-    /// the one Solarized named it for.
+    /// Worth noting against the other place this palette turns up: a terminal
+    /// emulator's colour scheme spends `base02` on the *selection*, because a
+    /// terminal palette has four slots and no current-line band at all, so the
+    /// highlight tone has nowhere else to go. An editor palette has both bands,
+    /// and here `base02` goes to the one Solarized named it for.
     pub fn solarized_dark() -> Self {
         Self {
             dark: true,

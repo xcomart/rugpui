@@ -15,12 +15,19 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnyElement, App, ElementId, Pixels, Point, SharedString, Size, Window, anchored,
-    deferred, div, point, prelude::*, px, svg,
+    AnyElement, App, ElementId, Pixels, Point, SharedString, Size, Window, anchored, deferred, div,
+    point, prelude::*, px, svg,
 };
 
 use crate::theme::{Theme, theme};
 use crate::tooltip::tooltip_label;
+
+/// Which corner of a floating panel is pinned to the point it was opened at,
+/// and so which way the panel grows from there.
+///
+/// Re-exported from gpui: a view choosing how its [`ContextMenu`] opens names
+/// one of these, and it should not have to reach past this crate for the name.
+pub use gpui::Anchor;
 
 /// Edge length of the trigger button.
 const TRIGGER_SIZE: f32 = 28.;
@@ -205,8 +212,10 @@ impl MenuEntry {
 
 /// How wide a dropdown panel draws itself.
 enum PanelWidth {
-    /// One width whatever is in it, for a menu that hangs off a fixed trigger.
-    Fixed(f32),
+    /// One width whatever is in it: what a menu hanging off a fixed trigger
+    /// takes, and what a caller who named a width with [`ContextMenu::width`]
+    /// asked for.
+    Fixed(Pixels),
     /// As wide as the widest row, held between two bounds, for a menu built for
     /// a single right-click on a surface whose commands vary.
     Content {
@@ -215,6 +224,15 @@ enum PanelWidth {
         /// Ceiling, past which a label is truncated with an ellipsis.
         max: f32,
     },
+}
+
+/// The tallest a panel may draw in a window of `viewport`.
+///
+/// What is left of the window once the margin `anchored` snaps back to is taken
+/// off both edges: the most a panel can be and still be reachable wherever it
+/// ends up.
+fn panel_max_height(viewport: Size<Pixels>) -> Pixels {
+    viewport.height - px(2. * WINDOW_MARGIN)
 }
 
 /// Builds the full-window sheet that sits under an open menu.
@@ -245,10 +263,17 @@ fn menu_backdrop(
 ///
 /// Opaque on purpose: a translucent window allows only one tinted fill per
 /// pixel, and the terminal surface underneath already owns it.
+///
+/// `max_height` caps how tall the panel may grow. A list longer than that — a
+/// menu of every syntax the application knows, which is as long as the user's
+/// own grammars make it — scrolls under the wheel instead of running off the
+/// bottom of the window, where snapping the panel back inside would only trade
+/// unreachable rows at the end for unreachable rows at the start.
 fn menu_panel(
     id: ElementId,
     entries: Vec<MenuEntry>,
     width: PanelWidth,
+    max_height: Pixels,
     on_dismiss: Option<DismissHandler>,
     theme: &Theme,
 ) -> AnyElement {
@@ -349,7 +374,15 @@ fn menu_panel(
         .flex()
         .flex_col()
         .flex_none()
+        .max_h(max_height)
         .py(px(4.))
+        // The panel carries an id, which is what gpui needs to keep a scroll
+        // offset for it between frames; the rows stay `flex_none` so that they
+        // scroll past rather than being squeezed to fit. The lock to one axis
+        // keeps a horizontal wheel — or a trackpad's stray sideways component —
+        // from sliding a panel that has nothing to show sideways.
+        .overflow_y_scroll()
+        .restrict_scroll_to_axis()
         .bg(theme.background)
         .border_1()
         .border_color(theme.border)
@@ -359,7 +392,7 @@ fn menu_panel(
         .debug_selector(|| PANEL_SELECTOR.to_string());
 
     match width {
-        PanelWidth::Fixed(width) => panel.w(px(width)),
+        PanelWidth::Fixed(width) => panel.w(width),
         PanelWidth::Content { min, max } => panel.min_w(px(min)).max_w(px(max)),
     }
     .children(rows)
@@ -387,11 +420,14 @@ fn menu_panel(
 /// The panel is as wide as its widest row, held between a floor and a ceiling,
 /// because the commands a right-click offers depend on what was under the
 /// pointer: two surfaces of the same window can want very differently sized
-/// menus, and neither of them is a fixed trigger's own.
+/// menus, and neither of them is a fixed trigger's own. A caller who already
+/// knows the width it wants says so with [`ContextMenu::width`].
 #[derive(IntoElement)]
 pub struct ContextMenu {
     id: ElementId,
     position: Point<Pixels>,
+    anchor: Anchor,
+    width: Option<Pixels>,
     entries: Vec<MenuEntry>,
     on_dismiss: Option<DismissHandler>,
 }
@@ -404,18 +440,47 @@ impl ContextMenu {
         Self {
             id: id.into(),
             position: point(px(0.), px(0.)),
+            anchor: Anchor::TopLeft,
+            width: None,
             entries: Vec::new(),
             on_dismiss: None,
         }
     }
 
-    /// Puts the top-left corner of the panel at `position`, in window
+    /// Puts the panel's [`ContextMenu::anchor`] corner at `position`, in window
     /// coordinates.
     ///
     /// A panel that would hang off an edge is pulled back inside the window
     /// instead.
     pub fn position(mut self, position: Point<Pixels>) -> Self {
         self.position = position;
+        self
+    }
+
+    /// Chooses which corner of the panel sits at the position, and so which way
+    /// the menu grows from it.
+    ///
+    /// [`Anchor::TopLeft`] by default, which is what a right-click wants: the
+    /// list hangs down and to the right of the pointer, away from it. A trigger
+    /// along the bottom of the window — a status bar's file-format or charset
+    /// picker — wants [`Anchor::BottomLeft`] instead, so that the list stands
+    /// *on* the trigger and opens upward into the window rather than being
+    /// snapped back over the thing it was opened from.
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    /// Draws the panel at `width` instead of measuring it.
+    ///
+    /// Without this the panel follows its widest row, between a floor and a
+    /// ceiling, which is right for a menu assembled for one right-click. It is
+    /// wrong for a menu the same trigger opens again and again over rows that
+    /// come and go — a list of encodings, of syntaxes — where a width that
+    /// followed the content would make the panel breathe under a trigger that
+    /// never moves. Such a caller measured its own menu once and says so here.
+    pub fn width(mut self, width: Pixels) -> Self {
+        self.width = Some(width);
         self
     }
 
@@ -442,13 +507,18 @@ impl RenderOnce for ContextMenu {
             viewport,
             self.on_dismiss.clone(),
         );
-        let panel = menu_panel(
-            ElementId::from((self.id.clone(), "panel")),
-            self.entries,
-            PanelWidth::Content {
+        let width = match self.width {
+            Some(width) => PanelWidth::Fixed(width),
+            None => PanelWidth::Content {
                 min: PANEL_MIN_WIDTH,
                 max: PANEL_MAX_WIDTH,
             },
+        };
+        let panel = menu_panel(
+            ElementId::from((self.id.clone(), "panel")),
+            self.entries,
+            width,
+            panel_max_height(viewport),
             self.on_dismiss,
             &theme,
         );
@@ -468,7 +538,7 @@ impl RenderOnce for ContextMenu {
             .child(
                 deferred(
                     anchored()
-                        .anchor(Anchor::TopLeft)
+                        .anchor(self.anchor)
                         .position(self.position)
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(panel),
@@ -640,7 +710,8 @@ impl RenderOnce for MenuButton {
         let panel = menu_panel(
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
-            PanelWidth::Fixed(PANEL_WIDTH),
+            PanelWidth::Fixed(px(PANEL_WIDTH)),
+            panel_max_height(viewport),
             on_dismiss,
             &theme,
         );
@@ -691,8 +762,8 @@ mod tests {
     use std::ops::Deref;
 
     use gpui::{
-        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, TestAppContext,
-        VisualTestContext,
+        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, ScrollDelta,
+        ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
     };
 
     use super::*;
@@ -728,6 +799,10 @@ mod tests {
 
     /// A label no panel can hold, so the ceiling decides instead.
     const LONG: &str = "Copy the fully qualified name of every selected column";
+
+    /// More rows than any test display is tall, so that the panel's own cap is
+    /// what decides its height rather than the length of the list.
+    const MANY_ROWS: usize = 200;
 
     /// One row of the menu a test asks for.
     ///
@@ -778,6 +853,9 @@ mod tests {
     struct Harness {
         surface: Surface,
         rows: Vec<Row>,
+        position: Point<Pixels>,
+        anchor: Anchor,
+        width: Option<Pixels>,
         activated: Rc<RefCell<Vec<usize>>>,
         dismissed: Rc<Cell<usize>>,
     }
@@ -806,7 +884,9 @@ mod tests {
 
             div().size_full().child(match self.surface {
                 Surface::Context => ContextMenu::new("menu")
-                    .position(point(px(MENU_X), px(MENU_Y)))
+                    .position(self.position)
+                    .anchor(self.anchor)
+                    .when_some(self.width, ContextMenu::width)
                     .entries(entries)
                     .on_dismiss(move |_, _| dismissed.set(dismissed.get() + 1))
                     .into_any_element(),
@@ -841,10 +921,31 @@ mod tests {
         }
     }
 
-    /// Opens a window on `surface` showing `rows`.
+    /// Opens a window on `surface` showing `rows`, hanging down and to the
+    /// right of the usual corner at its own measured width.
     fn open(
         surface: Surface,
         rows: Vec<Row>,
+        cx: &mut TestAppContext,
+    ) -> (Handles, VisualTestContext) {
+        open_placed(
+            surface,
+            rows,
+            point(px(MENU_X), px(MENU_Y)),
+            Anchor::TopLeft,
+            None,
+            cx,
+        )
+    }
+
+    /// The same, with the panel's `anchor` corner at `position` and, when the
+    /// test names one, a `width` of its own.
+    fn open_placed(
+        surface: Surface,
+        rows: Vec<Row>,
+        position: Point<Pixels>,
+        anchor: Anchor,
+        width: Option<Pixels>,
         cx: &mut TestAppContext,
     ) -> (Handles, VisualTestContext) {
         cx.update(crate::init);
@@ -859,6 +960,9 @@ mod tests {
             move |_, _| Harness {
                 surface,
                 rows,
+                position,
+                anchor,
+                width,
                 activated,
                 dismissed,
             }
@@ -895,12 +999,33 @@ mod tests {
         cx.run_until_parked();
     }
 
+    /// Rolls the wheel over `position` by `delta` pixels, negative being the
+    /// direction that brings later rows into view.
+    fn scroll(cx: &mut VisualTestContext, position: Point<Pixels>, delta: f32) {
+        cx.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+            modifiers: Modifiers::none(),
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+    }
+
     /// How wide the panel came out.
     fn panel_width(cx: &mut VisualTestContext) -> f32 {
         cx.debug_bounds(PANEL_SELECTOR)
             .expect("the panel is drawn")
             .size
             .width
+            .into()
+    }
+
+    /// How tall the panel came out.
+    fn panel_height(cx: &mut VisualTestContext) -> f32 {
+        cx.debug_bounds(PANEL_SELECTOR)
+            .expect("the panel is drawn")
+            .size
+            .height
             .into()
     }
 
@@ -1007,5 +1132,122 @@ mod tests {
             cx,
         );
         assert_eq!(panel_width(&mut long_cx), PANEL_WIDTH);
+    }
+
+    /// A named width wins over the measurement, in both directions: narrower
+    /// than the floor a measured panel would have taken, and wider than the
+    /// ceiling it would have stopped at.
+    #[gpui::test]
+    fn a_named_width_is_the_width_the_panel_takes(cx: &mut TestAppContext) {
+        let narrow = px(PANEL_MIN_WIDTH - 60.);
+        let (_, mut narrow_cx) = open_placed(
+            Surface::Context,
+            vec![Row::new(MEDIUM)],
+            point(px(MENU_X), px(MENU_Y)),
+            Anchor::TopLeft,
+            Some(narrow),
+            cx,
+        );
+        assert_eq!(panel_width(&mut narrow_cx), f32::from(narrow));
+
+        let wide = px(PANEL_MAX_WIDTH + 60.);
+        let (_, mut wide_cx) = open_placed(
+            Surface::Context,
+            vec![Row::new(SHORT)],
+            point(px(MENU_X), px(MENU_Y)),
+            Anchor::TopLeft,
+            Some(wide),
+            cx,
+        );
+        assert_eq!(panel_width(&mut wide_cx), f32::from(wide));
+
+        // And a menu that names nothing still follows its rows, as it did
+        // before the setting existed.
+        let (_, mut measured_cx) = open(Surface::Context, vec![Row::new(SHORT)], cx);
+        assert_eq!(panel_width(&mut measured_cx), PANEL_MIN_WIDTH);
+    }
+
+    /// What a status bar's picker needs: a menu that *stands on* its position
+    /// instead of hanging from it, because the position is in the last two
+    /// dozen pixels of the window and a list hanging down from there would be
+    /// snapped back over the bar it was opened from.
+    #[gpui::test]
+    fn a_bottom_anchored_menu_opens_upward_from_its_position(cx: &mut TestAppContext) {
+        // Far enough down the window that a two-row panel standing on it still
+        // clears the top edge, so nothing is snapped and the arithmetic holds.
+        let foot = 300.;
+        let (menu, mut cx) = open_placed(
+            Surface::Context,
+            vec![Row::new(SHORT), Row::new(MEDIUM)],
+            point(px(MENU_X), px(foot)),
+            Anchor::BottomLeft,
+            None,
+            cx,
+        );
+
+        // The last row sits directly above the position, under the panel's own
+        // padding and border; the first is a row further up again.
+        let last = foot - PANEL_TOP - ROW_HEIGHT / 2.;
+        let first = last - ROW_HEIGHT;
+        click(&mut cx, point(px(INSIDE_THE_PANEL), px(last)));
+        assert_eq!(menu.drain(), vec![1]);
+
+        click(&mut cx, point(px(INSIDE_THE_PANEL), px(first)));
+        assert_eq!(menu.drain(), vec![0]);
+
+        // And nothing of the panel hangs below the position: a press just under
+        // it reaches the backdrop, which is what the bar the menu was opened
+        // from would otherwise be covered by.
+        click(&mut cx, point(px(INSIDE_THE_PANEL), px(foot + 4.)));
+        assert_eq!(menu.drain(), Vec::<usize>::new());
+        assert!(menu.dismissals() > 0);
+    }
+
+    /// What a menu of every syntax the application knows needs: a list of more
+    /// rows than the window is tall stops at the window's height and scrolls,
+    /// rather than running off the bottom edge where its last rows would be
+    /// drawn outside the window and snapping the panel back inside would only
+    /// move the problem to the top.
+    #[gpui::test]
+    fn a_menu_taller_than_the_window_is_capped_and_scrolls(cx: &mut TestAppContext) {
+        // More rows than any test display is tall, so the cap is what decides.
+        let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+        let (menu, mut cx) = open(Surface::Context, rows, cx);
+
+        let viewport = cx.update(|window, _| window.viewport_size());
+        let cap = f32::from(viewport.height) - 2. * WINDOW_MARGIN;
+        let height = panel_height(&mut cx);
+        assert!(
+            height <= cap,
+            "the panel is capped at the window less both margins: {height} > {cap}"
+        );
+        assert!(
+            height > cap - ROW_HEIGHT,
+            "and it grew to the cap rather than stopping short of it: {height}"
+        );
+
+        // A capped panel, snapped back inside, starts one margin below the top
+        // edge — and the wheel is what reaches the rows past the bottom of it.
+        let top_of_list = point(
+            px(INSIDE_THE_PANEL),
+            px(WINDOW_MARGIN + PANEL_TOP + ROW_HEIGHT / 2.),
+        );
+        click(&mut cx, top_of_list);
+        assert_eq!(
+            menu.drain(),
+            vec![0],
+            "unscrolled, the list starts at row 0"
+        );
+
+        // Far enough to be clamped to the end of the list rather than landing
+        // on a row this test would have to predict.
+        scroll(&mut cx, top_of_list, -100_000.);
+        click(&mut cx, top_of_list);
+        let activated = menu.drain();
+        assert_eq!(activated.len(), 1, "the same click still runs one row");
+        assert!(
+            activated[0] > 0,
+            "the wheel brought a later row under the pointer, got {activated:?}"
+        );
     }
 }
