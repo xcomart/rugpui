@@ -31,4 +31,8 @@ fn the_start_up_calls_answer_rather_than_panic_with_no_identity_installed() {
     // so a second one takes the same path.
     assert!(!ruui_shell::update::apply_pending());
     ruui_shell::update::clean_leftovers();
+
+    // Nothing was recorded either, which is what `set_restart_path` wants: the
+    // shell answers `None` rather than a path it never read.
+    assert_eq!(ruui_shell::restart_path(), None);
 }

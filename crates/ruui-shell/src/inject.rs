@@ -20,7 +20,18 @@
 //! identity twice: in a gpui global, which is what [`identity`] answers from,
 //! and in a process-wide slot the background paths read through
 //! [`current_identity`]. Both are set by the same call, so they cannot drift.
+//!
+//! # Why the executable's path is recorded at the same moment
+//!
+//! An install renames the running image aside and writes the new build in its
+//! place. On Linux `current_exe()` resolves through `/proc/self/exe`, which
+//! follows the *inode*, so after the swap it answers with the renamed-away old
+//! build — and a restart that trusts it comes back up on the build the user
+//! just replaced. The path has to be read before anything moves, which is why
+//! [`init_process_identity`] takes it then and
+//! [`crate::update::restart_path`] hands it back.
 
+use std::path::PathBuf;
 use std::sync::RwLock;
 
 use gpui::{App, Global, SharedString};
@@ -100,6 +111,14 @@ impl Global for Identity {}
 /// The identity as the background paths can reach it; see the module docs.
 static PROCESS_IDENTITY: RwLock<Option<AppIdentity>> = RwLock::new(None);
 
+/// Where the executable stood when [`init_process_identity`] ran.
+///
+/// `None` until it has, and `None` afterwards on the platforms and in the
+/// sandboxes where `current_exe()` refuses to answer at all. See the module
+/// docs for why the answer is taken once rather than asked for again after an
+/// install.
+static PROCESS_EXE: RwLock<Option<PathBuf>> = RwLock::new(None);
+
 /// Installs `identity` for the rest of the process.
 ///
 /// Call once, before the first window opens and before anything starts an
@@ -142,6 +161,18 @@ pub(crate) fn try_current_identity() -> Option<AppIdentity> {
         .expect("the identity lock is never held across a panic")
 }
 
+/// Where the running executable stood when the identity was installed.
+///
+/// `None` when no identity has been installed, and when the platform would not
+/// say. See the module docs, and [`crate::update::restart_path`], which is the
+/// public face of this.
+pub(crate) fn recorded_exe() -> Option<PathBuf> {
+    PROCESS_EXE
+        .read()
+        .expect("the executable lock is never held across a panic")
+        .clone()
+}
+
 /// Installs `identity` for the background paths alone, without an [`App`].
 ///
 /// [`crate::update::apply_pending`] and [`crate::update::clean_leftovers`]
@@ -162,6 +193,17 @@ pub fn init_process_identity(identity: AppIdentity) {
     *PROCESS_IDENTITY
         .write()
         .expect("the identity lock is never held across a panic") = Some(identity);
+    // Before an install can rename anything, which is the whole point; see the
+    // module docs. A platform that will not say leaves the slot empty, and
+    // `restart_path` answers `None` rather than a path that would be wrong.
+    match std::env::current_exe() {
+        Ok(exe) => {
+            *PROCESS_EXE
+                .write()
+                .expect("the executable lock is never held across a panic") = Some(exe);
+        }
+        Err(error) => log::debug!("could not record the running executable: {error}"),
+    }
 }
 
 /// The words the shell shows the user.

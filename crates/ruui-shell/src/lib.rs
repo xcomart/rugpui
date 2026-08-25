@@ -48,8 +48,9 @@
 //! * **The workspace.** Nothing here refers to one. Every dialog reports
 //!   through an [`EventEmitter`](gpui::EventEmitter) and the application decides
 //!   what that means — including the restart after an update, which is
-//!   `cx.restart()` for two of the three applications and
-//!   `cx.set_restart_path(…)` first for the one whose executable moves.
+//!   `cx.set_restart_path(ruui_shell::restart_path())` and then `cx.restart()`.
+//!   The *path* is the shell's, because only the shell knows that the install
+//!   has just renamed the running image aside; what to do with it is not.
 //! * **What a tab is.** [`Pane`] is generic over its item; the variants, and the
 //!   lookups over them, are the application's.
 //! * **The body of the settings form.** Which rows there are, what they mean,
@@ -111,5 +112,5 @@ pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
 pub use settings::{WindowGeometry, monospace_family, window_bounds, window_geometry, window_tint};
 pub use theme_editor::{ThemeEditor, ThemeEditorEvent};
-pub use update::{Asset, Check, Installed, Progress, Release};
+pub use update::{Asset, Check, Installed, Progress, Release, restart_path};
 pub use update_dialog::{UpdateDialog, UpdateDialogEvent};

@@ -391,6 +391,23 @@ pub enum Check {
 /// The distinction is for the log and nothing else: the caller restarts either
 /// way, and the user is told the same thing. See the module docs for when the
 /// second one happens and why it is not an error.
+///
+/// # Restarting into what was installed
+///
+/// Both variants are followed by a restart, and the restart has to be pointed
+/// at a path rather than left to find its own:
+///
+/// ```ignore
+/// cx.set_restart_path(ruui_shell::restart_path());
+/// cx.restart();
+/// ```
+///
+/// gpui's `restart(None)` re-executes `current_exe()`, which on Linux resolves
+/// through `/proc/self/exe` and therefore follows the *inode* — and the swap
+/// has just renamed that inode aside as `<name>.old`. Restarting on it comes
+/// back up on the build the user replaced, and the update looks as though it
+/// silently did nothing. [`restart_path`] is the path as it stood before
+/// anything moved, which is the one the new build now occupies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Installed {
     /// The new build is in place. A restart comes up on it.
@@ -479,6 +496,27 @@ pub fn release_url(release: &Release) -> &str {
     } else {
         &release.url
     }
+}
+
+/// The path to re-execute after an install, for `cx.set_restart_path`.
+///
+/// `Some` once [`crate::init`] or [`crate::init_process_identity`] has run —
+/// it is the `current_exe()` of that moment — and `None` before, or where the
+/// platform would not answer at all.
+///
+/// A host restarts into an update with the two lines on [`Installed`], and
+/// passing this straight through is right even when it is `None`:
+/// `set_restart_path(None)` is exactly gpui's own default.
+///
+/// # Why the path cannot simply be asked for at restart time
+///
+/// [`install`] renames the running image to `<name>.old` and writes the new
+/// build under the old name. On Linux `current_exe()` reads
+/// `/proc/self/exe`, a link to the *inode* the process was started from, so
+/// after the rename it answers `<name>.old` — the build that was just
+/// replaced. The path recorded before the swap does not move with it.
+pub fn restart_path() -> Option<PathBuf> {
+    inject::recorded_exe()
 }
 
 /// Whether the start-up check may make a request.
@@ -1606,6 +1644,28 @@ mod tests {
     fn fake() -> AppIdentity {
         inject::init_process_identity(FAKE);
         FAKE
+    }
+
+    /// The path a host hands `cx.set_restart_path` after an install.
+    ///
+    /// Recorded when the identity is, and for exactly one reason: by the time
+    /// the restart happens the swap has renamed the running image aside, and on
+    /// Linux `current_exe()` follows the inode into the renamed copy. Asking
+    /// again there would restart the build the update just replaced.
+    #[test]
+    fn installing_the_identity_records_the_path_to_restart_into() {
+        // Whatever a previous test in this process left behind: the answer is
+        // about *this* executable either way.
+        fake();
+        let path = restart_path().expect("a test binary always has a path");
+        assert_eq!(
+            Some(path.clone()),
+            std::env::current_exe().ok(),
+            "the recorded path is not the running executable"
+        );
+        // Installing the identity again does not lose it.
+        fake();
+        assert_eq!(restart_path(), Some(path));
     }
 
     #[test]

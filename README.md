@@ -141,6 +141,17 @@ needs the update paths never writes it. With no identity installed at all the
 two functions log an error and do nothing — a mis-ordered `main` costs an
 update, not a launch.
 
+**Restarting into an update.** `install` renames the running image aside and
+writes the new build under the old name, and on Linux `current_exe()` follows
+the *inode* into the renamed copy — so gpui's `restart(None)` would come back
+up on the build the user just replaced. The path as it stood before anything
+moved is `ruui_shell::restart_path()`:
+
+```rust
+cx.set_restart_path(ruui_shell::restart_path());
+cx.restart();
+```
+
 **The words.** The shell looks its strings up by the keys your locale files
 already carry — `common.close`, `update.available`, `settings.manage.import` —
 so adopting it changes no translation. Interpolation is the shell's: a template
@@ -195,9 +206,9 @@ let editor: Arc<dyn ThemeCatalog> =
 
 What stays in the application, deliberately: the workspace (every dialog reports
 through an `EventEmitter` and you decide what it means — including the restart
-after an update, which is `cx.restart()` or `cx.set_restart_path(…)` first);
-what a tab is; the body of the settings form; the settings type and its globals;
-your own icons; and the `i18n!` invocation with the locale files it compiles.
+after an update, which is the two lines above); what a tab is; the body of the
+settings form; the settings type and its globals; your own icons; and the
+`i18n!` invocation with the locale files it compiles.
 
 ## The vendored gpui
 
