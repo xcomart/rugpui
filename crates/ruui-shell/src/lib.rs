@@ -36,6 +36,7 @@
 //! | [`catalog_ui`] | [`CatalogActions`], the duplicate / edit / delete / import / export row under a picker. |
 //! | [`form`] | The pieces a settings form is built out of, minus the form. |
 //! | [`settings`] | [`WindowGeometry`], the monospace fallback, the window tint. |
+//! | [`locale`] | Which language to render in, and one check for the files that hold the translations. |
 //!
 //! # What stays in the application
 //!
@@ -76,6 +77,7 @@ pub mod chrome;
 pub mod form;
 pub mod icons;
 mod inject;
+pub mod locale;
 pub mod menu_rows;
 pub mod pane;
 pub mod settings;
