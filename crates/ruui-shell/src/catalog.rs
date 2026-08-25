@@ -713,7 +713,7 @@ const UI_SLOTS: [Slot; 16] = [
 /// As with [`UI_SLOTS`], the order is what [`editor_colors`] reads back. The two
 /// bands drawn *behind* text are the ones that may carry alpha: a selection and
 /// a current-line highlight both have to let the glyph under them show.
-const EDITOR_SLOTS: [Slot; 19] = [
+const EDITOR_SLOTS: [Slot; 21] = [
     slot("background", "settings.editor.slot.background", false),
     slot("foreground", "settings.editor.code.foreground", false),
     slot("cursor", "settings.editor.code.cursor", false),
@@ -733,6 +733,8 @@ const EDITOR_SLOTS: [Slot; 19] = [
     slot("type", "settings.editor.code.type", false),
     slot("operator", "settings.editor.code.operator", false),
     slot("identifier", "settings.editor.code.identifier", false),
+    slot("key", "settings.editor.code.key", false),
+    slot("variable", "settings.editor.code.variable", false),
     slot("punctuation", "settings.editor.code.punctuation", false),
     slot("bracket_match", "settings.editor.code.bracket_match", false),
     slot("error", "settings.editor.code.error", false),
@@ -835,6 +837,8 @@ fn editor_values(colors: &EditorThemeColors) -> Vec<String> {
         colors.r#type.clone(),
         colors.operator.clone(),
         colors.identifier.clone(),
+        colors.key.clone(),
+        colors.variable.clone(),
         colors.punctuation.clone(),
         colors.bracket_match.clone(),
         colors.error.clone(),
@@ -861,10 +865,12 @@ pub(crate) fn editor_colors(values: &[String]) -> EditorThemeColors {
         r#type: at(12),
         operator: at(13),
         identifier: at(14),
-        punctuation: at(15),
-        bracket_match: at(16),
-        error: at(17),
-        warning: at(18),
+        key: at(15),
+        variable: at(16),
+        punctuation: at(17),
+        bracket_match: at(18),
+        error: at(19),
+        warning: at(20),
     }
 }
 
@@ -959,7 +965,7 @@ mod tests {
         let file = EditorThemeFile::from_theme("Mine", &EditorTheme::dracula());
         let (values, dark) = editor().values_of(&CatalogFile::EditorTheme(Box::new(file.clone())));
         assert_eq!(values.len(), EDITOR_SLOTS.len());
-        assert_eq!(values.len(), 19);
+        assert_eq!(values.len(), 21);
         assert_eq!(dark, file.dark);
         assert_eq!(editor_colors(&values), file.colors);
     }
