@@ -23,6 +23,9 @@
 //!
 //! | Module | What it holds |
 //! |---|---|
+//! | [`chrome`] | [`TitlebarStyle`] and everything a window has to put back when the platform stops drawing its caption: the drag, the resize grips, the caption buttons, the background appearance. |
+//! | [`caption`] | Keeping the *platform's* caption in step with the application's theme, where there still is one. |
+//! | [`icons`] | [`IconSet`], and the four caption glyphs every self-drawn title bar needs. |
 //!
 //! # What stays in the application
 //!
@@ -55,8 +58,20 @@
 
 #![warn(missing_docs)]
 
+pub mod caption;
+pub mod chrome;
+pub mod icons;
 mod inject;
 
+pub use caption::apply_caption_theme;
+pub use chrome::{
+    TitlebarStyle, client_tiling, draws_own_titlebar, render_resize_edges, titlebar_gestures,
+    window_appearance, window_control_strips,
+};
+pub use icons::{
+    IconSet, WINDOW_CLOSE, WINDOW_CONTROL_ICONS, WINDOW_MAXIMIZE, WINDOW_MINIMIZE, WINDOW_RESTORE,
+    icon, window_control_icons,
+};
 pub use inject::{
     AppIdentity, Strings, UpdatePolicy, identity, ignored_release, init, label,
     set_ignored_release, set_strings, set_update_policy, text,
