@@ -12,6 +12,21 @@ it never loads. Every user-facing string comes from the host, which is what lets
 a localized application stay localized without this repository having heard of a
 locale.
 
+## Gallery
+
+Every widget in this repository, in one window, in the two default palettes:
+
+![The rugpui gallery in the dark palette](docs/screenshots/gallery-dark.png)
+
+![The rugpui gallery in the light palette](docs/screenshots/gallery-light.png)
+
+Run it yourself with `cargo run -p rugpui-gallery -- --theme light`; `--theme`
+takes any of the six built-in palettes (`dark`, `light`, `solarized-dark`,
+`solarized-light`, `gruvbox-dark`, `dracula`) and picks the matching editor
+palette with it. The screenshots above are that window captured at 1180×820 in
+`dark` and in `light` — regenerate them by running the gallery in each and
+saving the window to `docs/screenshots/gallery-<theme>.png`.
+
 ## The crates
 
 | crate | what it is |
@@ -20,9 +35,10 @@ locale.
 | [`rugpui-grid`](crates/rugpui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
 | [`rugpui-editor`](crates/rugpui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
 | [`rugpui-shell`](crates/rugpui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
+| [`rugpui-gallery`](crates/rugpui-gallery) | The example, not a library: every widget above in one window, and the worked version of what a host has to do for itself — install an `AssetSource`, call the three `init`s, keep the state the stateless widgets do not. It is what the screenshots are taken of, and the one crate here that links a platform backend. Not published, and nothing depends on it; it is a workspace member so that CI compiles it on every platform and an example that has gone stale is a build failure. |
 
 `rugpui-grid`, `rugpui-editor` and `rugpui-shell` all depend on `rugpui`; none of them
-depends on another.
+depends on another. `rugpui-gallery` is not a library and nothing depends on it.
 
 ## Using it
 
@@ -258,11 +274,13 @@ it lives here so an application that needs it can take it through
 `[patch.crates-io]` at the same revision as everything else rather than carrying
 a vendored tree of its own.
 
-Building this workspace prints three `patch ... was not used in the crate graph`
-warnings, for `gpui_linux`, `gpui_macos` and `gpui_windows`. That is expected: a
-widget links the platform-independent core and never a backend, so only a
-consuming application — which does name `gpui_platform` — pulls those three in.
-The entries are kept because the table is what consumers copy.
+All four entries of the patch table are live here. Three of them —
+`gpui_linux`, `gpui_macos` and `gpui_windows` — are reached only through
+`gpui_platform`, which no widget names and only an application does: in this
+workspace that application is [`rugpui-gallery`](crates/rugpui-gallery), and
+before it existed the three printed `patch ... was not used in the crate graph`
+on every build. A consumer that copies the table and names `gpui_platform` in
+its own manifest is in the same position.
 
 Moving the revision forward means re-flattening the manifests and replaying the
 marked hunks. Delete a hunk, and then the vendored crate once it holds none,
@@ -278,6 +296,15 @@ cargo test --workspace --locked
 
 The first build compiles gpui from source and takes a while. The tests need no
 window and no display server: they run on gpui's headless test platform.
+
+```sh
+cargo run -p rugpui-gallery -- --theme dark
+```
+
+The gallery is the one thing here that does open a window, so it is also the one
+thing that needs the libraries a backend links: on a Debian-like Linux,
+`libxkbcommon-dev`, `libxkbcommon-x11-dev`, `libwayland-dev` and
+`libfontconfig1-dev`.
 
 ## Licence
 

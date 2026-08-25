@@ -193,11 +193,26 @@ raw-window-handle = "0.6"
 # same repository. See the patch table at the top of this file for why a
 # revision at all, and for what `vendor/` puts back on top of it.
 #
-# Only the platform-independent core is named here, because that is all a widget
-# is written against. Linking a backend in and starting it — `gpui_platform`,
-# whose `application()` is where 0.2.2 had `Application::new()` — is the
-# application's job, and so is choosing that crate's features.
+# The platform-independent core is all a *widget* is written against, so it is
+# the only one of the two every library crate here names. Linking a backend in
+# and starting it — `gpui_platform`, whose `application()` is where 0.2.2 had
+# `Application::new()` — is the application's job, and so is choosing that
+# crate's features; the entry below it is the one application in this
+# workspace doing exactly that.
 gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
+
+# The other half, named by the one member that is an application: `rugpui-gallery`.
+# `gpui_platform` is the façade that links a backend and starts it, and choosing
+# its features is the application's job — `font-kit` for the text system macOS
+# shapes with, and both Linux backends, so one binary runs under Wayland and
+# under X11. Naming it is also what pulls `gpui_linux`, `gpui_macos` and
+# `gpui_windows` into the graph, and so what the three patch entries above
+# apply to.
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+    "font-kit",
+    "wayland",
+    "x11",
+] }
 
 # --- internal crates ---
 rugpui = { path = "crates/rugpui" }

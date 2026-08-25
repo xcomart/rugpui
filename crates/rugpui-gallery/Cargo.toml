@@ -1,0 +1,27 @@
+[package]
+name = "rugpui-gallery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Every widget in this repository, in one window"
+# An example, not a library: nothing takes a dependency on it, and it is the
+# one crate here that links a platform backend.
+publish = false
+
+[[bin]]
+name = "rugpui-gallery"
+path = "src/main.rs"
+
+[dependencies]
+rugpui.workspace = true
+rugpui-grid.workspace = true
+rugpui-editor.workspace = true
+
+gpui.workspace = true
+# The façade that picks a backend at compile time and starts it. Only an
+# *application* names this, which is why it appears here and in no other crate
+# of this workspace -- and it is what puts the three `gpui_linux`/`gpui_macos`/
+# `gpui_windows` patch entries to use.
+gpui_platform.workspace = true
