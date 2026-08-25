@@ -87,8 +87,8 @@ gpui_windows = { path = "vendor/gpui_windows" }
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-authors = ["ruui contributors"]
-repository = "https://github.com/xcomart/ruui"
+authors = ["rugpui contributors"]
+repository = "https://github.com/xcomart/rugpui"
 
 [workspace.dependencies]
 # --- shared utilities ---
@@ -96,7 +96,7 @@ anyhow = "1"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# The reader behind `ruui-editor`'s `custom-syntax` feature, which is a language
+# The reader behind `rugpui-editor`'s `custom-syntax` feature, which is a language
 # defined by a YAML file rather than by code. YAML rather than JSON because a
 # definition is a keyword table and a person has to type it: a list of two
 # hundred words is bearable unquoted and one line each, and a regular expression
@@ -150,7 +150,7 @@ ropey = { version = "1.6", default-features = false, features = [
 # a crate.
 futures = "0.3"
 
-# --- HTTP and hashing: the self-updater in `ruui-shell` ---
+# --- HTTP and hashing: the self-updater in `rugpui-shell` ---
 # The GitHub releases API is the only host the shell ever fetches from, and it
 # is fetched from a background thread that is already blocking on a file write —
 # so a synchronous client is the right shape and an async runtime would be a
@@ -171,7 +171,7 @@ ureq = { version = "3", default-features = false, features = [
 ring = "0.17"
 
 # --- platform window chrome, and one platform registry ---
-# All three are used by `ruui-shell` alone, and every one of them only under a
+# All three are used by `rugpui-shell` alone, and every one of them only under a
 # `[target.'cfg(...)']` section, so a build for another platform never sees
 # them.
 #
@@ -200,10 +200,10 @@ raw-window-handle = "0.6"
 gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
 
 # --- internal crates ---
-ruui = { path = "crates/ruui" }
-ruui-grid = { path = "crates/ruui-grid" }
-ruui-editor = { path = "crates/ruui-editor" }
-ruui-shell = { path = "crates/ruui-shell" }
+rugpui = { path = "crates/rugpui" }
+rugpui-grid = { path = "crates/rugpui-grid" }
+rugpui-editor = { path = "crates/rugpui-editor" }
+rugpui-shell = { path = "crates/rugpui-shell" }
 
 [profile.dev]
 # gpui + its dependency tree is large; keep debug builds usable.

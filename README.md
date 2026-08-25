@@ -1,4 +1,4 @@
-# ruui
+# rugpui
 
 A gpui widget kit, and the two larger widgets built on it: a virtualised data
 grid and a code editor. Extracted from three desktop applications that had been
@@ -16,12 +16,12 @@ locale.
 
 | crate | what it is |
 |---|---|
-| [`ruui`](crates/ruui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, segmented controls, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
-| [`ruui-grid`](crates/ruui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
-| [`ruui-editor`](crates/ruui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
-| [`ruui-shell`](crates/ruui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
+| [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, segmented controls, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
+| [`rugpui-grid`](crates/rugpui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
+| [`rugpui-editor`](crates/rugpui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
+| [`rugpui-shell`](crates/rugpui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
 
-`ruui-grid`, `ruui-editor` and `ruui-shell` all depend on `ruui`; none of them
+`rugpui-grid`, `rugpui-editor` and `rugpui-shell` all depend on `rugpui`; none of them
 depends on another.
 
 ## Using it
@@ -32,10 +32,10 @@ table at *this* repository at that same revision:
 
 ```toml
 [workspace.dependencies]
-ruui = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-ruui-grid = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-ruui-editor = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-ruui-shell = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
+rugpui = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+rugpui-grid = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+rugpui-editor = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
 
 # The gpui these widgets are written against, named by revision because a git
 # dependency is identified by URL *and* revision.
@@ -47,35 +47,35 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a
 ] }
 
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-gpui_linux = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-gpui_macos = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
-gpui_windows = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
+gpui = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+gpui_linux = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+gpui_macos = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
+gpui_windows = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
 ```
 
 The patch table is not optional. Without it your workspace resolves gpui from
-Zed's monorepo while `ruui` resolves it from the patched copy, and two gpui
+Zed's monorepo while `rugpui` resolves it from the patched copy, and two gpui
 crates end up in one binary: the `Global`s the widgets install would be invisible
 to the application, and nothing would draw. Keep the `rev` of the patch table and
-of the `ruui` dependencies the same, for the same reason.
+of the `rugpui` dependencies the same, for the same reason.
 
 Then, once during start-up:
 
 ```rust
-ruui::init(cx);          // key bindings, the two registries, the default palettes
-ruui_grid::init(cx);     // if you use the grid
-ruui_editor::init(cx);   // if you use the editor
+rugpui::init(cx);          // key bindings, the two registries, the default palettes
+rugpui_grid::init(cx);     // if you use the grid
+rugpui_editor::init(cx);   // if you use the editor
 ```
 
 and, if you let users drop theme files into a directory of your choosing:
 
 ```rust
-let dirs = ruui::ThemeDirs {
+let dirs = rugpui::ThemeDirs {
     ui_themes: config_dir.join("themes"),
     // `None` for an application with no code editor and so no second palette.
     editor_themes: Some(config_dir.join("editor-themes")),
 };
-ruui::theme_store::reload(&dirs, cx);
+rugpui::theme_store::reload(&dirs, cx);
 ```
 
 Where those directories are is the application's decision; this repository never
@@ -83,7 +83,7 @@ guesses at a configuration directory.
 
 ## The shell
 
-`ruui-shell` is the one crate here that is about an *application* rather than
+`rugpui-shell` is the one crate here that is about an *application* rather than
 about a widget — and it is here because three applications had each written the
 same one. Its whole contract with a host is three things, and the crate refuses
 to guess at any of them.
@@ -92,11 +92,11 @@ to guess at any of them.
 once, before the first window:
 
 ```rust
-use ruui_shell::AppIdentity;
+use rugpui_shell::AppIdentity;
 
 const IDENTITY: AppIdentity = AppIdentity {
     name: "widget",
-    // Always the *application's* own version: `ruui-shell` has one of its own
+    // Always the *application's* own version: `rugpui-shell` has one of its own
     // and it is not this one.
     version: env!("CARGO_PKG_VERSION"),
     repository_url: "https://github.com/you/widget",
@@ -119,7 +119,7 @@ const IDENTITY: AppIdentity = AppIdentity {
     must_defer: || cfg!(windows) && widget_jdbc::Jvm::get().is_some(),
 };
 
-ruui_shell::init(IDENTITY, cx);
+rugpui_shell::init(IDENTITY, cx);
 ```
 
 `init` needs a `gpui::App`, and two of the shell's calls run before there is
@@ -130,8 +130,8 @@ rather than out of gpui, so a host that calls either of them first thing in
 `main` installs it first thing too:
 
 ```rust
-ruui_shell::init_process_identity(IDENTITY);
-if ruui_shell::update::apply_pending() {
+rugpui_shell::init_process_identity(IDENTITY);
+if rugpui_shell::update::apply_pending() {
     return; // the new build is running; this process has nothing left to do.
 }
 ```
@@ -146,11 +146,11 @@ writes the new build under the old name. On Linux, `current_exe()` follows the
 *inode* into the renamed copy, so gpui's own restart fallback would come back
 up on the build the user just replaced; on macOS that fallback needs the
 `.app` bundle, not the executable inside it, or `open` relaunches nothing.
-`ruui_shell::restart_path()` is the path as it stood before anything moved,
+`rugpui_shell::restart_path()` is the path as it stood before anything moved,
 adjusted to the bundle root on macOS:
 
 ```rust
-if let Some(path) = ruui_shell::restart_path() {
+if let Some(path) = rugpui_shell::restart_path() {
     cx.set_restart_path(path);
 }
 cx.restart();
@@ -164,24 +164,24 @@ comes back with its `%{marker}`s intact and the shell fills them in.
 ```rust
 struct Words;
 
-impl ruui_shell::Strings for Words {
+impl rugpui_shell::Strings for Words {
     fn text(&self, key: &str) -> gpui::SharedString {
         rust_i18n::t!(key).into_owned().into()
     }
 }
 
-ruui_shell::set_strings(Box::new(Words), cx);
+rugpui_shell::set_strings(Box::new(Words), cx);
 ```
 
 Four of those keys are ones an existing application may not have yet, because
 they name the rows of a text field's right-click menu: `input.menu_cut`,
 `input.menu_copy`, `input.menu_paste` and `input.menu_select_all`. Every field
-the shell builds is given them through `ruui_shell::input_menu_labels`, and a
+the shell builds is given them through `rugpui_shell::input_menu_labels`, and a
 host's own fields take the same function so that one set of keys covers the
 whole application:
 
 ```rust
-TextInput::new(cx).context_menu(ruui_shell::input_menu_labels)
+TextInput::new(cx).context_menu(rugpui_shell::input_menu_labels)
 ```
 
 A key you have not translated shows as the key itself, which is visible and
@@ -194,7 +194,7 @@ your settings file, which the shell does not own:
 ```rust
 struct Policy;
 
-impl ruui_shell::UpdatePolicy for Policy {
+impl rugpui_shell::UpdatePolicy for Policy {
     fn ignored(&self, cx: &gpui::App) -> Option<String> {
         app_settings::current(cx).ignored_update
     }
@@ -207,7 +207,7 @@ impl ruui_shell::UpdatePolicy for Policy {
     }
 }
 
-ruui_shell::set_update_policy(Box::new(Policy), cx);
+rugpui_shell::set_update_policy(Box::new(Policy), cx);
 ```
 
 A palette catalogue is built the same way — from the directories you chose
@@ -215,7 +215,7 @@ above, and the id to fall back on when the selected one is deleted:
 
 ```rust
 use std::sync::Arc;
-use ruui_shell::{EditorThemeCatalog, ThemeCatalog, UiThemeCatalog};
+use rugpui_shell::{EditorThemeCatalog, ThemeCatalog, UiThemeCatalog};
 
 let ui: Arc<dyn ThemeCatalog> =
     Arc::new(UiThemeCatalog::new(dirs.clone(), AppSettings::default().theme));

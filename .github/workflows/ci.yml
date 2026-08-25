@@ -60,10 +60,10 @@ jobs:
       # workspace, so nothing above ever compiles it. One extra pass over the
       # one crate that has it, rather than `--all-features` over everything.
       - name: clippy (custom-syntax)
-        run: cargo clippy -p ruui-editor --all-targets --features custom-syntax --locked -- -D warnings
+        run: cargo clippy -p rugpui-editor --all-targets --features custom-syntax --locked -- -D warnings
 
       - name: test
         run: cargo test --workspace --locked
 
       - name: test (custom-syntax)
-        run: cargo test -p ruui-editor --features custom-syntax --locked
+        run: cargo test -p rugpui-editor --features custom-syntax --locked

@@ -2977,7 +2977,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruui"
+name = "rugpui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2990,30 +2990,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruui-editor"
+name = "rugpui-editor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "gpui",
  "log",
  "ropey",
- "ruui",
+ "rugpui",
  "serde",
  "serde_norway",
  "unicode-segmentation",
 ]
 
 [[package]]
-name = "ruui-grid"
+name = "rugpui-grid"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "ruui",
+ "rugpui",
  "unicode-width",
 ]
 
 [[package]]
-name = "ruui-shell"
+name = "rugpui-shell"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3022,7 +3022,7 @@ dependencies = [
  "log",
  "raw-window-handle",
  "ring",
- "ruui",
+ "rugpui",
  "serde",
  "serde_json",
  "tempfile",
