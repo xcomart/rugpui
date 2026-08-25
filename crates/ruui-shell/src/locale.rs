@@ -117,11 +117,20 @@ pub fn match_tag<'a>(available: &[&'a str], tag: &str) -> Option<&'a str> {
 /// are built rather than hardcoded: the endonym comes from each file's own
 /// `language.name`, is written in the language it names, and is deliberately
 /// not translated.
-pub fn display_name<'a>(supported: &'a [(&'a str, String)], tag: &str) -> Option<&'a str> {
+///
+/// Generic over the endonym's own string type — `String`, [`gpui::SharedString`]
+/// or `&str` all implement [`AsRef<str>`] — so a host whose own table already
+/// holds `SharedString`s (as a settings dialog built out of gpui elements
+/// usually does) can pass it straight through instead of collecting a copy
+/// into `String` just to satisfy this signature.
+pub fn display_name<'a, S: AsRef<str>>(
+    supported: &'a [(&'a str, S)],
+    tag: &str,
+) -> Option<&'a str> {
     supported
         .iter()
         .find(|(code, _)| *code == tag)
-        .map(|(_, name)| name.as_str())
+        .map(|(_, name)| name.as_ref())
 }
 
 /// Every `key: value` pair of one locale file, as a dotted path.
