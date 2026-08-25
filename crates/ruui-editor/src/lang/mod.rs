@@ -1,25 +1,53 @@
-//! Per-extension syntax highlighters, and the table that resolves one.
+//! One [`Highlighter`] per language this crate ships a lexer for, the registry
+//! that lists them, and the rules that pick one for a file.
 //!
-//! A [`Highlighter`] per language this crate ships a lexer for, and
-//! [`highlighter_for_extension`], which reads a file extension and hands back
-//! the right one. A host that wants a second grammar painted over one of these
-//! — a template language, a placeholder syntax — composes it on top with
+//! A host with a path and nothing else asks
+//! [`highlighter_for_extension`]. A host that has to answer "what is this file"
+//! for a name with no extension — half the shell scripts on a server are called
+//! `deploy` — or that offers a language picker, holds a
+//! [`LanguageRegistry`](registry::LanguageRegistry) instead; that module
+//! documents the three detection rules and their order. A host that wants a
+//! second grammar painted over one of these — a template language, a
+//! placeholder syntax — composes it on top with
 //! [`CompositeHighlighter`](crate::composite::CompositeHighlighter); the base
 //! is what this module is.
 //!
-//! # The two ways a language is implemented here
+//! # The three ways a language is implemented here
 //!
-//! Three languages get a lexer of their own, because their grammar is not the
-//! "keyword, string, line comment, block comment" shape the others share:
-//! [`java::JavaHighlighter`] (annotations, text blocks), [`xml::XmlHighlighter`]
-//! (tags and attributes, also used for HTML), and [`php::PhpHighlighter`]
-//! (`$variables`, a `<?php` boundary, and strings that — unlike every other
-//! language here — span line breaks). Every other language —  C#, Kotlin,
-//! TypeScript and JavaScript, Go, Rust, Python, JSON, YAML, Markdown,
-//! properties/INI files, and shell scripts — is [`clike::CLikeHighlighter`]
-//! with a [`clike::CLikeConfig`] of its own keyword table and comment/string
-//! syntax. SQL is [`SqlHighlighter`](crate::sql_syntax::SqlHighlighter),
-//! unchanged.
+//! **A lexer of its own**, for the languages whose grammar is not the "keyword,
+//! string, line comment, block comment" shape the others share: the seven
+//! configuration formats a file panel reaches every day —
+//! [`shell`](shell::ShellHighlighter), [`yaml`](yaml::YamlHighlighter),
+//! [`json`](json::JsonHighlighter), [`toml`](toml::TomlHighlighter),
+//! [`conf`](conf::ConfHighlighter),
+//! [`dockerfile`](dockerfile::DockerfileHighlighter) and
+//! [`markdown`](markdown::MarkdownHighlighter) — plus
+//! [`java`](java::JavaHighlighter) (annotations, text blocks),
+//! [`xml`](xml::XmlHighlighter) (tags and attributes, also used for HTML) and
+//! [`php`](php::PhpHighlighter) (`$variables`, a `<?php` boundary, and strings
+//! that span line breaks). SQL is
+//! [`SqlHighlighter`](crate::sql_syntax::SqlHighlighter), unchanged.
+//!
+//! **[`clike::CLikeHighlighter`] with a [`clike::CLikeConfig`]** of its own
+//! keyword table and comment/string syntax, for the languages that do share
+//! that shape: C#, Kotlin, TypeScript and JavaScript, Go, Rust and Python.
+//!
+//! **A definition read from a file**, behind the `custom-syntax` feature: see
+//! [`mod@custom`]. Off by default, because it costs a YAML reader.
+//!
+//! # What the configuration lexers are, and are not
+//!
+//! Every one of them is a hand-written state machine over bytes, and none of
+//! them builds a tree. What an editor needs is what a good `cat` would give
+//! you: a comment is grey, a string is green, the left-hand side of a mapping
+//! stands out from the right. A `.yml` that is invalid YAML still has to be
+//! readable *while it is being fixed*, which is the argument against a real
+//! parser as much as the size of one is. The rule each is held to is that it
+//! never panics and never refuses — a line of random bytes comes out with no
+//! spans at all, not as an error — and that whatever it carries to the next
+//! line fits inside [`LineState::COMPOSABLE_BITS`](crate::LineState), so any of
+//! them can be the base under an overlay. Each module documents its own
+//! encoding.
 //!
 //! # Extension resolution
 //!
@@ -31,18 +59,35 @@
 //! lands on the language the file is really written in.
 
 pub mod clike;
+pub mod conf;
+pub mod dockerfile;
 pub mod java;
+pub mod json;
+pub mod markdown;
 pub mod php;
+pub mod registry;
+mod scan;
+pub mod shell;
+pub mod toml;
 pub mod xml;
+pub mod yaml;
 
 use std::sync::Arc;
 
 use crate::highlight::Highlighter;
 use crate::sql_syntax::SqlHighlighter;
 use clike::{CLikeConfig, CLikeHighlighter};
+use conf::ConfHighlighter;
+use dockerfile::DockerfileHighlighter;
 use java::JavaHighlighter;
+use json::JsonHighlighter;
+use markdown::MarkdownHighlighter;
 use php::PhpHighlighter;
+pub use registry::{FileMatch, LanguageEntry, LanguageRegistry};
+use shell::ShellHighlighter;
+use toml::TomlHighlighter;
 use xml::XmlHighlighter;
+use yaml::YamlHighlighter;
 
 /// C#.
 const CSHARP: CLikeConfig = CLikeConfig {
@@ -389,98 +434,48 @@ const PYTHON: CLikeConfig = CLikeConfig {
     triple_quotes: &["'''", "\"\"\""],
 };
 
-/// JSON. `CLikeHighlighter`'s generic quote handling accepts a `'...'` string
-/// as well as a `"..."` one, which is looser than the JSON grammar — a
-/// deliberate simplification, since a `.json` document that actually uses
-/// single quotes is already invalid and no shade of colour will fix that.
-const JSON: CLikeConfig = CLikeConfig {
-    keywords: &["false", "null", "true"],
-    line_comments: &[],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
-/// YAML, as much of it as a "simple" highlighter needs: scalars, `#`
-/// comments, numbers and the handful of reserved-looking words. It does not
-/// know a block scalar (`|`, `>`) from a folded string, or a mapping key from
-/// a plain scalar — both need a lexer that tracks indentation, which is a
-/// grammar of its own and not a config of this one.
-const YAML: CLikeConfig = CLikeConfig {
-    keywords: &["false", "no", "null", "true", "yes"],
-    line_comments: &["#"],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
-/// Markdown, as "simple" as a highlighter can be and still be one: no
-/// keywords and no comment syntax, so the only thing it paints at all is a
-/// bare number. Headings, emphasis and code spans are inline punctuation, not
-/// tokens a per-line lexer without look-behind can tell from the prose around
-/// them without far more machinery than a "simple" highlighter is asking for.
-const MARKDOWN: CLikeConfig = CLikeConfig {
-    keywords: &[],
-    line_comments: &[],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
-/// `.properties` files: both `#` and `!` introduce a comment, no block
-/// comment, no keywords.
-const PROPERTIES: CLikeConfig = CLikeConfig {
-    keywords: &[],
-    line_comments: &["#", "!"],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
-/// `.ini`/`.cfg`/`.conf` files: `;` is the classic comment marker, and `#` is
-/// accepted too, since enough INI dialects allow it that rejecting it would
-/// surprise more people than allowing it does.
-const INI: CLikeConfig = CLikeConfig {
-    keywords: &[],
-    line_comments: &[";", "#"],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
-/// Shell scripts (`sh`, `bash`, `zsh`): the POSIX control-flow words. `$VAR`
-/// and `$(...)` get no special reading — a `$` is punctuation and the name
-/// after it an ordinary identifier — which is the same simplification the
-/// rest of this table makes for every language it does not have a dedicated
-/// lexer for.
-const SH: CLikeConfig = CLikeConfig {
-    keywords: &[
-        "case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in",
-        "select", "then", "until", "while",
-    ],
-    line_comments: &["#"],
-    block_comment: None,
-    triple_quotes: &[],
-};
-
 /// The base highlighter for one file extension, if this crate ships one.
 ///
 /// `ext` is matched case-insensitively and without its leading dot — the same
 /// form [`std::path::Path::extension`] returns. `None` covers every extension
 /// this crate has no lexer for, which an editor draws as plain text.
 pub fn highlighter_for_extension(ext: &str) -> Option<Arc<dyn Highlighter>> {
-    Some(match ext.to_ascii_lowercase().as_str() {
-        "java" => Arc::new(JavaHighlighter),
-        "xml" | "html" | "htm" => Arc::new(XmlHighlighter),
-        "php" => Arc::new(PhpHighlighter),
+    let ext = ext.to_ascii_lowercase();
+    let registry = LanguageRegistry::builtin();
+    let entry = registry
+        .all()
+        .iter()
+        .find(|entry| entry.files.matches_extension(&ext))?;
+    entry.highlighter.clone()
+}
+
+/// A fresh instance of every base [`Highlighter`] this crate ships, in the
+/// order [`LanguageRegistry::builtin`] declares them.
+///
+/// One place rather than a `match` per caller, so that adding a language is one
+/// edit. The `Arc`s are built here rather than held in a table because two of
+/// them — the shell lexer above all — carry per-document state, and a document
+/// wants its own.
+fn builtin_highlighter(id: &str) -> Option<Arc<dyn Highlighter>> {
+    Some(match id {
+        "plain" => return None,
+        "shell" => Arc::new(ShellHighlighter::new()),
+        "yaml" => Arc::new(YamlHighlighter),
+        "json" => Arc::new(JsonHighlighter),
+        "toml" => Arc::new(TomlHighlighter),
+        "conf" => Arc::new(ConfHighlighter),
+        "dockerfile" => Arc::new(DockerfileHighlighter),
+        "markdown" => Arc::new(MarkdownHighlighter),
         "sql" => Arc::new(SqlHighlighter),
-        "cs" => Arc::new(CLikeHighlighter(&CSHARP)),
-        "kt" | "kts" => Arc::new(CLikeHighlighter(&KOTLIN)),
-        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => Arc::new(CLikeHighlighter(&TYPESCRIPT)),
+        "java" => Arc::new(JavaHighlighter),
+        "xml" => Arc::new(XmlHighlighter),
+        "php" => Arc::new(PhpHighlighter),
+        "csharp" => Arc::new(CLikeHighlighter(&CSHARP)),
+        "kotlin" => Arc::new(CLikeHighlighter(&KOTLIN)),
+        "typescript" => Arc::new(CLikeHighlighter(&TYPESCRIPT)),
         "go" => Arc::new(CLikeHighlighter(&GO)),
-        "rs" => Arc::new(CLikeHighlighter(&RUST)),
-        "py" | "pyw" => Arc::new(CLikeHighlighter(&PYTHON)),
-        "json" => Arc::new(CLikeHighlighter(&JSON)),
-        "yaml" | "yml" => Arc::new(CLikeHighlighter(&YAML)),
-        "md" | "markdown" => Arc::new(CLikeHighlighter(&MARKDOWN)),
-        "properties" => Arc::new(CLikeHighlighter(&PROPERTIES)),
-        "ini" | "cfg" | "conf" => Arc::new(CLikeHighlighter(&INI)),
-        "sh" | "bash" | "zsh" => Arc::new(CLikeHighlighter(&SH)),
+        "rust" => Arc::new(CLikeHighlighter(&RUST)),
+        "python" => Arc::new(CLikeHighlighter(&PYTHON)),
         _ => return None,
     })
 }
@@ -562,20 +557,7 @@ mod tests {
     /// capitalized words aside).
     #[test]
     fn every_keyword_table_is_sorted() {
-        for config in [
-            &CSHARP,
-            &KOTLIN,
-            &TYPESCRIPT,
-            &GO,
-            &RUST,
-            &PYTHON,
-            &JSON,
-            &YAML,
-            &MARKDOWN,
-            &PROPERTIES,
-            &INI,
-            &SH,
-        ] {
+        for config in [&CSHARP, &KOTLIN, &TYPESCRIPT, &GO, &RUST, &PYTHON] {
             for pair in config.keywords.windows(2) {
                 assert!(pair[0] < pair[1], "{pair:?} is out of order");
             }
@@ -586,20 +568,7 @@ mod tests {
     fn every_config_fits_the_composable_budget() {
         // Two bits of state today; the assertion is what would catch a future
         // config that needed a third triple-quote slot or more.
-        for config in [
-            &CSHARP,
-            &KOTLIN,
-            &TYPESCRIPT,
-            &GO,
-            &RUST,
-            &PYTHON,
-            &JSON,
-            &YAML,
-            &MARKDOWN,
-            &PROPERTIES,
-            &INI,
-            &SH,
-        ] {
+        for config in [&CSHARP, &KOTLIN, &TYPESCRIPT, &GO, &RUST, &PYTHON] {
             assert!(config.triple_quotes.len() <= 2);
         }
     }
@@ -638,6 +607,11 @@ mod tests {
             "sh",
             "bash",
             "zsh",
+            "toml",
+            "env",
+            "dockerfile",
+            "ksh",
+            "htm",
         ] {
             assert!(
                 highlighter_for_extension(ext).is_some(),
@@ -646,5 +620,27 @@ mod tests {
         }
         assert!(highlighter_for_extension("").is_none());
         assert!(highlighter_for_extension("cobol").is_none());
+    }
+
+    /// The narrow lookup and the registry are one table, not two that have to
+    /// be kept in step by hand.
+    #[test]
+    fn the_extension_lookup_agrees_with_the_registry() {
+        let registry = LanguageRegistry::builtin();
+        for entry in registry.all() {
+            for extension in &entry.files.extensions {
+                let name = format!("file.{extension}");
+                assert_eq!(
+                    registry.detect(&name, "").id,
+                    entry.id,
+                    "{extension} is claimed by two languages"
+                );
+                assert_eq!(
+                    highlighter_for_extension(extension).is_some(),
+                    entry.highlighter.is_some(),
+                    "{extension}"
+                );
+            }
+        }
     }
 }

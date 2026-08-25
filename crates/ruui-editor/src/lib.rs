@@ -51,7 +51,14 @@
 //!
 //! An editor with no highlighter is a plain-text editor, and that is what
 //! [`EditorView::new`] makes. [`mod@lang`] is a base [`Highlighter`] per
-//! extension, looked up by [`lang::highlighter_for_extension`].
+//! language — the seven configuration formats a file panel reaches every day,
+//! the three that need a lexer of their own, and a C-like table for the rest —
+//! looked up by [`lang::highlighter_for_extension`] when a host has an
+//! extension and by [`LanguageRegistry`] when it has a file name, a first line
+//! and a picker to fill. A host that writes its languages in a file rather than
+//! in code turns on the `custom-syntax` feature and registers a
+//! `lang::custom::Definition`; it is off by default, because it costs a YAML
+//! reader.
 //! [`CompositeHighlighter`] is how a document that is *two* languages at once —
 //! a template written in Java, a query with a host language's placeholders in
 //! it — gets both: the base language underneath, and an [`Overlay`] the host
@@ -93,7 +100,7 @@ pub use element::EditorElement;
 pub use find::{FindState, find_all};
 pub use highlight::{Highlighter, LineState, Span, SyntaxCache, Token};
 pub use history::{Edit, EditKind, History, SelectionState, Transaction};
-pub use lang::highlighter_for_extension;
+pub use lang::{FileMatch, LanguageEntry, LanguageRegistry, highlighter_for_extension};
 pub use sql_syntax::SqlHighlighter;
 pub use syntax::StatementSpan;
 

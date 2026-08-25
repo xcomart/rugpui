@@ -18,7 +18,7 @@ locale.
 |---|---|
 | [`ruui`](crates/ruui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, segmented controls, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
 | [`ruui-grid`](crates/ruui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
-| [`ruui-editor`](crates/ruui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for SQL, Java, XML/HTML, PHP and a dozen C-like languages, and composes any second grammar the host supplies over one of them. |
+| [`ruui-editor`](crates/ruui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
 
 `ruui-grid` and `ruui-editor` both depend on `ruui`; neither depends on the
 other.
