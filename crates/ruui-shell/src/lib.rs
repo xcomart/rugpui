@@ -48,9 +48,11 @@
 //! * **The workspace.** Nothing here refers to one. Every dialog reports
 //!   through an [`EventEmitter`](gpui::EventEmitter) and the application decides
 //!   what that means — including the restart after an update, which is
-//!   `cx.set_restart_path(ruui_shell::restart_path())` and then `cx.restart()`.
-//!   The *path* is the shell's, because only the shell knows that the install
-//!   has just renamed the running image aside; what to do with it is not.
+//!   `if let Some(path) = ruui_shell::restart_path() { cx.set_restart_path(path); }`
+//!   and then `cx.restart()`. The *path* is the shell's, because only the
+//!   shell knows that the install has just renamed the running image aside on
+//!   Linux, and that on macOS `cx.restart()` needs the `.app` bundle rather
+//!   than the executable inside it; what to do with the path is not.
 //! * **What a tab is.** [`Pane`] is generic over its item; the variants, and the
 //!   lookups over them, are the application's.
 //! * **The body of the settings form.** Which rows there are, what they mean,

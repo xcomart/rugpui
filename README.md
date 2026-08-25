@@ -142,13 +142,17 @@ two functions log an error and do nothing — a mis-ordered `main` costs an
 update, not a launch.
 
 **Restarting into an update.** `install` renames the running image aside and
-writes the new build under the old name, and on Linux `current_exe()` follows
-the *inode* into the renamed copy — so gpui's `restart(None)` would come back
-up on the build the user just replaced. The path as it stood before anything
-moved is `ruui_shell::restart_path()`:
+writes the new build under the old name. On Linux, `current_exe()` follows the
+*inode* into the renamed copy, so gpui's own restart fallback would come back
+up on the build the user just replaced; on macOS that fallback needs the
+`.app` bundle, not the executable inside it, or `open` relaunches nothing.
+`ruui_shell::restart_path()` is the path as it stood before anything moved,
+adjusted to the bundle root on macOS:
 
 ```rust
-cx.set_restart_path(ruui_shell::restart_path());
+if let Some(path) = ruui_shell::restart_path() {
+    cx.set_restart_path(path);
+}
 cx.restart();
 ```
 

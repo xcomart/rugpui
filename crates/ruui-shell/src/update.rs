@@ -398,16 +398,21 @@ pub enum Check {
 /// at a path rather than left to find its own:
 ///
 /// ```ignore
-/// cx.set_restart_path(ruui_shell::restart_path());
+/// if let Some(path) = ruui_shell::restart_path() {
+///     cx.set_restart_path(path);
+/// }
 /// cx.restart();
 /// ```
 ///
-/// gpui's `restart(None)` re-executes `current_exe()`, which on Linux resolves
-/// through `/proc/self/exe` and therefore follows the *inode* — and the swap
-/// has just renamed that inode aside as `<name>.old`. Restarting on it comes
-/// back up on the build the user replaced, and the update looks as though it
-/// silently did nothing. [`restart_path`] is the path as it stood before
-/// anything moved, which is the one the new build now occupies.
+/// gpui's own fallback, taken when `set_restart_path` is never called,
+/// re-executes `current_exe()` at restart time. That is wrong on two
+/// platforms: on Linux it resolves through `/proc/self/exe` and therefore
+/// follows the *inode* — and the swap has just renamed that inode aside as
+/// `<name>.old`, so restarting on it comes back up on the build the user
+/// replaced. On macOS gpui's `restart` shells out to `open`, which needs the
+/// `.app` bundle and not the executable inside it. [`restart_path`] is the
+/// path as it stood before anything moved, adjusted to the bundle root on
+/// macOS, which is what the new build now occupies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Installed {
     /// The new build is in place. A restart comes up on it.
@@ -501,12 +506,21 @@ pub fn release_url(release: &Release) -> &str {
 /// The path to re-execute after an install, for `cx.set_restart_path`.
 ///
 /// `Some` once [`crate::init`] or [`crate::init_process_identity`] has run —
-/// it is the `current_exe()` of that moment — and `None` before, or where the
-/// platform would not answer at all.
+/// derived from the `current_exe()` of that moment — and `None` before, or
+/// where the platform would not answer at all.
 ///
-/// A host restarts into an update with the two lines on [`Installed`], and
-/// passing this straight through is right even when it is `None`:
-/// `set_restart_path(None)` is exactly gpui's own default.
+/// A host restarts into an update with the two lines on [`Installed`]:
+///
+/// ```ignore
+/// if let Some(path) = ruui_shell::restart_path() {
+///     cx.set_restart_path(path);
+/// }
+/// cx.restart();
+/// ```
+///
+/// Leaving `set_restart_path` uncalled on `None` is right: `cx.restart()`
+/// with no path set falls back to gpui's own default, which is
+/// `current_exe()` at restart time.
 ///
 /// # Why the path cannot simply be asked for at restart time
 ///
@@ -515,8 +529,36 @@ pub fn release_url(release: &Release) -> &str {
 /// `/proc/self/exe`, a link to the *inode* the process was started from, so
 /// after the rename it answers `<name>.old` — the build that was just
 /// replaced. The path recorded before the swap does not move with it.
+///
+/// # Why the answer is not always the executable itself
+///
+/// On macOS the recorded path is `<name>.app/Contents/MacOS/<name>`, but
+/// gpui's macOS `restart` re-executes by shelling out to `open`, which only
+/// relaunches a `.app` bundle — handed the executable inside one, it opens
+/// nothing. [`restart_target_for`] answers with the bundle root in that case;
+/// see it for the exact shape it looks for.
 pub fn restart_path() -> Option<PathBuf> {
-    inject::recorded_exe()
+    inject::recorded_exe().map(|exe| restart_target_for(&exe))
+}
+
+/// What to hand `cx.set_restart_path` for an executable recorded at `exe`.
+///
+/// A pure function of the path, so the bundle case can be tested without
+/// actually running on macOS: the platform is never consulted, only the
+/// path's shape. When `exe` sits at the conventional
+/// `<name>.app/Contents/MacOS/<name>` depth inside a bundle — found by
+/// [`bundle_root`] — the bundle root is returned, since that is what `open`
+/// needs. Anything else, including a `.app` ancestor at a non-standard depth
+/// that a stray directory merely happens to share a name with, is returned
+/// unchanged.
+fn restart_target_for(exe: &Path) -> PathBuf {
+    if let Some(bundle) = bundle_root(exe)
+        && let Ok(relative) = exe.strip_prefix(&bundle)
+        && relative.parent() == Some(Path::new("Contents/MacOS"))
+    {
+        return bundle;
+    }
+    exe.to_path_buf()
 }
 
 /// Whether the start-up check may make a request.
@@ -1332,7 +1374,11 @@ fn user_agent() -> String {
 /// `current_exe()` in a bundle is `<name>.app/Contents/MacOS/<name>`, but the
 /// depth is not worth relying on: the ancestor chain is walked until a component
 /// wears the `app` extension.
-#[cfg(any(target_os = "macos", test))]
+///
+/// Used unconditionally, on every platform: [`install_plan`] only calls it on
+/// macOS, but [`restart_target_for`] consults it from [`restart_path`]
+/// wherever that runs, since the decision is about the path's shape and not
+/// about which platform is asking.
 fn bundle_root(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| {
@@ -1981,6 +2027,47 @@ mod tests {
             None
         );
         assert_eq!(bundle_root(Path::new("/usr/local/bin/widget")), None);
+    }
+
+    #[test]
+    fn restart_target_prefers_the_bundle_over_the_binary_inside_it() {
+        assert_eq!(
+            restart_target_for(Path::new("/Applications/widget.app/Contents/MacOS/widget")),
+            PathBuf::from("/Applications/widget.app")
+        );
+        assert_eq!(
+            restart_target_for(Path::new("/tmp/x/Some Name.APP/Contents/MacOS/widget")),
+            PathBuf::from("/tmp/x/Some Name.APP")
+        );
+    }
+
+    #[test]
+    fn restart_target_is_unchanged_off_macos_and_outside_a_bundle() {
+        assert_eq!(
+            restart_target_for(Path::new("/work/widget/target/debug/widget")),
+            PathBuf::from("/work/widget/target/debug/widget")
+        );
+        assert_eq!(
+            restart_target_for(Path::new("/usr/local/bin/widget")),
+            PathBuf::from("/usr/local/bin/widget")
+        );
+    }
+
+    #[test]
+    fn restart_target_leaves_a_non_standard_bundle_depth_alone() {
+        // `.app` names a bundle, but the executable is not where a real one
+        // would put it — nothing an `open` on the bundle root would relaunch
+        // correctly, so the path is returned as-is rather than guessed at.
+        assert_eq!(
+            restart_target_for(Path::new("/Applications/widget.app/other/widget")),
+            PathBuf::from("/Applications/widget.app/other/widget")
+        );
+        assert_eq!(
+            restart_target_for(Path::new(
+                "/Applications/widget.app/Contents/Resources/widget"
+            )),
+            PathBuf::from("/Applications/widget.app/Contents/Resources/widget")
+        );
     }
 
     #[test]
