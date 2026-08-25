@@ -19,9 +19,10 @@ locale.
 | [`ruui`](crates/ruui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, segmented controls, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
 | [`ruui-grid`](crates/ruui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
 | [`ruui-editor`](crates/ruui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
+| [`ruui-shell`](crates/ruui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
 
-`ruui-grid` and `ruui-editor` both depend on `ruui`; neither depends on the
-other.
+`ruui-grid`, `ruui-editor` and `ruui-shell` all depend on `ruui`; none of them
+depends on another.
 
 ## Using it
 
@@ -34,6 +35,7 @@ table at *this* repository at that same revision:
 ruui = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
 ruui-grid = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
 ruui-editor = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
+ruui-shell = { git = "https://github.com/xcomart/ruui", rev = "<sha>" }
 
 # The gpui these widgets are written against, named by revision because a git
 # dependency is identified by URL *and* revision.
@@ -78,6 +80,105 @@ ruui::theme_store::reload(&dirs, cx);
 
 Where those directories are is the application's decision; this repository never
 guesses at a configuration directory.
+
+## The shell
+
+`ruui-shell` is the one crate here that is about an *application* rather than
+about a widget — and it is here because three applications had each written the
+same one. Its whole contract with a host is three things, and the crate refuses
+to guess at any of them.
+
+**The identity** — the constants an updater and an about box need. Installed
+once, before the first window:
+
+```rust
+use ruui_shell::AppIdentity;
+
+const IDENTITY: AppIdentity = AppIdentity {
+    name: "widget",
+    // Always the *application's* own version: `ruui-shell` has one of its own
+    // and it is not this one.
+    version: env!("CARGO_PKG_VERSION"),
+    repository_url: "https://github.com/you/widget",
+    repository_label: "github.com/you/widget",
+    latest_release_api: "https://api.github.com/repos/you/widget/releases/latest",
+    releases_page: "https://github.com/you/widget/releases",
+    fallback_archive: "widget-update",
+    // What a release archive carries that has to end up on disk, in install
+    // order, chosen under your own `cfg`. One entry for a single-file
+    // application; the executable — or the `.app` — is always first.
+    payload: PAYLOAD,
+    bundle_executable: "Contents/MacOS/widget",
+    // The `AppId` an Inno Setup installer was given, with Inno's `_is1`
+    // appended. A published identifier of *your* product: two applications
+    // sharing one would have winget treat either as the other.
+    windows_arp_key: ARP_KEY,
+    // Whether an install has to leave its renames to the next launch, which
+    // only you can answer — on Windows a JVM loaded into the process holds
+    // open handles on the very files the swap renames.
+    must_defer: || cfg!(windows) && widget_jdbc::Jvm::get().is_some(),
+};
+
+ruui_shell::init(IDENTITY, cx);
+```
+
+**The words.** The shell looks its strings up by the keys your locale files
+already carry — `common.close`, `update.available`, `settings.manage.import` —
+so adopting it changes no translation. Interpolation is the shell's: a template
+comes back with its `%{marker}`s intact and the shell fills them in.
+
+```rust
+struct Words;
+
+impl ruui_shell::Strings for Words {
+    fn text(&self, key: &str) -> gpui::SharedString {
+        rust_i18n::t!(key).into_owned().into()
+    }
+}
+
+ruui_shell::set_strings(Box::new(Words), cx);
+```
+
+**The ignored release.** "Never tell me about this version again" belongs in
+your settings file, which the shell does not own:
+
+```rust
+struct Policy;
+
+impl ruui_shell::UpdatePolicy for Policy {
+    fn ignored(&self, cx: &gpui::App) -> Option<String> {
+        app_settings::current(cx).ignored_update
+    }
+
+    fn set_ignored(&self, tag: Option<String>, cx: &mut gpui::App) {
+        let mut settings = app_settings::current(cx);
+        settings.ignored_update = tag;
+        app_settings::replace(settings, cx);
+        app_settings::save(cx);
+    }
+}
+
+ruui_shell::set_update_policy(Box::new(Policy), cx);
+```
+
+A palette catalogue is built the same way — from the directories you chose
+above, and the id to fall back on when the selected one is deleted:
+
+```rust
+use std::sync::Arc;
+use ruui_shell::{EditorThemeCatalog, ThemeCatalog, UiThemeCatalog};
+
+let ui: Arc<dyn ThemeCatalog> =
+    Arc::new(UiThemeCatalog::new(dirs.clone(), AppSettings::default().theme));
+let editor: Arc<dyn ThemeCatalog> =
+    Arc::new(EditorThemeCatalog::new(dirs, AppSettings::default().editor_theme));
+```
+
+What stays in the application, deliberately: the workspace (every dialog reports
+through an `EventEmitter` and you decide what it means — including the restart
+after an update, which is `cx.restart()` or `cx.set_restart_path(…)` first);
+what a tab is; the body of the settings form; the settings type and its globals;
+your own icons; and the `i18n!` invocation with the locale files it compiles.
 
 ## The vendored gpui
 
