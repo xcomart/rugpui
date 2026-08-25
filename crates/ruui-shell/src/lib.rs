@@ -34,6 +34,8 @@
 //! | [`catalog`] | [`ThemeCatalog`], and the two implementations over `ruui`'s own palette formats. |
 //! | [`theme_editor`] | [`ThemeEditor`], one entry of a catalogue edited colour by colour. |
 //! | [`catalog_ui`] | [`CatalogActions`], the duplicate / edit / delete / import / export row under a picker. |
+//! | [`form`] | The pieces a settings form is built out of, minus the form. |
+//! | [`settings`] | [`WindowGeometry`], the monospace fallback, the window tint. |
 //!
 //! # What stays in the application
 //!
@@ -71,10 +73,12 @@ pub mod caption;
 pub mod catalog;
 pub mod catalog_ui;
 pub mod chrome;
+pub mod form;
 pub mod icons;
 mod inject;
 pub mod menu_rows;
 pub mod pane;
+pub mod settings;
 pub mod theme_editor;
 pub mod update;
 pub mod update_dialog;
@@ -100,6 +104,7 @@ pub use inject::{
 };
 pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
+pub use settings::{WindowGeometry, monospace_family, window_bounds, window_geometry, window_tint};
 pub use theme_editor::{ThemeEditor, ThemeEditorEvent};
 pub use update::{Asset, Check, Installed, Progress, Release};
 pub use update_dialog::{UpdateDialog, UpdateDialogEvent};
