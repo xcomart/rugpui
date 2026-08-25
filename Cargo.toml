@@ -1,0 +1,154 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The `vendor/*` directories are patched dependencies, not members: they keep
+# their own manifests and must not inherit workspace settings. `unicode-width`
+# is there for the consumers rather than for this workspace — see the note
+# beside the patch table below.
+exclude = [
+    "vendor/gpui",
+    "vendor/gpui_linux",
+    "vendor/gpui_macos",
+    "vendor/gpui_windows",
+    "vendor/unicode-width",
+]
+
+# gpui comes from a pinned revision of Zed's monorepo rather than from
+# crates.io. 0.2.2 is still the newest published version and it predates the
+# split of the crate into a platform-independent core (`gpui`), a façade that
+# picks a backend at compile time (`gpui_platform`) and the backends themselves
+# (`gpui_linux`, `gpui_macos`, `gpui_windows`) — a split every API in this
+# repository is written against, so there is no release to fall back to. A
+# revision, never a branch: the monorepo's main moves several times a day, and a
+# floating dependency would make two checkouts of this repository build
+# different widgets.
+#
+# Zed has no answer of its own for the four things listed below, so the crates
+# that need one are vendored under `vendor/` and patched back over the git
+# source by the `[patch."https://github.com/zed-industries/zed"]` table. Each
+# vendored copy is the upstream directory with its manifest flattened —
+# `workspace = true` resolved to concrete specifications, sibling crates
+# repointed at this same revision, examples and dev-dependencies dropped — and
+# every change to the code marked `RULOGMAN PATCH`, so diffing a vendored crate
+# against upstream at this revision shows the whole of what we carry. The marker
+# keeps the name of the project the trees were first grown in. This repository
+# is now their single origin: the applications that used to hold copies of their
+# own take them from here, so a fix made once is a fix everywhere. Nothing here
+# is specific to any one of those applications, and nothing here may become so.
+#
+#   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
+#     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
+#     an open window between the caption the platform draws and the one the app
+#     draws. gpui settles that at window creation and offers no way back; an
+#     application that offers it as a setting cannot reopen its window to honour
+#     a change without dropping whatever the window is holding. It has to reach
+#     the backends, so it is a `PlatformWindow` method, which is why the core is
+#     vendored at all rather than only the two backends that implement it.
+#   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
+#     the close callbacks with the client `RefCell` borrowed, and both of them
+#     re-enter the application, where anything that reaches the platform borrows
+#     that same cell and panics with "already borrowed". Upstream learnt half of
+#     it when the crate was split: `close()` now runs outside the borrow, which
+#     is what quitting from a window-closed observer needs. `should_close()` did
+#     not move, so an `on_should_close` handler is still standing on the
+#     trapdoor; the patch is what keeps registering one from being a condition
+#     of closing a window.
+#   * `gpui_linux/src/linux/x11/window.rs` — `is_transparent` ignores
+#     client-side decorations, unlike its Wayland counterpart, so the
+#     transparent shadow band around a self-decorated window composited as
+#     solid black.
+#   * `gpui_linux/src/linux/x11/window.rs` — the X11 backend has no counterpart
+#     to the Wayland one's `org_kde_kwin_blur`, so a blurred background
+#     appearance did nothing on KDE X11; `update_blur_region` keeps KWin's
+#     `_KDE_NET_WM_BLUR_BEHIND_REGION` in step with the window.
+#
+# `gpui_platform` is taken from git unpatched — it is a hundred lines of
+# `cfg`-directed re-exports — but a consumer still has to name it in its own
+# dependency table at this same revision, because it is what resolves
+# `gpui_linux` and friends.
+#
+# `vendor/unicode-width` is the odd one out: nothing in this workspace uses it,
+# which is why it is only excluded and not patched here. It narrows the handful
+# of ranges where Unicode 16 and the terminals disagree about a symbol's width,
+# and it lives here so that an application which needs it can take it from this
+# repository through `[patch.crates-io]` at the same revision as everything
+# else, rather than carrying a fifth copy of a vendored tree.
+#
+# Moving the revision forward means re-flattening the manifests and replaying
+# the marked hunks. Delete a hunk, and then the vendored crate once it holds
+# none, whenever upstream grows its own answer.
+[patch."https://github.com/zed-industries/zed"]
+gpui = { path = "vendor/gpui" }
+gpui_linux = { path = "vendor/gpui_linux" }
+gpui_macos = { path = "vendor/gpui_macos" }
+gpui_windows = { path = "vendor/gpui_windows" }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["ruui contributors"]
+repository = "https://github.com/xcomart/ruui"
+
+[workspace.dependencies]
+# --- shared utilities ---
+anyhow = "1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The text input and the editor caret move by grapheme cluster rather than by
+# `char`, so that a combining sequence or an emoji with a modifier is one step.
+unicode-segmentation = "1"
+
+# Auto-fitting a grid column to its contents needs the *display* width of a
+# string rather than its length in `char`s, so that a column of Korean names is
+# not fitted to half the width it needs.
+unicode-width = "0.2"
+
+# The theme store walks real directories rather than mocking the filesystem out.
+tempfile = "3"
+
+# --- text buffer: the code editor's document ---
+# A rope, because the editor holds whole files and stays responsive whatever
+# their size: an insert is O(log n) rather than the memmove a `String` would do,
+# and line lookups are O(log n) rather than a scan. Two of its indexes are load
+# bearing beyond that — `byte_to_line`/`line_to_byte` are what let the syntax
+# cache address the buffer by line, and `char_to_utf16_cu`/`utf16_cu_to_char`
+# are what make the IME's UTF-16 offsets convertible in O(log n) instead of the
+# whole-string walk a flat buffer needs on every composition step. Default
+# features are off so that a line break is `\n` or `\r\n` and nothing else: with
+# `unicode_lines` a `\u{2028}` inside a quoted value would split a line in the
+# rope that the highlighter does not split, and the two views of the buffer have
+# to agree.
+ropey = { version = "1.6", default-features = false, features = [
+    "cr_lines",
+    "simd",
+] }
+
+# --- GUI: Zed's GPU-accelerated UI framework ---
+# The revision has to be spelled out wherever the crate is named: a git
+# dependency is identified by URL *and* revision, so naming the same commit
+# everywhere is what makes them one source rather than several checkouts of the
+# same repository. See the patch table at the top of this file for why a
+# revision at all, and for what `vendor/` puts back on top of it.
+#
+# Only the platform-independent core is named here, because that is all a widget
+# is written against. Linking a backend in and starting it — `gpui_platform`,
+# whose `application()` is where 0.2.2 had `Application::new()` — is the
+# application's job, and so is choosing that crate's features.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
+
+# --- internal crates ---
+ruui = { path = "crates/ruui" }
+
+[profile.dev]
+# gpui + its dependency tree is large; keep debug builds usable.
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
