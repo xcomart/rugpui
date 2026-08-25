@@ -112,7 +112,7 @@
 //!
 //! # The state, in seven bits
 //!
-//! [`COMMENT`] when a block comment is open, and otherwise the index of the
+//! `COMMENT` when a block comment is open, and otherwise the index of the
 //! string rule that is — five bits of it, so [`STRING_LIMIT`] rules per
 //! definition. Both fit the sixteen
 //! [`LineState::COMPOSABLE_BITS`](crate::LineState) allows, so a definition can

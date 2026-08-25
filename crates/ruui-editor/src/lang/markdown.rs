@@ -14,7 +14,7 @@
 //! A fenced code block is open or it is not, and the only thing worth
 //! remembering about an open one is which character its fence was drawn with,
 //! so that a ``` inside a `~~~` block stays body. Two values —
-//! [`FENCED_BACKTICK`] and [`FENCED_TILDE`] — which is two bits of the sixteen
+//! `FENCED_BACKTICK` and `FENCED_TILDE` — which is two bits of the sixteen
 //! [`LineState::COMPOSABLE_BITS`] allows.
 //!
 //! # What each thing is coloured as

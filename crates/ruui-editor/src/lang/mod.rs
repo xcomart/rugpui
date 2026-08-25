@@ -33,7 +33,7 @@
 //! that shape: C#, Kotlin, TypeScript and JavaScript, Go, Rust and Python.
 //!
 //! **A definition read from a file**, behind the `custom-syntax` feature: see
-//! [`mod@custom`]. Off by default, because it costs a YAML reader.
+//! `custom`. Off by default, because it costs a YAML reader.
 //!
 //! # What the configuration lexers are, and are not
 //!

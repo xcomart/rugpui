@@ -8,7 +8,7 @@
 //!
 //! # The state, in one bit
 //!
-//! [`CONTINUED`] and nothing else, which leaves fifteen of the sixteen bits
+//! `CONTINUED` and nothing else, which leaves fifteen of the sixteen bits
 //! [`LineState::COMPOSABLE_BITS`] allows spare — so a Dockerfile can be the
 //! base language under an overlay
 //! ([`CompositeHighlighter`](crate::composite::CompositeHighlighter)) with room

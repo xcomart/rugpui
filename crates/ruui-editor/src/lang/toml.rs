@@ -9,7 +9,7 @@
 //!
 //! A multi-line string is open or it is not, and the only thing that has to be
 //! remembered about an open one is which quote byte opened it —
-//! [`MULTILINE_DOUBLE`] or [`MULTILINE_SINGLE`]. Two values, so the whole state
+//! `MULTILINE_DOUBLE` or `MULTILINE_SINGLE`. Two values, so the whole state
 //! is two bits of the sixteen [`LineState::COMPOSABLE_BITS`] allows.
 //!
 //! # What is given up

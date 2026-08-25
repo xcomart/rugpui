@@ -12,7 +12,7 @@
 //! about it is the indentation of the line that introduced it. That is the low
 //! bit as a flag and twelve bits of column above it, which fits the sixteen
 //! [`LineState::COMPOSABLE_BITS`] allows with three to spare. A line indented
-//! more than [`INDENT_LIMIT`] columns saturates there rather than wrapping,
+//! more than `INDENT_LIMIT` columns saturates there rather than wrapping,
 //! which ends the scalar a little late in a file nobody has ever written.
 //!
 //! # What is given up

@@ -9,18 +9,18 @@
 //! # The state, and why a heredoc tag is not in it
 //!
 //! Two things cross a line here: a quote, which is one byte to remember, and a
-//! heredoc, which is a tag of up to [`TAG_LIMIT`] bytes and a `<<-` flag. A
+//! heredoc, which is a tag of up to `TAG_LIMIT` bytes and a `<<-` flag. A
 //! [`LineState`] is one `u32` of which a composable lexer may use sixteen bits
 //! ([`LineState::COMPOSABLE_BITS`]), so the tag cannot live in it.
 //!
 //! What lives there instead is an *index* into a table of tags this highlighter
-//! interns as it meets them — ten bits of it, so [`TAG_SLOTS`] distinct tags in
+//! interns as it meets them — ten bits of it, so `TAG_SLOTS` distinct tags in
 //! one document. The table only ever grows, and a tag already in it keeps the
 //! index it was given, so the same `<<EOF` on two lines is the same state and
 //! the syntax cache stops re-lexing where it should. A document with more than
 //! a thousand *distinct* heredoc tags stops tracking the ones past that: they
 //! are lexed as ordinary shell, which is wrong in colour and in nothing else.
-//! That is the same answer a tag longer than [`TAG_LIMIT`] gets, and for the
+//! That is the same answer a tag longer than `TAG_LIMIT` gets, and for the
 //! same reason — better one un-coloured body than a state that cannot be
 //! represented.
 //!
