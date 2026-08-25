@@ -105,9 +105,7 @@ static PROCESS_IDENTITY: RwLock<Option<AppIdentity>> = RwLock::new(None);
 /// Call once, before the first window opens and before anything starts an
 /// update check.
 pub fn init(identity: AppIdentity, cx: &mut App) {
-    *PROCESS_IDENTITY
-        .write()
-        .expect("the identity lock is never held across a panic") = Some(identity);
+    init_process_identity(identity);
     cx.set_global(Identity(identity));
 }
 
@@ -136,10 +134,21 @@ pub(crate) fn current_identity() -> AppIdentity {
 
 /// Installs `identity` for the background paths alone, without an [`App`].
 ///
-/// Only for tests of the update machinery, which have no gpui application and
-/// need the identity a fake one describes.
-#[cfg(test)]
-pub(crate) fn set_process_identity(identity: AppIdentity) {
+/// [`crate::update::apply_pending`] and [`crate::update::clean_leftovers`]
+/// read [`current_identity`] and touch no [`App`] — deliberately, since a host
+/// that has to apply a staged update or sweep up a previous one's leftovers
+/// has to do that *before* it can build one. On a platform where building the
+/// application loads something the update paths must not race — a JVM behind
+/// `gpui_platform::application()`, say — call this first, ahead of
+/// `application()` and `app.run` both, so those two functions have an identity
+/// to read. [`init`] calls this itself and additionally installs the gpui
+/// global [`identity`] reads, so a host that reaches an [`App`] before it
+/// needs the update paths never has to call this directly.
+///
+/// Safe to call more than once, including once here and again from [`init`]:
+/// each call simply replaces whatever the last one installed, and installing
+/// the same identity twice leaves nothing different behind.
+pub fn init_process_identity(identity: AppIdentity) {
     *PROCESS_IDENTITY
         .write()
         .expect("the identity lock is never held across a panic") = Some(identity);
@@ -403,6 +412,21 @@ mod app_tests {
             // And the background paths see the same one.
             assert_eq!(current_identity().name, "widget");
         });
+    }
+
+    /// The whole reason [`init_process_identity`] exists: a host that has to
+    /// run [`crate::update::apply_pending`] or [`crate::update::clean_leftovers`]
+    /// before it can build an [`App`] needs the process-wide slot filled
+    /// without one — unlike every other test in this module, this one builds
+    /// no `App` at all, which is the point.
+    #[test]
+    fn the_process_identity_can_be_installed_with_no_app_around() {
+        init_process_identity(FAKE);
+        assert_eq!(current_identity().name, "widget");
+        assert_eq!(current_identity().version, "0.2.0");
+        // Calling it again with the same identity is a no-op, not a panic.
+        init_process_identity(FAKE);
+        assert_eq!(current_identity().name, "widget");
     }
 
     #[gpui::test]

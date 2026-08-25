@@ -1577,7 +1577,7 @@ mod tests {
     /// one, so installing it again is both harmless and the simplest thing that
     /// survives a test runner with threads.
     fn fake() -> AppIdentity {
-        inject::set_process_identity(FAKE);
+        inject::init_process_identity(FAKE);
         FAKE
     }
 
