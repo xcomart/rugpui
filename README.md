@@ -1,5 +1,11 @@
 # rugpui
 
+[![CI](https://github.com/xcomart/rugpui/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xcomart/rugpui/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555.svg)](#)
+[![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](Cargo.toml)
+[![gpui](https://img.shields.io/badge/gpui-zed%40fd82517-8A2BE2.svg)](https://github.com/zed-industries/zed/tree/fd82517a115d97a07835b52f0512b22b38e38ccf)
+
 A gpui widget kit, and the two larger widgets built on it: a virtualised data
 grid and a code editor. Extracted from three desktop applications that had been
 carrying byte-identical copies of the same code, so that a fix made once is a
