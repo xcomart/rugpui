@@ -61,9 +61,25 @@ const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 /// configure, and `None` says so. With no directory named, [`load_editor_themes`]
 /// finds nothing rather than looking anywhere, and [`save_editor_theme`] and
 /// [`delete_editor_theme`] fail rather than inventing a place to write to.
-#[derive(Debug, Clone)]
+///
+/// [`ThemeDirs::default`] is the same "no directory" answer for
+/// [`ThemeDirs::ui_themes`], which has no `Option` to say it with: an empty
+/// path there means what `None` means for [`ThemeDirs::editor_themes`], and
+/// every function in this module treats it that way. Resolving a host's own
+/// configuration directory can fail — the platform has none, a permission is
+/// missing — and a host in that situation still has to build *something* to
+/// hand the widgets before it knows whether the user has touched a theme
+/// picker at all; the default lets it start with "no directory yet" and reload
+/// with a real one once it has one, rather than inventing a path or not
+/// starting.
+#[derive(Debug, Clone, Default)]
 pub struct ThemeDirs {
     /// Directory holding the user's own chrome theme files.
+    ///
+    /// An empty path means no directory was named, exactly as `None` does for
+    /// [`ThemeDirs::editor_themes`]: [`load_ui_themes`] then finds nothing,
+    /// and [`save_ui_theme`] and [`delete_ui_theme`] fail rather than writing
+    /// into whatever the process's current directory happens to be.
     pub ui_themes: PathBuf,
     /// Directory holding the user's own editor theme files, if the host has
     /// one at all.
@@ -121,11 +137,13 @@ pub fn load_editor_themes(dirs: &ThemeDirs) -> Vec<CustomEditorTheme> {
 ///
 /// # Errors
 ///
-/// Fails when `id` has no usable slug, names a built-in theme, or the file
-/// cannot be written.
+/// Fails when the host named no chrome theme directory (see
+/// [`ThemeDirs::ui_themes`]), when `id` has no usable slug, when it names a
+/// built-in theme, or when the file cannot be written.
 pub fn save_ui_theme(dirs: &ThemeDirs, id: &str, file: &ThemeFile) -> Result<PathBuf> {
+    let dir = ui_themes_dir(dirs)?;
     let id = validated_id(id, ThemeRegistry::is_builtin)?;
-    save_json(&dirs.ui_themes, &id, file)
+    save_json(dir, &id, file)
 }
 
 /// Writes `file` to [`ThemeDirs::editor_themes`] as the editor theme `id`.
@@ -147,10 +165,13 @@ pub fn save_editor_theme(dirs: &ThemeDirs, id: &str, file: &EditorThemeFile) -> 
 ///
 /// # Errors
 ///
-/// Fails when `id` has no usable slug or the file cannot be removed.
+/// Fails when the host named no chrome theme directory (see
+/// [`ThemeDirs::ui_themes`]), when `id` has no usable slug, or when the file
+/// cannot be removed.
 pub fn delete_ui_theme(dirs: &ThemeDirs, id: &str) -> Result<()> {
+    let dir = ui_themes_dir(dirs)?;
     let id = slug(id).with_context(|| format!("{id:?} is not a usable theme id"))?;
-    delete_json(&dirs.ui_themes, &id)
+    delete_json(dir, &id)
 }
 
 /// Removes the editor theme `id` from [`ThemeDirs::editor_themes`].
@@ -172,6 +193,20 @@ fn editor_themes_dir(dirs: &ThemeDirs) -> Result<&Path> {
     dirs.editor_themes
         .as_deref()
         .context("no editor theme directory")
+}
+
+/// The chrome theme directory, or why there is nothing to write to.
+///
+/// An empty [`ThemeDirs::ui_themes`] means the host named none — see that
+/// field's docs — and is refused here for the same reason a missing
+/// [`ThemeDirs::editor_themes`] is refused by [`editor_themes_dir`]: joining a
+/// file name onto an empty path yields a *relative* one, which would otherwise
+/// have a save or a delete land wherever the process's current directory
+/// happens to be instead of failing loudly.
+fn ui_themes_dir(dirs: &ThemeDirs) -> Result<&Path> {
+    (!dirs.ui_themes.as_os_str().is_empty())
+        .then_some(dirs.ui_themes.as_path())
+        .context("no chrome theme directory")
 }
 
 /// Turns a file stem or a typed name into an id.
@@ -699,6 +734,39 @@ mod tests {
         assert!(load_editor_themes(&dirs).is_empty());
         // Deleting what is already gone is not an error, here as below.
         delete_ui_theme(&dirs, "my-chrome").expect("delete again");
+    }
+
+    /// A host whose own directory resolution can fail — no platform
+    /// configuration directory, a permission error, and so on — has to be able
+    /// to build *something* before it knows the answer, and [`ThemeDirs`] has
+    /// no fallible constructor of its own to hand it. [`ThemeDirs::default`]
+    /// is that something: both directories read as empty, and every function
+    /// that would otherwise write into the process's current directory
+    /// refuses instead of guessing.
+    #[test]
+    fn a_default_theme_dirs_has_no_directory_at_all() {
+        let dirs = ThemeDirs::default();
+        assert_eq!(dirs.ui_themes, PathBuf::new());
+        assert_eq!(dirs.editor_themes, None);
+
+        // Loading is silent: an application that has not yet resolved its
+        // configuration directory is not a broken one, so nothing is logged
+        // and nothing panics — there is simply nothing installed yet.
+        assert!(load_ui_themes(&dirs).is_empty());
+        assert!(load_editor_themes(&dirs).is_empty());
+
+        // Writing and removing, on the other hand, need somewhere real to
+        // land, and say so rather than falling back to the process's current
+        // directory.
+        let chrome = ThemeFile::from_theme("Mine", &Theme::dark());
+        assert!(save_ui_theme(&dirs, "mine", &chrome).is_err());
+        assert!(delete_ui_theme(&dirs, "mine").is_err());
+        let editor = EditorThemeFile::from_theme("Mine", &EditorTheme::dracula());
+        assert!(save_editor_theme(&dirs, "mine", &editor).is_err());
+        assert!(delete_editor_theme(&dirs, "mine").is_err());
+
+        // And nothing was written into the current directory along the way.
+        assert!(!PathBuf::from("mine.json").exists());
     }
 
     /// An application with no code editor names no editor theme directory, and
