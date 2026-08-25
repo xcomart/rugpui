@@ -31,6 +31,9 @@
 //! | [`about`] | [`AboutDialog`]. |
 //! | [`update`] | The release check and the self-update: download, verify, unpack, swap, roll back, and stage when a rename cannot happen yet. |
 //! | [`update_dialog`] | [`UpdateDialog`], the state machine around all of that. |
+//! | [`catalog`] | [`ThemeCatalog`], and the two implementations over `ruui`'s own palette formats. |
+//! | [`theme_editor`] | [`ThemeEditor`], one entry of a catalogue edited colour by colour. |
+//! | [`catalog_ui`] | [`CatalogActions`], the duplicate / edit / delete / import / export row under a picker. |
 //!
 //! # What stays in the application
 //!
@@ -65,16 +68,24 @@
 
 pub mod about;
 pub mod caption;
+pub mod catalog;
+pub mod catalog_ui;
 pub mod chrome;
 pub mod icons;
 mod inject;
 pub mod menu_rows;
 pub mod pane;
+pub mod theme_editor;
 pub mod update;
 pub mod update_dialog;
 
 pub use about::{AboutDialog, AboutDialogEvent};
 pub use caption::apply_caption_theme;
+pub use catalog::{
+    CatalogEntry, CatalogFile, EditorThemeCatalog, ImportError, Slot, ThemeCatalog, UiThemeCatalog,
+    derived_slot, slot, valid_hex,
+};
+pub use catalog_ui::{CatalogActionEvent, CatalogActions, export_directory};
 pub use chrome::{
     TitlebarStyle, client_tiling, draws_own_titlebar, render_resize_edges, titlebar_gestures,
     window_appearance, window_control_strips,
@@ -89,5 +100,6 @@ pub use inject::{
 };
 pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
+pub use theme_editor::{ThemeEditor, ThemeEditorEvent};
 pub use update::{Asset, Check, Installed, Progress, Release};
 pub use update_dialog::{UpdateDialog, UpdateDialogEvent};
