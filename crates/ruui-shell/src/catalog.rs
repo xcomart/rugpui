@@ -29,6 +29,7 @@
 
 use std::any::Any;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{App, Hsla, SharedString};
@@ -114,13 +115,22 @@ pub const fn derived_slot(key: &'static str, label_key: &'static str, alpha: boo
 /// host keeps a catalogue of travels as [`CatalogFile::Other`], which the
 /// generic code moves around without ever looking inside — every question it
 /// could ask of one is a [`ThemeCatalog`] method instead.
+///
+/// `Clone`, because [`CatalogActionEvent::Edit`](crate::CatalogActionEvent::Edit)
+/// hands one to every subscriber through a gpui event, which is delivered as
+/// `&Event` rather than by value — a host that wants to keep the file past the
+/// callback has nothing to take it from but a clone. [`CatalogFile::Other`]
+/// therefore holds an [`Arc`] rather than a [`Box`]: cloning it is what a
+/// `Box<dyn Any>` cannot do on its own, and an `Arc`'s clone is cheap and needs
+/// nothing of the value it wraps.
+#[derive(Clone)]
 pub enum CatalogFile {
     /// A chrome theme.
     UiTheme(Box<ThemeFile>),
     /// An editor theme.
     EditorTheme(Box<EditorThemeFile>),
     /// A palette of a kind only the host knows.
-    Other(Box<dyn Any + Send>),
+    Other(Arc<dyn Any + Send + Sync>),
 }
 
 impl std::fmt::Debug for CatalogFile {
