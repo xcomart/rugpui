@@ -28,6 +28,7 @@
 //! | [`pane`] | [`PaneTree`], the split layout, and [`Pane`], one pane's tab strip. |
 //! | [`menu_rows`] | [`MenuRow`], a context menu as a list a test can read. |
 //! | [`icons`] | [`IconSet`], and the four caption glyphs every self-drawn title bar needs. |
+//! | [`about`] | [`AboutDialog`]. |
 //!
 //! # What stays in the application
 //!
@@ -60,6 +61,7 @@
 
 #![warn(missing_docs)]
 
+pub mod about;
 pub mod caption;
 pub mod chrome;
 pub mod icons;
@@ -67,6 +69,7 @@ mod inject;
 pub mod menu_rows;
 pub mod pane;
 
+pub use about::{AboutDialog, AboutDialogEvent};
 pub use caption::apply_caption_theme;
 pub use chrome::{
     TitlebarStyle, client_tiling, draws_own_titlebar, render_resize_edges, titlebar_gestures,
