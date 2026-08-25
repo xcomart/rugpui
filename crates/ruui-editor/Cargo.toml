@@ -11,7 +11,7 @@ description = "The code editor widget, with pluggable syntax highlighting"
 # The document. See the workspace manifest for why a rope and why these
 # features.
 ropey.workspace = true
-# The nineteen-slot syntax palette, the overlay scrollbars, and the text field
+# The twenty-one-slot syntax palette, the overlay scrollbars, and the text field
 # the find bar is built out of.
 ruui.workspace = true
 
@@ -26,6 +26,22 @@ log.workspace = true
 # `GraphemeCursor` rather than `grapheme_indices`, so that a boundary can be
 # found next to an offset without walking the buffer to reach it.
 unicode-segmentation.workspace = true
+
+# --- optional, for `custom-syntax` ---
+# A language defined by a YAML file rather than by code: the reader, the derive
+# that drives it, and the error type `Definition::parse` answers with. All three
+# are behind the feature, because a host that writes its languages in Rust
+# should not link a YAML parser to do it.
+anyhow = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_norway = { workspace = true, optional = true }
+
+[features]
+# Languages read from a YAML definition rather than written as a lexer. Off by
+# default: it is the only thing in this crate that costs a dependency, and a
+# host that ships the eighteen built-in languages and nothing else should not
+# pay for it. See `lang::custom`.
+custom-syntax = ["dep:anyhow", "dep:serde", "dep:serde_norway"]
 
 [dev-dependencies]
 # gpui's headless test platform. Every behaviour worth holding down here --

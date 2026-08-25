@@ -60,6 +60,8 @@
 
 pub mod clike;
 pub mod conf;
+#[cfg(feature = "custom-syntax")]
+pub mod custom;
 pub mod dockerfile;
 pub mod java;
 pub mod json;

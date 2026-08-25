@@ -96,6 +96,24 @@ anyhow = "1"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The reader behind `ruui-editor`'s `custom-syntax` feature, which is a language
+# defined by a YAML file rather than by code. YAML rather than JSON because a
+# definition is a keyword table and a person has to type it: a list of two
+# hundred words is bearable unquoted and one line each, and a regular expression
+# written in JSON has to double-escape every backslash. Nothing here writes one,
+# so it is a read-only dependency and no serializer of it is ever linked.
+#
+# The obvious crate, `serde_yaml`, was archived in March 2024 and its last
+# release says `+deprecated` in its own version number, so the choice is between
+# the two maintained forks. They are the same size to the byte: both depend on
+# `indexmap`, `itoa`, `ryu`, `serde` and a libyaml binding. The tie-break is what
+# that fifth dependency *is*. `serde_yaml_ng` still pulls dtolnay's
+# `unsafe-libyaml` 0.2.11, which was archived alongside `serde_yaml` itself --
+# the fork would inherit the very dead code it was made to escape -- whereas
+# `serde_norway` carries `unsafe-libyaml-norway`, a fork of that binding that is
+# still receiving releases. The crate has no features at all, default or
+# otherwise, so there is nothing here to turn off.
+serde_norway = "0.9"
 # The text input and the editor caret move by grapheme cluster rather than by
 # `char`, so that a combining sequence or an emoji with a modifier is one step.
 unicode-segmentation = "1"

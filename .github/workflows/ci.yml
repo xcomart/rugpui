@@ -56,5 +56,14 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # `custom-syntax` is off by default and is the only feature in the
+      # workspace, so nothing above ever compiles it. One extra pass over the
+      # one crate that has it, rather than `--all-features` over everything.
+      - name: clippy (custom-syntax)
+        run: cargo clippy -p ruui-editor --all-targets --features custom-syntax --locked -- -D warnings
+
       - name: test
         run: cargo test --workspace --locked
+
+      - name: test (custom-syntax)
+        run: cargo test -p ruui-editor --features custom-syntax --locked
