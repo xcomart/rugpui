@@ -3,7 +3,10 @@
 //! The crate is a widget kit and nothing more: it knows nothing of the domain
 //! any application built on it works in — no connections, no documents, no
 //! sessions — and only about colors ([`theme`], [`editor_theme`]), text entry
-//! ([`text_input`]), buttons ([`button`]), tabs ([`tab_bar`]), dropdown menus
+//! ([`text_input`]), buttons ([`button`]), checkboxes ([`checkbox`]) and
+//! switches ([`switch`]), one-of-many strips ([`segmented`]), sliders
+//! ([`slider`]), progress bars ([`progress`]) and busy spinners ([`spinner`]),
+//! tabs ([`tab_bar`]), dropdown menus
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
 //! palettes ([`scheme_select`]), hover tooltips ([`tooltip`]), dialogs
 //! ([`modal`]), overlay scroll indicators ([`scrollbar`]), lazily filled trees
@@ -34,10 +37,14 @@ pub mod editor_theme;
 pub mod editor_theme_picker;
 pub mod menu;
 pub mod modal;
+pub mod progress;
 pub mod scheme_select;
 pub mod scrollbar;
 pub mod segmented;
 pub mod select;
+pub mod slider;
+pub mod spinner;
+pub mod switch;
 pub mod tab_bar;
 pub mod text_input;
 pub mod theme;
@@ -55,6 +62,7 @@ pub use editor_theme::{
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
+pub use progress::ProgressBar;
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
@@ -62,6 +70,9 @@ pub use scrollbar::{
 };
 pub use segmented::Segmented;
 pub use select::Select;
+pub use slider::{DraggedKnob, Slider, stepped};
+pub use spinner::Spinner;
+pub use switch::Switch;
 pub use tab_bar::{TabBar, TabItem, TabMark, TabStatus};
 pub use text_input::{InputMenuLabels, TextInput};
 pub use theme::{

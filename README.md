@@ -1,5 +1,11 @@
 # rugpui
 
+[![CI](https://github.com/xcomart/rugpui/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/xcomart/rugpui/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555.svg)](#)
+[![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](Cargo.toml)
+[![gpui](https://img.shields.io/badge/gpui-zed%40fd82517-8A2BE2.svg)](https://github.com/zed-industries/zed/tree/fd82517a115d97a07835b52f0512b22b38e38ccf)
+
 A gpui widget kit, and the two larger widgets built on it: a virtualised data
 grid and a code editor. Extracted from three desktop applications that had been
 carrying byte-identical copies of the same code, so that a fix made once is a
@@ -23,7 +29,7 @@ Every widget in this repository, in one window, in the two default palettes:
 Run it yourself with `cargo run -p rugpui-gallery -- --theme light`; `--theme`
 takes any of the six built-in palettes (`dark`, `light`, `solarized-dark`,
 `solarized-light`, `gruvbox-dark`, `dracula`) and picks the matching editor
-palette with it. The screenshots above are that window captured at 1180×820 in
+palette with it. The screenshots above are that window captured at 1180×1020 in
 `dark` and in `light` — regenerate them by running the gallery in each and
 saving the window to `docs/screenshots/gallery-<theme>.png`.
 
@@ -31,7 +37,7 @@ saving the window to `docs/screenshots/gallery-<theme>.png`.
 
 | crate | what it is |
 |---|---|
-| [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, segmented controls, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
+| [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, switches, segmented controls, sliders, progress bars, busy spinners, tabs, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, lazily filled trees, and the caption buttons of a self-drawn title bar. |
 | [`rugpui-grid`](crates/rugpui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
 | [`rugpui-editor`](crates/rugpui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
 | [`rugpui-shell`](crates/rugpui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
