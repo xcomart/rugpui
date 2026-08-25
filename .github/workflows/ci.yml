@@ -1,0 +1,60 @@
+# Build, lint and test on every platform the widgets are used on.
+#
+# gpui comes from a pinned revision of Zed's monorepo with four crates patched
+# on top of it under vendor/, so the only network this build needs is crates.io
+# plus that one git fetch. Nothing here talks to a server, boots a JVM or opens
+# a window: the tests run on gpui's headless test platform, which is why one
+# job per operating system is the whole matrix.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Native libraries gpui links against on Linux. The crate graph binds
+      # xkbcommon (+ its X11 half), wayland-client and fontconfig; fontconfig's
+      # dev package pulls in the freetype headers that freetype-sys wants.
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Formatting is platform-independent; checking it once is enough.
+      - name: rustfmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: test
+        run: cargo test --workspace --locked
