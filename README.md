@@ -220,10 +220,11 @@ let editor: Arc<dyn ThemeCatalog> =
 ```
 
 A third kind of palette is a `ThemeCatalog` of your own over
-`CatalogFile::Other`. One of the trait's defaults is there for a format that
+`CatalogFile::Other`. Two of the trait's defaults are there for a format that
 differs from these two: `has_dark_flag` answering `false` takes the dark/light
-checkbox out of the editor, and leaves the flag your `values_of` reported
-untouched on the way back to `file_from`.
+checkbox out of the editor — and leaves the flag your `values_of` reported
+untouched on the way back to `file_from` — and `group_headings` names the slots
+a heading should stand in front of, for a list long enough to want them.
 
 What stays in the application, deliberately: the workspace (every dialog reports
 through an `EventEmitter` and you decide what it means — including the restart

@@ -487,6 +487,41 @@ impl ThemeEditor {
             .collect()
     }
 
+    /// One heading inside the field list.
+    ///
+    /// Drawn the way the optional group's heading is drawn, because the two sit
+    /// in one list and a reader has no reason to be told that two kinds of
+    /// divider exist.
+    fn render_heading(&self, key: &str, cx: &App) -> Div {
+        let chrome = theme(cx);
+        div()
+            .pt(px(4.))
+            .text_size(px(11.))
+            .text_color(chrome.text_muted)
+            .child(label(cx, key))
+    }
+
+    /// The rows `range` covers, with every heading the catalogue placed inside
+    /// it drawn before the slot it names.
+    fn render_section(
+        &self,
+        range: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut out: Vec<AnyElement> = Vec::new();
+        for piece in split(range, &self.catalog.group_headings()) {
+            match piece {
+                Piece::Heading(key) => out.push(self.render_heading(key, cx).into_any_element()),
+                Piece::Fields(fields) => out.extend(
+                    self.render_fields(fields, cx)
+                        .into_iter()
+                        .map(IntoElement::into_any_element),
+                ),
+            }
+        }
+        out
+    }
+
     /// The dark/light checkbox, or nothing at all for a format without such a
     /// flag.
     ///
@@ -577,6 +612,47 @@ impl ThemeEditor {
     }
 }
 
+/// One run of the field list, as [`split`] hands it out.
+#[derive(Debug, PartialEq, Eq)]
+enum Piece<'a> {
+    /// A heading, under the given label key.
+    Heading(&'a str),
+    /// A run of consecutive slots.
+    Fields(std::ops::Range<usize>),
+}
+
+/// How `range` breaks up around the headings a catalogue placed inside it.
+///
+/// Pure, and separated from the rendering for exactly that reason: the rules
+/// about which headings count are the part worth stating once and testing.
+///
+/// A heading never reorders the slots around it. One naming an index outside
+/// `range`, or one behind a heading already emitted, is dropped rather than
+/// allowed to split the list backwards — a catalogue that lists its headings
+/// out of order loses the ones that are out of order and nothing else. Two on
+/// the same index are both drawn, in the order given. A catalogue that names
+/// none — the default — yields the single range it was handed, which is what
+/// keeps the optional-group layout exactly as it was.
+fn split<'a>(range: std::ops::Range<usize>, headings: &[(usize, &'a str)]) -> Vec<Piece<'a>> {
+    let mut out = Vec::new();
+    let mut start = range.start;
+    for (index, key) in headings {
+        let index = *index;
+        if index < start || index >= range.end {
+            continue;
+        }
+        if index > start {
+            out.push(Piece::Fields(start..index));
+            start = index;
+        }
+        out.push(Piece::Heading(key));
+    }
+    if start < range.end || out.is_empty() {
+        out.push(Piece::Fields(start..range.end));
+    }
+    out
+}
+
 impl EventEmitter<ThemeEditorEvent> for ThemeEditor {}
 
 impl Focusable for ThemeEditor {
@@ -628,7 +704,7 @@ impl Render for ThemeEditor {
             .child(preview)
             .child(form_row(name_label, self.name_input.clone()))
             .children(dark_row)
-            .children(self.render_fields(required, cx))
+            .children(self.render_section(required, cx))
             .children(derived.map(|derived| {
                 div()
                     .flex()
@@ -641,7 +717,7 @@ impl Render for ThemeEditor {
                             .text_color(chrome.text_muted)
                             .child(group_label),
                     )
-                    .children(self.render_fields(derived, cx))
+                    .children(self.render_section(derived, cx))
             }));
 
         div()
@@ -827,7 +903,8 @@ mod tests {
         slot("four", "slot.four", false),
     ];
 
-    /// A host's own catalogue, over a format with no dark/light flag.
+    /// A host's own catalogue, over a format with no dark/light flag and with
+    /// a heading of its own halfway down the list.
     ///
     /// Every path that writes anything refuses: the editor under test is never
     /// saved, and a stub that could write would be a stub that could write
@@ -909,6 +986,10 @@ mod tests {
             _cx: &mut App,
         ) -> AnyElement {
             div().into_any_element()
+        }
+
+        fn group_headings(&self) -> Vec<(usize, &'static str)> {
+            vec![(2, "flagless.second_group")]
         }
 
         fn has_dark_flag(&self) -> bool {
@@ -1003,5 +1084,48 @@ mod tests {
                 assert!(editor.dark_checkbox(cx).is_some());
             });
         });
+    }
+
+    #[test]
+    fn a_heading_splits_the_run_of_fields_it_stands_in_front_of() {
+        // The default: one run, exactly as the list was drawn before headings
+        // existed at all.
+        assert_eq!(split(0..4, &[]), vec![Piece::Fields(0..4)]);
+        // In the middle, at the very start, and one of each.
+        assert_eq!(
+            split(0..4, &[(2, "b")]),
+            vec![
+                Piece::Fields(0..2),
+                Piece::Heading("b"),
+                Piece::Fields(2..4)
+            ]
+        );
+        assert_eq!(
+            split(0..4, &[(0, "a")]),
+            vec![Piece::Heading("a"), Piece::Fields(0..4)]
+        );
+        assert_eq!(
+            split(0..4, &[(0, "a"), (3, "b")]),
+            vec![
+                Piece::Heading("a"),
+                Piece::Fields(0..3),
+                Piece::Heading("b"),
+                Piece::Fields(3..4),
+            ]
+        );
+        // Outside the section, past the last slot, and behind one already
+        // drawn: dropped, never drawn over nothing and never drawn backwards.
+        assert_eq!(
+            split(2..4, &[(0, "a"), (9, "b")]),
+            vec![Piece::Fields(2..4)]
+        );
+        assert_eq!(
+            split(0..4, &[(3, "b"), (1, "a")]),
+            vec![
+                Piece::Fields(0..3),
+                Piece::Heading("b"),
+                Piece::Fields(3..4)
+            ]
+        );
     }
 }

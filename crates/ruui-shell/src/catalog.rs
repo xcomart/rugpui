@@ -344,6 +344,25 @@ pub trait ThemeCatalog: 'static {
         None
     }
 
+    /// Headings the editor draws inside its field list, each before the slot
+    /// its index names.
+    ///
+    /// `(slot index, label key)`, and the editor looks the key up in the
+    /// host's own words like every other string here. The default is no
+    /// headings at all, which is what a format with sixteen slots and one
+    /// meaning wants; a format whose slots fall into named families — chrome,
+    /// grid, diagnostics — names the first slot of each and gets a list a
+    /// person can navigate.
+    ///
+    /// Independent of [`ThemeCatalog::optional_group_start`], which draws its
+    /// own heading over the optional tail; an index inside that tail is drawn
+    /// there just the same. An index past the last slot is ignored rather than
+    /// drawn over nothing, and two headings on one index are drawn in the
+    /// order given.
+    fn group_headings(&self) -> Vec<(usize, &'static str)> {
+        Vec::new()
+    }
+
     /// Whether the format has a dark/light flag at all.
     ///
     /// The editor draws a checkbox for it when it does, and leaves the value
