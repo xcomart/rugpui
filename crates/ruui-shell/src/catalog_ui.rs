@@ -177,6 +177,16 @@ impl CatalogActions {
         &self.selection
     }
 
+    /// Whether the delete confirmation is showing.
+    ///
+    /// The host's own `Escape` handler needs this: a keystroke meant to back
+    /// the confirmation out must not fall through and close the whole dialog
+    /// around it, so the handler asks a row whether it is mid-question before
+    /// deciding what `Escape` should do.
+    pub fn is_confirming(&self) -> bool {
+        self.confirming
+    }
+
     /// Tells the row which entry the picker above it has selected.
     ///
     /// Call it whenever the form's own value changes, including when the form
@@ -283,7 +293,13 @@ impl CatalogActions {
     }
 
     /// Drops the delete confirmation without acting on it.
-    fn cancel_confirm(&mut self, cx: &mut Context<Self>) {
+    ///
+    /// The row's own "cancel" button already calls this; it is public so the
+    /// host's `Escape` handler can call it too, for a row
+    /// [`is_confirming`](CatalogActions::is_confirming) said was mid-question —
+    /// backing the question out is what `Escape` should mean there, rather
+    /// than closing the settings dialog around it.
+    pub fn cancel_confirm(&mut self, cx: &mut Context<Self>) {
         if self.confirming {
             self.confirming = false;
             cx.notify();
@@ -659,5 +675,41 @@ mod tests {
         for action in ACTIONS {
             assert!(action.enabled(true, true), "{action:?} on a custom entry");
         }
+    }
+
+    /// [`CatalogActions::is_confirming`] and [`CatalogActions::cancel_confirm`]
+    /// exist so that a host's own `Escape` handler can ask whether a row is
+    /// mid-question and back it out without the handler falling through to
+    /// whatever `Escape` does for the dialog around it — see the module docs.
+    /// The row's own "cancel" button already exercises `cancel_confirm`
+    /// through the click handler; this is the path the host itself takes.
+    #[gpui::test]
+    fn a_confirmation_can_be_asked_about_and_cancelled_from_outside_the_row(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let catalog: Arc<dyn ThemeCatalog> = Arc::new(crate::catalog::UiThemeCatalog::new(
+            ruui::ThemeDirs {
+                ui_themes: PathBuf::from("/nowhere/themes"),
+                editor_themes: None,
+            },
+            "dark",
+        ));
+
+        cx.update(|cx| {
+            let row = cx.new(|_cx| CatalogActions::new(catalog, 0));
+            row.update(cx, |row, cx| {
+                assert!(!row.is_confirming(), "nothing was asked yet");
+
+                row.run(Action::Delete, cx);
+                assert!(row.is_confirming(), "delete asks before it acts");
+
+                row.cancel_confirm(cx);
+                assert!(!row.is_confirming(), "cancelled, not merely ignored");
+                // Cancelling again is a no-op rather than a panic — the host
+                // does not have to track whether it already asked.
+                row.cancel_confirm(cx);
+                assert!(!row.is_confirming());
+            });
+        });
     }
 }
