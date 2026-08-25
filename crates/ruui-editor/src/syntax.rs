@@ -14,16 +14,17 @@
 //! in for one is smaller and asks the
 //! highlighter instead: a statement runs from the first non-blank byte after
 //! the previous semicolon to the semicolon that ends it, and a semicolon counts
-//! only when the highlighter did **not** call it part of a string or a comment.
-//! That is where all the value was — a `;` inside `'a;b'` is not a terminator —
-//! and it comes for free from the colours the editor is drawing anyway. A
-//! fragment holding nothing but comments and blanks is not a statement and is
-//! skipped; a last statement with no closing semicolon is a statement.
+//! only when the highlighter did **not** call it part of a string, a comment,
+//! or a quoted identifier. That is where all the value was — a `;` inside
+//! `'a;b'` or `"a;b"` is not a terminator — and it comes for free from the
+//! colours the editor is drawing anyway. A fragment holding nothing but
+//! comments and blanks is not a statement and is skipped; a last statement
+//! with no closing semicolon is a statement.
 //!
-//! A document whose highlighter is [`None`] has no strings and no comments, so
-//! every `;` in it terminates. That is the right answer for plain text: it is
-//! also the only answer available, and nothing asks the question of a plain
-//! text document.
+//! A document whose highlighter is [`None`] has no strings, comments or
+//! quoted identifiers, so every `;` in it terminates. That is the right
+//! answer for plain text: it is also the only answer available, and nothing
+//! asks the question of a plain text document.
 //!
 //! # Why a window is sound
 //!
@@ -43,9 +44,10 @@
 //! # Brackets
 //!
 //! The same shape, and the same reason the depth counter can be trusted: a
-//! bracket the highlighter put inside a string or a comment is not a bracket at
-//! all. The scan walks outwards line by line, lexing each line from its cached
-//! state, and gives up after `MAX_BRACKET_LINES` of them.
+//! bracket the highlighter put inside a string, a comment, or a quoted
+//! identifier is not a bracket at all — `[a]b]` names one column, not two. The
+//! scan walks outwards line by line, lexing each line from its cached state,
+//! and gives up after `MAX_BRACKET_LINES` of them.
 
 use std::ops::Range;
 
@@ -135,9 +137,9 @@ struct Run {
 ///
 /// The highlighter's spans need not tile the line — the bytes it had no opinion
 /// about are the gaps between them — so this walks spans and gaps together. A
-/// string or a comment is one run whatever is inside it, which is what makes a
-/// `;` in a quoted value invisible to the splitter; everything else is split at
-/// blanks and around every `;`.
+/// string, a comment, or a quoted identifier is one run whatever is inside it,
+/// which is what makes a `;` in a quoted value or a quoted name invisible to
+/// the splitter; everything else is split at blanks and around every `;`.
 fn runs(buffer: &Buffer, cache: &SyntaxCache, line: usize, out: &mut Vec<Run>) {
     let text = buffer.line_text(line);
     let bytes = text.as_bytes();
@@ -161,7 +163,10 @@ fn runs(buffer: &Buffer, cache: &SyntaxCache, line: usize, out: &mut Vec<Run>) {
             continue;
         }
 
-        if matches!(token, Some(Token::String | Token::Comment)) {
+        if matches!(
+            token,
+            Some(Token::String | Token::Comment | Token::QuotedIdentifier)
+        ) {
             out.push(Run {
                 start: base + part.start,
                 end: base + part.end,
@@ -411,18 +416,24 @@ struct Bracket {
 
 /// The bracket at `offset`, if there is a real one there.
 ///
-/// "Real" means the highlighter did not put it inside a string or a comment: a
-/// `(` in a quoted value is not a bracket, and neither is one in a `--` tail.
+/// "Real" means the highlighter did not put it inside a string, a comment, or
+/// a quoted identifier: a `(` in a quoted value is not a bracket, neither is
+/// one in a `--` tail, and neither is the `]` inside `` `a]b` ``.
 fn bracket_at(buffer: &Buffer, cache: &SyntaxCache, offset: usize) -> Option<Bracket> {
     let bracket = classify(buffer.rope().byte(offset))?;
     let (line, column) = buffer.point_of(offset);
     is_code(&cache.spans(buffer, line), column).then_some(bracket)
 }
 
-/// Whether the byte at `column` is neither string nor comment.
+/// Whether the byte at `column` is neither string, comment, nor quoted
+/// identifier.
 fn is_code(spans: &[crate::highlight::Span], column: usize) -> bool {
     !spans.iter().any(|span| {
-        span.range.contains(&column) && matches!(span.token, Token::String | Token::Comment)
+        span.range.contains(&column)
+            && matches!(
+                span.token,
+                Token::String | Token::Comment | Token::QuotedIdentifier
+            )
     })
 }
 
@@ -516,6 +527,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::highlight::{Highlighter, LineState, Span};
     use crate::sql_syntax::SqlHighlighter;
 
     /// A buffer and its cache over `text`, with the SQL highlighter.
@@ -523,6 +535,58 @@ mod tests {
         let buffer = Buffer::new(text);
         let cache = SyntaxCache::new(&buffer, Some(Arc::new(SqlHighlighter)));
         (buffer, cache)
+    }
+
+    /// A single-line highlighter with no dialect of its own: `'...'` is a
+    /// string and `"..."` and `[...]` are quoted identifiers, a doubled
+    /// closing character escaping one embedded in the name. It exists to test
+    /// that [`runs`] and the bracket scanner treat every
+    /// [`Token::QuotedIdentifier`] as opaque the way they treat
+    /// [`Token::String`], regardless of which character a highlighter chose
+    /// to quote with — [`SqlHighlighter`] never lexes `[...]` at all, so it
+    /// cannot exercise that half of the contract on its own.
+    struct QuotingHighlighter;
+
+    impl Highlighter for QuotingHighlighter {
+        fn line(&self, text: &str, _state: LineState) -> (Vec<Span>, LineState) {
+            let bytes = text.as_bytes();
+            let mut spans = Vec::new();
+            let mut at = 0;
+            while at < bytes.len() {
+                let (close, token) = match bytes[at] {
+                    b'\'' => (b'\'', Token::String),
+                    b'"' => (b'"', Token::QuotedIdentifier),
+                    b'[' => (b']', Token::QuotedIdentifier),
+                    _ => {
+                        at += 1;
+                        continue;
+                    }
+                };
+                let start = at;
+                at += 1;
+                loop {
+                    match bytes[at..].iter().position(|b| *b == close) {
+                        Some(offset) if bytes.get(at + offset + 1) == Some(&close) => {
+                            at += offset + 2;
+                        }
+                        Some(offset) => {
+                            at += offset + 1;
+                            break;
+                        }
+                        None => {
+                            at = bytes.len();
+                            break;
+                        }
+                    }
+                }
+                spans.push(Span::new(start..at, token));
+            }
+            (spans, LineState::START)
+        }
+
+        fn statements(&self) -> bool {
+            true
+        }
     }
 
     /// The `sql` text of every statement of `script`.
@@ -545,6 +609,25 @@ mod tests {
                 // when it is parked in the comment above one.
                 "-- and a ; here\nselect 1".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn a_semicolon_in_a_quoted_identifier_is_not_a_terminator() {
+        // `"a;b"` is a column named `a;b`, not two statements — the same bug
+        // a `'a;b'` string already had a test for above, but for an
+        // identifier rather than a literal, and for a highlighter that is not
+        // SqlHighlighter.
+        let script = r#"select "a;b" from t; select 1"#;
+        let buffer = Buffer::new(script);
+        let cache = SyntaxCache::new(&buffer, Some(Arc::new(QuotingHighlighter)));
+        let sql: Vec<_> = statements_in(&buffer, &cache, 0..buffer.len())
+            .into_iter()
+            .map(|span| span.sql(script).to_owned())
+            .collect();
+        assert_eq!(
+            sql,
+            vec![r#"select "a;b" from t"#.to_owned(), "select 1".to_owned()]
         );
     }
 
@@ -687,6 +770,21 @@ mod tests {
         // And the caret next to the quoted one finds nothing at all.
         let quoted = script.find('(').expect("an opener");
         assert_eq!(bracket_pair(&buffer, &cache, quoted + 1), None);
+    }
+
+    #[test]
+    fn a_bracket_inside_a_quoted_identifier_is_not_a_bracket() {
+        // `[a]]b]` is the escaped form of the identifier `a]b`, the SQL
+        // Server way of quoting one: the doubled `]]` is a literal character
+        // in the name, not the identifier's close. Neither `]` inside it may
+        // be found as anyone's partner.
+        let script = "select [a]]b] from t;\n";
+        let buffer = Buffer::new(script);
+        let cache = SyntaxCache::new(&buffer, Some(Arc::new(QuotingHighlighter)));
+
+        let first_close = script.find(']').expect("a closing bracket");
+        assert_eq!(bracket_pair(&buffer, &cache, first_close), None);
+        assert_eq!(bracket_pair(&buffer, &cache, first_close + 1), None);
     }
 
     #[test]

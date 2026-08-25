@@ -10,7 +10,9 @@
 //!
 //! * `'...'`, with `''` for an embedded quote, is a string, and it may run over
 //!   a line break;
-//! * `"..."` and `` `...` `` are quoted identifiers, likewise;
+//! * `"..."` and `` `...` `` are quoted identifiers, likewise, and painted as
+//!   such — opaque to the statement splitter and the bracket matcher the same
+//!   way a string is, so a `;` or a bracket inside the name is part of it;
 //! * `--` runs to the end of the line and `/* ... */` over as many lines as it
 //!   needs;
 //! * a word is a keyword if it is one of [`KEYWORDS`], a function if a `(`
@@ -208,7 +210,7 @@ impl State {
     const fn token(self) -> Token {
         match self {
             Self::String => Token::String,
-            Self::DoubleQuoted | Self::BackQuoted => Token::Identifier,
+            Self::DoubleQuoted | Self::BackQuoted => Token::QuotedIdentifier,
             _ => Token::Comment,
         }
     }
@@ -601,14 +603,14 @@ mod tests {
     }
 
     #[test]
-    fn quoted_identifiers_read_as_identifiers() {
+    fn quoted_identifiers_read_as_quoted_identifiers() {
         assert_eq!(
             spans(r#"select "my col", `other` from t"#),
             vec![
                 ("select", Token::Keyword),
-                (r#""my col""#, Token::Identifier),
+                (r#""my col""#, Token::QuotedIdentifier),
                 (",", Token::Punctuation),
-                ("`other`", Token::Identifier),
+                ("`other`", Token::QuotedIdentifier),
                 ("from", Token::Keyword),
                 ("t", Token::Identifier),
             ]

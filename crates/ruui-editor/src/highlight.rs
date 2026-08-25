@@ -52,13 +52,14 @@ use std::sync::Arc;
 
 use crate::buffer::Buffer;
 
-/// One of the twelve token colours an editor palette hands out.
+/// One of the token colours an editor palette hands out.
 ///
-/// The variants are the twelve token slots of
-/// [`EditorTheme`](ruui::EditorTheme) and nothing else, so that mapping a
-/// span onto a colour is a total function with no fallback and no invented
-/// slot. Text a highlighter classifies as nothing at all gets no span, and the
-/// renderer draws it in the palette's foreground colour.
+/// Every variant but [`Token::QuotedIdentifier`] names one of the twelve token
+/// slots of [`EditorTheme`](ruui::EditorTheme), so that mapping a span onto a
+/// colour is a total function with no fallback and no invented slot;
+/// `QuotedIdentifier` shares [`Token::Identifier`]'s slot rather than adding a
+/// thirteenth. Text a highlighter classifies as nothing at all gets no span,
+/// and the renderer draws it in the palette's foreground colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Token {
     /// Reserved words: `select`, `from`, and a template's statement names.
@@ -77,6 +78,11 @@ pub enum Token {
     Operator,
     /// Table, column, alias and key names.
     Identifier,
+    /// A quoted identifier — `"…"`, `` `…` `` or `[…]` in SQL. Painted like an
+    /// identifier, but opaque to the statement splitter and the bracket
+    /// matcher the way a string is: a `;` or a bracket inside it is part of
+    /// the name.
+    QuotedIdentifier,
     /// Brackets, semicolons, dots and a template's `${`/`}`.
     Punctuation,
     /// The bracket under the caret and its partner.

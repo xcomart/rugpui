@@ -562,9 +562,10 @@ fn runs_for(
 
 /// The palette slot a token draws in.
 ///
-/// One arm per variant and no fallback: [`Token`] is the palette's twelve token
-/// slots and nothing else, which is what keeps a highlighter from inventing a
-/// class no theme has a color for.
+/// One arm per variant and no fallback: every [`Token`] maps to one of the
+/// palette's twelve slots, which is what keeps a highlighter from inventing a
+/// class no theme has a color for. [`Token::QuotedIdentifier`] shares
+/// [`Token::Identifier`]'s slot rather than needing one of its own.
 const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
     match token {
         Token::Keyword => palette.keyword,
@@ -575,7 +576,7 @@ const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
         Token::Comment => palette.comment,
         Token::Operator => palette.operator,
         Token::Punctuation => palette.punctuation,
-        Token::Identifier => palette.identifier,
+        Token::Identifier | Token::QuotedIdentifier => palette.identifier,
         Token::BracketMatch => palette.bracket_match,
         Token::Error => palette.error,
         Token::Warning => palette.warning,

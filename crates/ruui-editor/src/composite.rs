@@ -36,7 +36,11 @@
 //! [`LineState::pack`] puts the base's in the low sixteen bits and the
 //! overlay's in the high sixteen. A highlighter that means to be composed must
 //! keep its state inside [`LineState::COMPOSABLE_BITS`], which the lexers
-//! shipped here do with room to spare — three bits for SQL.
+//! shipped here do with room to spare — three bits for SQL. A host highlighter
+//! whose state needs a side table to fit — because it tracks more than
+//! `COMPOSABLE_BITS` worth of nesting in one `u32` — cannot be composed as
+//! either the base or the overlay: [`LineState`] carries nothing but the
+//! integer, and there is nowhere for the table to travel with it.
 //!
 //! # What it does not do
 //!
