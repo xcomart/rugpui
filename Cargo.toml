@@ -143,6 +143,49 @@ ropey = { version = "1.6", default-features = false, features = [
     "simd",
 ] }
 
+# The update dialog polls a background install and the progress it reports
+# together, so that a bar does not sit frozen for the whole download. gpui's
+# executor speaks `Future` and nothing else, so the combinators come from here.
+# Already in the tree as a dependency of gpui itself, so this is an edge and not
+# a crate.
+futures = "0.3"
+
+# --- HTTP and hashing: the self-updater in `ruui-shell` ---
+# The GitHub releases API is the only host the shell ever fetches from, and it
+# is fetched from a background thread that is already blocking on a file write —
+# so a synchronous client is the right shape and an async runtime would be a
+# second one beside the host application's. `ureq` is the smallest such client
+# that still speaks TLS. `rustls` is pinned to the `ring` provider because
+# `aws-lc-rs` needs NASM to build on Windows, and `gzip` is what makes the
+# GitHub API's compressed JSON readable at all.
+ureq = { version = "3", default-features = false, features = [
+    "rustls",
+    "_ring",
+    "gzip",
+] }
+
+# SHA-256, for verifying a downloaded release against the `digest` the releases
+# API publishes for it. `ring` is already in the tree as the crypto backend
+# `ureq`'s `rustls` resolves to, so naming it directly adds a dependency edge
+# and not a crate.
+ring = "0.17"
+
+# --- platform window chrome, and one platform registry ---
+# All three are used by `ruui-shell` alone, and every one of them only under a
+# `[target.'cfg(...)']` section, so a build for another platform never sees
+# them.
+#
+# `windows` is what the caption module pins the native title bar to the app
+# theme with, at the version gpui already links (0.61) so the bindings are
+# shared rather than duplicated in the tree; `raw-window-handle` is how gpui
+# hands out the `HWND` it needs. `windows-registry` is the one registry
+# consumer: after a self-update the shell corrects the `DisplayVersion` in the
+# uninstall entry an Inno Setup installer wrote, so that winget still recognises
+# the installed copy.
+windows = { version = "0.61", features = ["Win32_Graphics_Dwm"] }
+windows-registry = "0.5"
+raw-window-handle = "0.6"
+
 # --- GUI: Zed's GPU-accelerated UI framework ---
 # The revision has to be spelled out wherever the crate is named: a git
 # dependency is identified by URL *and* revision, so naming the same commit
@@ -160,6 +203,7 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07
 ruui = { path = "crates/ruui" }
 ruui-grid = { path = "crates/ruui-grid" }
 ruui-editor = { path = "crates/ruui-editor" }
+ruui-shell = { path = "crates/ruui-shell" }
 
 [profile.dev]
 # gpui + its dependency tree is large; keep debug builds usable.
