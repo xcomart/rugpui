@@ -20,8 +20,8 @@ type ToggleHandler = Box<dyn Fn(bool, &mut Window, &mut App)>;
 /// ```ignore
 /// Checkbox::new("remember", "Remember password")
 ///     .checked(self.remember)
-///     .on_toggle(cx.listener(|this, checked, _window, cx| {
-///         this.remember = *checked;
+///     .on_toggle(cx.processor(|this, checked, _window, cx| {
+///         this.remember = checked;
 ///         cx.notify();
 ///     }))
 /// ```
