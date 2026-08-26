@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use gpui::{
     Anchor, AnchoredPositionMode, App, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
-    Window, anchored, deferred, div, point, prelude::*, px, transparent_black,
+    Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
 };
 
 use crate::scrollbar::Scrollbar;
@@ -93,6 +93,7 @@ pub struct Select {
     scrollbar: Option<Scrollbar>,
     on_select: Option<SelectHandler>,
     on_open_change: Option<OpenChangeHandler>,
+    chevron_icon: Option<SharedString>,
 }
 
 impl Select {
@@ -112,6 +113,7 @@ impl Select {
             scrollbar: None,
             on_select: None,
             on_open_change: None,
+            chevron_icon: None,
         }
     }
 
@@ -211,6 +213,20 @@ impl Select {
         self.on_open_change = Some(Rc::new(handler));
         self
     }
+
+    /// Draws the asset at `path` in place of the `▾` glyph.
+    ///
+    /// Painted in `theme.text_muted` — the glyph's own tint — whether the list
+    /// is open or closed: a select's chevron always points down, unlike a
+    /// tree's arrow, so there is only ever the one path to hand over, not the
+    /// open/closed pair [`TreeView::with_arrow_icons`](crate::TreeView::with_arrow_icons)
+    /// and [`Collapsible::arrow_icons`](crate::Collapsible::arrow_icons) take.
+    /// Hand this the same asset given to those two so a tree, a collapsible
+    /// section and a dropdown all disclose with the one mark.
+    pub fn chevron_icon(mut self, path: impl Into<SharedString>) -> Self {
+        self.chevron_icon = Some(path.into());
+        self
+    }
 }
 
 impl RenderOnce for Select {
@@ -226,6 +242,7 @@ impl RenderOnce for Select {
         let on_open_change = self.on_open_change;
         let scroll_handle = self.scroll_handle;
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
+        let chevron_icon = self.chevron_icon;
 
         // With nothing selected the row that repeats the placeholder counts as
         // the current one, so a list whose first entry means "no choice" still
@@ -311,7 +328,19 @@ impl RenderOnce for Select {
                     .flex_none()
                     .text_size(px(11.))
                     .text_color(theme.text_muted)
-                    .child(CHEVRON),
+                    .child(match chevron_icon.clone() {
+                        // An SVG takes its colour from its own `text_color`,
+                        // which — unlike a glyph's — does not inherit from the
+                        // box around it, so the muted tint has to be handed to
+                        // it directly.
+                        Some(path) => svg()
+                            .size(px(12.))
+                            .flex_none()
+                            .path(path)
+                            .text_color(theme.text_muted)
+                            .into_any_element(),
+                        None => CHEVRON.into_any_element(),
+                    }),
             );
 
         // A full-window sheet under the list: a pointer press anywhere it can
@@ -438,5 +467,50 @@ impl RenderOnce for Select {
             .when_some(self.width, |this, width| this.w(width))
             .children(open.then_some(overlays))
             .child(trigger)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Deref;
+
+    use gpui::{Context, Render, TestAppContext, VisualTestContext, size};
+
+    use super::*;
+
+    /// Size of the window the render test opens.
+    const HARNESS_WIDTH: f32 = 320.;
+    const HARNESS_HEIGHT: f32 = 200.;
+
+    /// A view holding one open dropdown wearing a chevron icon, as a form
+    /// would.
+    struct Harness;
+
+    impl Render for Harness {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                Select::new("select")
+                    .options([
+                        SharedString::new_static("One"),
+                        SharedString::new_static("Two"),
+                    ])
+                    .selected(Some("One"))
+                    .open(true)
+                    .chevron_icon("icons/chevron.svg"),
+            )
+        }
+    }
+
+    /// [`Select::chevron_icon`] swaps the glyph for an `svg` at the given
+    /// path. The test `AssetSource` answers every path with `None`, which
+    /// gpui draws as nothing, so this only proves the swap does not panic
+    /// layout or paint.
+    #[gpui::test]
+    fn a_chevron_icon_renders_without_panicking(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+
+        let window = cx.open_window(size(px(HARNESS_WIDTH), px(HARNESS_HEIGHT)), |_, _| Harness);
+        let cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
     }
 }

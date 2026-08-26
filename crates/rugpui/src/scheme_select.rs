@@ -20,7 +20,7 @@ use std::rc::Rc;
 
 use gpui::{
     Anchor, AnchoredPositionMode, App, Div, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
-    SharedString, Window, anchored, deferred, div, point, prelude::*, px, transparent_black,
+    SharedString, Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
 };
 
 use crate::scrollbar::Scrollbar;
@@ -219,6 +219,7 @@ pub struct SchemeSelect {
     scrollbar: Option<Scrollbar>,
     on_select: Option<SelectHandler>,
     on_open_change: Option<OpenChangeHandler>,
+    chevron_icon: Option<SharedString>,
 }
 
 impl SchemeSelect {
@@ -238,6 +239,7 @@ impl SchemeSelect {
             scrollbar: None,
             on_select: None,
             on_open_change: None,
+            chevron_icon: None,
         }
     }
 
@@ -342,6 +344,22 @@ impl SchemeSelect {
         self
     }
 
+    /// Draws the asset at `path` in place of the `▾` glyph.
+    ///
+    /// Painted in `theme.text_muted` — the glyph's own tint — whether the list
+    /// is open or closed and whether or not the control is
+    /// [`disabled`](SchemeSelect::disabled): a select's chevron always points
+    /// down, unlike a tree's arrow, so there is only ever the one path to hand
+    /// over, not the open/closed pair
+    /// [`TreeView::with_arrow_icons`](crate::TreeView::with_arrow_icons) and
+    /// [`Collapsible::arrow_icons`](crate::Collapsible::arrow_icons) take.
+    /// Hand this the same asset given to those two so a tree, a collapsible
+    /// section and a dropdown all disclose with the one mark.
+    pub fn chevron_icon(mut self, path: impl Into<SharedString>) -> Self {
+        self.chevron_icon = Some(path.into());
+        self
+    }
+
     /// Whether this render puts the list and its backdrop on screen.
     ///
     /// A disabled control stays shut whatever the parent's open flag says, so
@@ -366,6 +384,7 @@ impl RenderOnce for SchemeSelect {
         let on_open_change = self.on_open_change;
         let scroll_handle = self.scroll_handle;
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
+        let chevron_icon = self.chevron_icon;
 
         let ids: Rc<[SharedString]> = options.iter().map(|entry| entry.id.clone()).collect();
         let current = selected
@@ -462,7 +481,8 @@ impl RenderOnce for SchemeSelect {
                     .child(label),
             )
             .children(pill)
-            // The chevron stays muted either way: it is what makes the line
+            // The chevron — and, if the host supplied one, the icon standing
+            // in for it — stays muted either way: it is what makes the line
             // read as a dropdown at all, and a disabled one is still a
             // dropdown — just one somebody else is driving.
             .child(
@@ -470,7 +490,19 @@ impl RenderOnce for SchemeSelect {
                     .flex_none()
                     .text_size(px(11.))
                     .text_color(theme.text_muted)
-                    .child(CHEVRON),
+                    .child(match chevron_icon.clone() {
+                        // An SVG takes its colour from its own `text_color`,
+                        // which — unlike a glyph's — does not inherit from the
+                        // box around it, so the muted tint has to be handed to
+                        // it directly.
+                        Some(path) => svg()
+                            .size(px(12.))
+                            .flex_none()
+                            .path(path)
+                            .text_color(theme.text_muted)
+                            .into_any_element(),
+                        None => CHEVRON.into_any_element(),
+                    }),
             );
 
         // A full-window sheet under the list: a pointer press anywhere it can
@@ -608,9 +640,15 @@ impl RenderOnce for SchemeSelect {
 
 #[cfg(test)]
 mod tests {
-    use gpui::hsla;
+    use std::ops::Deref;
+
+    use gpui::{Context, Render, TestAppContext, VisualTestContext, hsla, size};
 
     use super::*;
+
+    /// Size of the window the render test opens.
+    const HARNESS_WIDTH: f32 = 320.;
+    const HARNESS_HEIGHT: f32 = 200.;
 
     /// A preview with one accent, enough to tell a pill that has colors from
     /// one that has none.
@@ -668,5 +706,34 @@ mod tests {
         // And the selection is untouched, because it is what the disabled
         // trigger is there to show.
         assert_eq!(select.selected, Some(SharedString::from("one-dark")));
+    }
+
+    /// A view holding one open dropdown wearing a chevron icon, as a form
+    /// would.
+    struct Harness;
+
+    impl Render for Harness {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                SchemeSelect::new("scheme")
+                    .options([SchemeSwatch::new("one-dark", "One Dark").preview(colors())])
+                    .selected(Some("one-dark"))
+                    .open(true)
+                    .chevron_icon("icons/chevron.svg"),
+            )
+        }
+    }
+
+    /// [`SchemeSelect::chevron_icon`] swaps the glyph for an `svg` at the
+    /// given path. The test `AssetSource` answers every path with `None`,
+    /// which gpui draws as nothing, so this only proves the swap does not
+    /// panic layout or paint.
+    #[gpui::test]
+    fn a_chevron_icon_renders_without_panicking(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+
+        let window = cx.open_window(size(px(HARNESS_WIDTH), px(HARNESS_HEIGHT)), |_, _| Harness);
+        let cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
     }
 }
