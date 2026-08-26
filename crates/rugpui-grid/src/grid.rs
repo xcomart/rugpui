@@ -30,6 +30,38 @@
 //! after that. The overlay scrollbars already trail a resize by a frame for the
 //! same reason.
 //!
+//! ## Columns fit what is in them
+//!
+//! By default, and exactly. A grid whose every column is the same width shows a
+//! timestamp as `2026-02-03 09:14…`, which is not a timestamp; the user has to
+//! drag before they can read data they already have. So the first draw that has
+//! rows to measure sizes every column to its content, and the frame that
+//! decides the widths is the frame that draws them — the fitting happens at the
+//! top of `render`, before anything is laid out, which is also the
+//! only place with a [`Window`] to shape text with.
+//!
+//! *Exactly* means shaped, not estimated. Estimating from character cells is
+//! what leaves a column a few pixels short on a proportional face, and a few
+//! pixels short is an ellipsis. What keeps that affordable is that the estimate
+//! is still used — but only to **narrow the field**, never to pick the winner.
+//! One allocation-free pass over the sampled rows keeps every value within
+//! `FIT_SPREAD` cells of the longest, up to `FIT_CANDIDATES` of them, and only
+//! those, plus the heading, go to the text system. It cannot pick the winner
+//! because character cells and pixels are different units: `Pinewood Hardware`
+//! and `Northwind Traders` are both seventeen cells and one of them is plainly
+//! wider. Five hundred rows cost five hundred integer comparisons and at most
+//! seventeen shaped lines. That pass is the one thing in the widget proportional
+//! to the size of the result rather than to the size of the window, which is why
+//! it is bounded at `AUTOFIT_SAMPLE` and why it runs when a batch lands rather
+//! than every frame.
+//!
+//! Whose width it is decides what may happen to it next — see `Sizing`. A width
+//! the user dragged is theirs until they ask for it back; a fitted one may be
+//! *widened* as later batches of the same result arrive but never narrowed,
+//! because a column that shrank under a pointer that was reading it is worse
+//! than a column slightly too wide; and a new result ([`GridView::reset`])
+//! starts the whole argument over.
+//!
 //! ## What the grid asks the host to do
 //!
 //! Five things, all of them round trips the widget has no business making:
@@ -71,10 +103,11 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, DragMoveEvent,
-    ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IsZero, KeyBinding, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle, ScrollStrategy,
-    ScrollWheelEvent, SharedString, Size, Subscription, UniformListScrollHandle, Window, actions,
-    canvas, div, point, prelude::*, px, size, uniform_list,
+    ElementId, Entity, EventEmitter, FocusHandle, Focusable, Font, Hsla, IsZero, KeyBinding,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle,
+    ScrollStrategy, ScrollWheelEvent, SharedString, Size, Subscription, TextRun,
+    UniformListScrollHandle, Window, actions, canvas, div, point, prelude::*, px, size,
+    uniform_list,
 };
 use rugpui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
@@ -172,7 +205,29 @@ const GUTTER_WIDTH: f32 = 56.;
 /// Padding at both ends of a cell.
 const CELL_PADDING: f32 = 6.;
 
-/// Width a column is given before anyone has dragged it.
+/// Width of the line between one cell and the next.
+///
+/// Written down rather than left implicit in the `border_r_1()` the cells and
+/// the headings are drawn with, because a fitted width has to leave room for
+/// it: gpui sizes a box the way CSS's `border-box` does, so the padding *and*
+/// the border come out of the width a column is given, and a column exactly as
+/// wide as its padding plus its text is a column one pixel too narrow — which
+/// is an ellipsis, which is the fault fitting exists to cure. Keep the two in
+/// step if the border ever changes.
+const CELL_BORDER: f32 = 1.;
+
+/// The size the grid draws its text at.
+///
+/// A constant rather than a number in `render` because fitting a column has to
+/// shape at exactly the size the cells are drawn at: measured at any other size
+/// the answer is a fit to a table nobody is looking at.
+const TEXT_SIZE: f32 = 13.;
+
+/// Width a column is given before it has been fitted or dragged.
+///
+/// With fitting on — which is the default — a column only ever wears this while
+/// there are no rows to measure it against, because an empty result says
+/// nothing about how wide its values are.
 const DEFAULT_COLUMN_WIDTH: f32 = 140.;
 
 /// Narrowest a column may be dragged.
@@ -184,19 +239,43 @@ const MIN_COLUMN_WIDTH: f32 = 32.;
 /// Widest a column may be made by *fitting* it.
 ///
 /// A dragged column has no cap — the user can see what they are doing — but a
-/// double click on a `TEXT` column would otherwise fit it to a paragraph.
+/// fitted `TEXT` column would otherwise be as wide as a paragraph, and one such
+/// column pushes every column after it off the screen.
 const MAX_AUTOFIT_WIDTH: f32 = 480.;
 
 /// Width of the invisible strip on a column's edge that answers a resize drag.
 const GRIP_WIDTH: f32 = 6.;
 
-/// Roughly how wide one character cell is at the grid's text size.
+/// How far behind the widest sampled value, in character cells, a value may
+/// still be worth shaping.
 ///
-/// Auto-fit measures in character cells ([`UnicodeWidthStr`]) and multiplies,
-/// rather than shaping the text: shaping several hundred sampled values to size
-/// one column would cost more than the column is worth, and being a few pixels
-/// out only means the user drags it afterwards — which they can.
-const APPROX_ADVANCE: f32 = 7.2;
+/// **Equal character counts are not equal widths.** On the proportional face an
+/// app actually ships, `Pinewood Hardware` and `Northwind Traders` are both
+/// seventeen cells wide and neither is seventeen anythings wide on screen: `W`
+/// and `H` are broad, `i` and `l` are hairlines, and the gap between two
+/// same-length values can be tens of pixels. A ranking by character cells
+/// therefore says only *roughly* which value is widest, and a fit that shaped
+/// the top of that ranking alone would leave whichever near-miss actually
+/// shapes widest one ellipsis short — which is the fault fitting exists to
+/// cure.
+///
+/// So the cheap count is not used to pick a winner. It is used to draw a band:
+/// everything within this many cells of the leader is a plausible winner and
+/// goes to the text system, and everything below it cannot make the difference
+/// up in glyph widths. Three cells is comfortably more than the widest-to-
+/// narrowest spread of one character in the faces a UI uses.
+const FIT_SPREAD: usize = 3;
+
+/// The most values shaped to size one column.
+///
+/// A ceiling on what [`FIT_SPREAD`]'s band can cost, for the column where five
+/// hundred sampled values are all the same length — an `id`, a status, a
+/// timestamp — and every one of them is therefore in the band. Sixteen shaped
+/// lines is nothing next to the frame that draws them, and if more than sixteen
+/// values tie it is the widest by character count that are kept: with that many
+/// candidates the odds of the true winner being outside them are remote, and
+/// something has to give or the cheap pass was pointless.
+const FIT_CANDIDATES: usize = 16;
 
 /// How many rows short of the end the next batch is asked for.
 ///
@@ -244,6 +323,15 @@ const SORT_ASCENDING: &str = "\u{25b4}";
 
 /// Marker drawn in the header of a descending column.
 const SORT_DESCENDING: &str = "\u{25be}";
+
+/// The size a sort marker is drawn at.
+///
+/// Small: it is an answer to "which column is this ordered by?", asked of the
+/// whole header at once, and the name beside it is the thing being read.
+const SORT_MARKER_SIZE: f32 = 8.;
+
+/// The gap between a heading's name and its sort marker.
+const HEADING_GAP: f32 = 4.;
 
 /// Registers the key bindings every [`GridView`] relies on.
 ///
@@ -404,7 +492,8 @@ pub enum GridEvent {
     /// menu needs is on [`GridView`] already: [`GridView::copy`],
     /// [`GridView::select_all`], [`GridView::clear_selection`],
     /// [`GridView::toggle_sort`], [`GridView::set_column_hidden`],
-    /// [`GridView::show_all_columns`], [`GridView::autofit_column`], and
+    /// [`GridView::show_all_columns`], [`GridView::autofit_column`],
+    /// [`GridView::autofit_all_columns`], and
     /// [`GridView::sort`], [`GridView::is_column_hidden`],
     /// [`GridView::hidden_column_count`], [`GridView::column_name`] to label
     /// and disable them.
@@ -417,6 +506,26 @@ pub enum GridEvent {
     },
 }
 
+/// Where a column's width came from, and therefore what the grid may do to it
+/// without being asked.
+///
+/// Kept per column rather than as one flag on the grid because a real table is
+/// a mix: two columns the user dragged to where they want them, and thirty the
+/// grid sized itself and can go on sizing as more rows arrive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sizing {
+    /// Never measured and never dragged — what a column wears until there are
+    /// rows to fit it to, and all it ever wears with fitting turned off.
+    Default,
+    /// Measured against the content. May be widened again as the rest of the
+    /// result arrives, and is thrown away by a *new* result.
+    Fitted,
+    /// Dragged, or set by the host. The grid never touches it again on its own:
+    /// a column that sprang back to the grid's idea of the right width one page
+    /// after the user set it would be a widget arguing with its user.
+    User,
+}
+
 /// What has been done to one column.
 ///
 /// Indexed by *source* column, so hiding one does not renumber the rest and a
@@ -426,6 +535,15 @@ pub enum GridEvent {
 struct ColumnState {
     width: f32,
     hidden: bool,
+    /// Whose width `width` is — see [`Sizing`].
+    sizing: Sizing,
+    /// Whether this column is to be measured at the next draw.
+    ///
+    /// The explicit requests — a double click on the grip,
+    /// [`GridView::autofit_column`], [`GridView::autofit_all_columns`] — arrive
+    /// without a [`Window`] and so cannot measure anything themselves; all they
+    /// can do is leave this behind for the draw that can.
+    fit: bool,
     // TODO(M3): `pinned: bool` — a pinned column is drawn in the gutter's strip
     // rather than in the scrolling one, so it never leaves the screen.
 }
@@ -538,6 +656,16 @@ pub struct GridView<S: GridSource> {
     focus_handle: FocusHandle,
     /// One entry per source column, in source order.
     columns: Vec<ColumnState>,
+    /// Whether the grid sizes its own columns — see [`GridView::autofit`].
+    autofit: bool,
+    /// How many rows the last fit measured, and `None` before the first one.
+    ///
+    /// The whole of "fit once, then only widen". A result arrives in batches, so
+    /// the first batch is what the first fit sees; every batch after it may
+    /// widen a fitted column but never narrow one, and only while this is still
+    /// short of `AUTOFIT_SAMPLE` — past that the sample is full and another page
+    /// can teach it nothing.
+    fitted_at: Option<usize>,
     /// The showing columns and their left edges, in display order.
     laid_out: Vec<Placed>,
     /// How wide every showing column is, together.
@@ -585,6 +713,8 @@ impl<S: GridSource> GridView<S> {
             source,
             focus_handle: cx.focus_handle(),
             columns: Vec::new(),
+            autofit: true,
+            fitted_at: None,
             laid_out: Vec::new(),
             total_width: 0.,
             h_offset: 0.,
@@ -606,6 +736,30 @@ impl<S: GridSource> GridView<S> {
         };
         grid.ensure_layout();
         grid
+    }
+
+    /// Whether the grid sizes every column to what is in it (the default), or
+    /// leaves them all at the same starting width.
+    ///
+    /// On is the right default because a column the user has to drag before
+    /// they can read their own data is a column that failed at the one thing it
+    /// is for: a timestamp shown as `2026-02-03 09:14…` is not a timestamp.
+    /// Turn it off for a grid whose widths the host sets itself, or one where
+    /// two grids lining up column for column matters more than the values
+    /// fitting.
+    ///
+    /// Fitting never overrules the user: a width that was dragged is left alone
+    /// until [`GridView::reset`], [`GridView::autofit_column`] or
+    /// [`GridView::autofit_all_columns`] asks for it back.
+    pub fn autofit(mut self, enabled: bool) -> Self {
+        self.autofit = enabled;
+        self
+    }
+
+    /// Every column at `DEFAULT_COLUMN_WIDTH` until something moves it — the
+    /// same as `autofit(false)`, spelled the way a host reads it.
+    pub fn fixed_widths(self) -> Self {
+        self.autofit(false)
     }
 
     /// Places the grid at `index` in the window's tab order.
@@ -662,6 +816,10 @@ impl<S: GridSource> GridView<S> {
         self.selection.clear();
         self.sort = None;
         self.asked_at = None;
+        // A new result is the one thing that earns a column the user dragged
+        // being taken back: the widths were chosen for values that are not
+        // there any more.
+        self.fitted_at = None;
         self.h_offset = 0.;
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.ensure_layout();
@@ -708,6 +866,11 @@ impl<S: GridSource> GridView<S> {
 
     /// Sets how wide `column` is, clamped to something that can still be found
     /// and dragged.
+    ///
+    /// The width becomes the user's: the grid will not fit this column again on
+    /// its own, however many more rows arrive. [`GridView::reset`],
+    /// [`GridView::autofit_column`] and [`GridView::autofit_all_columns`] are
+    /// the three ways back, and all three are somebody asking.
     pub fn set_column_width(&mut self, column: usize, width: f32, cx: &mut Context<Self>) {
         self.commit_edit(cx);
         self.ensure_layout();
@@ -715,6 +878,10 @@ impl<S: GridSource> GridView<S> {
             return;
         };
         let width = width.max(MIN_COLUMN_WIDTH);
+        // Claimed before the width is compared, so that dragging a column back
+        // to exactly where it already was still counts as having chosen it.
+        state.sizing = Sizing::User;
+        state.fit = false;
         if state.width == width {
             return;
         }
@@ -790,30 +957,33 @@ impl<S: GridSource> GridView<S> {
 
     /// Widens or narrows `column` to fit what is in it.
     ///
-    /// What a double click on the resize grip does. Only the first few hundred
-    /// rows are looked at — see `AUTOFIT_SAMPLE`.
+    /// What a double click on the resize grip does, and what a host menu's "fit
+    /// this column" calls. An explicit request, so it takes a column back off
+    /// the user as well: they are the one asking.
+    ///
+    /// Only the first few hundred rows are looked at — see `AUTOFIT_SAMPLE` —
+    /// and the fit lands on the *next* draw rather than this call, because
+    /// measuring text needs a [`Window`] and this signature has none.
     pub fn autofit_column(&mut self, column: usize, cx: &mut Context<Self>) {
         self.ensure_layout();
-        if column >= self.columns.len() {
+        let Some(state) = self.columns.get_mut(column) else {
             return;
-        }
+        };
+        state.fit = true;
+        cx.notify();
+    }
 
-        // Two cells of headroom on the header, for the sort marker that appears
-        // when the column is ordered by.
-        let mut cells = UnicodeWidthStr::width(self.source.column(column).name) + 2;
-        let rows = self.source.row_count().min(AUTOFIT_SAMPLE);
-        for row in 0..rows {
-            let width = match self.source.cell(row, column) {
-                GridCell::Null => NULL_TEXT.width(),
-                GridCell::Default => DEFAULT_TEXT.width(),
-                GridCell::Text(text) => text.width(),
-                GridCell::Lob { size } => lob_label(size).width(),
-            };
-            cells = cells.max(width);
+    /// The same for every column at once, for a host menu's "fit all columns".
+    ///
+    /// Explicit, and therefore allowed to take back a width the user dragged —
+    /// which is the whole difference between this and the fitting the grid does
+    /// of its own accord.
+    pub fn autofit_all_columns(&mut self, cx: &mut Context<Self>) {
+        self.ensure_layout();
+        for state in &mut self.columns {
+            state.fit = true;
         }
-
-        let width = cells as f32 * APPROX_ADVANCE + CELL_PADDING * 2.;
-        self.set_column_width(column, width.min(MAX_AUTOFIT_WIDTH), cx);
+        cx.notify();
     }
 
     /// Walks the sort of `column` on one step: ascending, descending, none.
@@ -1159,12 +1329,187 @@ impl<S: GridSource> GridView<S> {
             ColumnState {
                 width: DEFAULT_COLUMN_WIDTH,
                 hidden: false,
+                sizing: Sizing::Default,
+                fit: false,
             };
             count
         ];
+        // A different number of columns is a different result, whatever route
+        // it arrived by, so the fitting starts over with it.
+        self.fitted_at = None;
         self.selection.clear();
         self.h_offset = 0.;
         self.relayout();
+    }
+
+    /// Which columns are to be measured this frame, and whether each may only
+    /// widen.
+    ///
+    /// Three things put a column in the list, and they are not the same thing.
+    /// An **explicit** request — the grip's double click,
+    /// [`GridView::autofit_column`], [`GridView::autofit_all_columns`] — puts
+    /// any column in it, a width the user dragged included, and lets that width
+    /// shrink: somebody asked. The **first** batch of a result puts every column
+    /// that is not the user's in it. **Every batch after that** puts the fitted
+    /// ones in it to widen only, and only while the sample is still filling up:
+    /// a column that narrowed as page three landed would slide the whole table
+    /// sideways under a pointer that is reading it, and that jitter is a worse
+    /// fault than a column a few pixels wider than it needs to be.
+    fn fit_plan(&self) -> Vec<(usize, bool)> {
+        let rows = self.source.row_count();
+        // Nothing at all until there are rows: an empty result says nothing
+        // about how wide its values are, so fitting to one would only throw the
+        // default away and have to be done again when the rows arrive.
+        let automatic = match self.fitted_at {
+            _ if !self.autofit || rows == 0 => None,
+            None => Some(false),
+            Some(seen) if seen < AUTOFIT_SAMPLE && rows > seen => Some(true),
+            Some(_) => None,
+        };
+
+        self.columns
+            .iter()
+            .enumerate()
+            .filter_map(|(column, state)| {
+                if state.fit {
+                    return Some((column, false));
+                }
+                let grow_only = automatic?;
+                match state.sizing {
+                    Sizing::User => None,
+                    Sizing::Default | Sizing::Fitted => Some((column, grow_only)),
+                }
+            })
+            .collect()
+    }
+
+    /// Measures the columns [`GridView::fit_plan`] names and writes the widths
+    /// back, answering whether any of them moved.
+    ///
+    /// Called from `render`, and before anything is built, for two reasons.
+    /// Shaping text needs a [`Window`], which only a draw has; and deciding the
+    /// widths before the header and the rows are laid out means the frame that
+    /// fits a column is the frame that draws it fitted — no flash of the default
+    /// width, no extra frame.
+    fn fit_columns(&mut self, window: &Window) -> bool {
+        let plan = self.fit_plan();
+        for state in &mut self.columns {
+            state.fit = false;
+        }
+        let sample = self.source.row_count().min(AUTOFIT_SAMPLE);
+        if self.autofit && sample > 0 {
+            // Remembered whether or not anything was in the plan: the sample has
+            // been seen either way, and what the next batch is judged against is
+            // how much of it had arrived, not how many columns it moved.
+            self.fitted_at = Some(sample);
+        }
+        if plan.is_empty() {
+            return false;
+        }
+
+        // The font the cells are actually drawn in. The grid sets its own text
+        // *size* and inherits everything else from whatever it was put inside,
+        // so the family has to be read back off the window rather than assumed.
+        let font = window.text_style().font();
+        let widths: Vec<(usize, f32, bool)> = plan
+            .into_iter()
+            .map(|(column, grow_only)| {
+                (
+                    column,
+                    self.fitted_width(column, sample, &font, window),
+                    grow_only,
+                )
+            })
+            .collect();
+
+        let mut moved = false;
+        for (column, width, grow_only) in widths {
+            let state = &mut self.columns[column];
+            let width = if grow_only {
+                width.max(state.width)
+            } else {
+                width
+            };
+            state.sizing = Sizing::Fitted;
+            if (width - state.width).abs() < 0.5 {
+                continue;
+            }
+            state.width = width;
+            moved = true;
+        }
+        moved
+    }
+
+    /// How wide `column` has to be for its content to be read, measured rather
+    /// than guessed.
+    fn fitted_width(&self, column: usize, rows: usize, font: &Font, window: &Window) -> f32 {
+        // The heading, with room for the sort marker whether or not it is
+        // showing: a column that jumped wider the moment it was ordered by would
+        // shove every column after it along, and the user has just clicked on
+        // one of them.
+        let name = self.source.column(column).name;
+        let mut widest = shaped_width(name, font, px(TEXT_SIZE), window)
+            + HEADING_GAP
+            + shaped_width(SORT_ASCENDING, font, px(SORT_MARKER_SIZE), window);
+
+        for row in self.candidate_rows(column, rows) {
+            let label = cell_label(&self.source.cell(row, column));
+            widest = widest.max(shaped_width(&label.text, font, px(TEXT_SIZE), window));
+        }
+
+        // Rounded up, and up rather than to the nearest, for the same reason the
+        // border is counted at all: gpui rounds a width to whole device pixels,
+        // and rounding a fit *down* is how a value ends up a fraction of a pixel
+        // short of the box it was measured for.
+        (widest + CELL_PADDING * 2. + CELL_BORDER)
+            .ceil()
+            .clamp(MIN_COLUMN_WIDTH, MAX_AUTOFIT_WIDTH)
+    }
+
+    /// The sampled rows whose value in `column` is worth shaping: everything
+    /// within [`FIT_SPREAD`] cells of the widest, at most [`FIT_CANDIDATES`] of
+    /// them.
+    ///
+    /// A *band*, not a top three, and the difference is the whole point.
+    /// Character cells and shaped pixels are different units on a proportional
+    /// font — `Pinewood Hardware` and `Northwind Traders` are both seventeen
+    /// cells and the first is visibly the wider — so the cheap count cannot be
+    /// asked which value wins. It can only be asked which values are still in
+    /// the running, and the exact answer decides between them. Taking the top
+    /// few by count instead loses every tie, and a tie is exactly the case a
+    /// column of names is made of.
+    ///
+    /// One pass over the sample, shaping nothing and allocating nothing per row.
+    /// The leader only ever moves up, so a value that has fallen out of the band
+    /// is out of it for good and can be dropped as soon as that is noticed.
+    fn candidate_rows(&self, column: usize, rows: usize) -> Vec<usize> {
+        let mut best: Vec<(usize, usize)> = Vec::with_capacity(FIT_CANDIDATES + 1);
+        let mut widest = 0;
+        for row in 0..rows {
+            let cells = match self.source.cell(row, column) {
+                GridCell::Null => NULL_TEXT.width(),
+                GridCell::Default => DEFAULT_TEXT.width(),
+                GridCell::Text(text) => text.width(),
+                GridCell::Lob { size } => lob_label(size).width(),
+            };
+            widest = widest.max(cells);
+            let floor = widest.saturating_sub(FIT_SPREAD);
+            // `best` is sorted widest first, so the ones the leader has just
+            // left behind are all at the end of it.
+            while best.last().is_some_and(|(width, _)| *width < floor) {
+                best.pop();
+            }
+            if cells < floor {
+                continue;
+            }
+            if best.len() == FIT_CANDIDATES && cells <= best[FIT_CANDIDATES - 1].0 {
+                continue;
+            }
+            let at = best.partition_point(|(width, _)| *width >= cells);
+            best.insert(at, (cells, row));
+            best.truncate(FIT_CANDIDATES);
+        }
+        best.into_iter().map(|(_, row)| row).collect()
     }
 
     /// Works out where every showing column starts.
@@ -1839,7 +2184,7 @@ impl<S: GridSource> GridView<S> {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(4.))
+            .gap(px(HEADING_GAP))
             .px(px(CELL_PADDING))
             .border_r_1()
             .border_color(theme.border)
@@ -1879,7 +2224,7 @@ impl<S: GridSource> GridView<S> {
             .children(marker.map(|marker| {
                 div()
                     .flex_none()
-                    .text_size(px(8.))
+                    .text_size(px(SORT_MARKER_SIZE))
                     .text_color(theme.accent)
                     .child(marker)
             }))
@@ -2162,6 +2507,40 @@ fn status_color(status: RowStatus, theme: &Theme) -> Option<Hsla> {
     }
 }
 
+/// How wide `text` is once the text system has really shaped it.
+///
+/// The reason fitting a column is worth doing at all. A width guessed from
+/// character cells is out by however far the font's advances differ from the
+/// guess, which on the proportional face an app actually ships is enough to
+/// truncate the value the user was trying to read — and a fit that truncates is
+/// the fault it was meant to cure.
+fn shaped_width(text: &str, font: &Font, size: Pixels, window: &Window) -> f32 {
+    // `shape_line` shapes one line and *panics* on a newline, which a value out
+    // of a database is entirely entitled to contain. A space is near enough what
+    // a one-line cell draws it as, and one byte for one byte keeps the run's
+    // length right.
+    let text = if text.contains(['\n', '\r']) {
+        SharedString::from(text.replace(['\n', '\r'], " "))
+    } else {
+        SharedString::from(text.to_string())
+    };
+    let run = TextRun {
+        len: text.len(),
+        font: font.clone(),
+        // Shaping, not painting: a colour cannot move a glyph's advance, so any
+        // of them measures the same.
+        color: Hsla::default(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window
+        .text_system()
+        .shape_line(text, size, &[run], None)
+        .width()
+        .into()
+}
+
 /// `base` moved by `step`, kept inside `0..=last`.
 fn offset(base: usize, step: isize, last: usize) -> usize {
     let moved = base as isize + step;
@@ -2179,6 +2558,14 @@ impl<S: GridSource> Focusable for GridView<S> {
 impl<S: GridSource> Render for GridView<S> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_layout();
+
+        // Before anything is built, so that the header and the rows below are
+        // laid out at the widths this frame decided rather than the last one's.
+        // See `fit_columns` for why measuring can only happen here.
+        if self.fit_columns(window) {
+            self.relayout();
+            self.clamp_h_offset();
+        }
 
         // A result the host swapped out from under an open field: the cell the
         // field was over is not there any more, so there is nothing to commit
@@ -2299,7 +2686,7 @@ impl<S: GridSource> Render for GridView<S> {
             // selection go on painting — they are accents over the background,
             // not the background.
             .when(!window_translucent(cx), |grid| grid.bg(palette.background))
-            .text_size(px(13.))
+            .text_size(px(TEXT_SIZE))
             .text_color(palette.text)
             .on_action(cx.listener(Self::move_up))
             .on_action(cx.listener(Self::move_down))
@@ -2613,6 +3000,39 @@ mod tests {
         }
     }
 
+    /// The longest value in the `placed_at` column of [`narrow_and_wide`], which
+    /// is what that column has to be wide enough for.
+    const LONGEST: &str = "2026-02-03 09:15:07";
+
+    /// Two columns that are nothing like the same width: a number two
+    /// characters wide and a timestamp that does not fit the default.
+    ///
+    /// The shape the whole feature exists for — the gallery's grid, and every
+    /// result with an `id` and a date in it.
+    fn narrow_and_wide() -> Small {
+        Small {
+            headings: vec![
+                ("id", GridColumnKind::Number),
+                ("placed_at", GridColumnKind::Text),
+            ],
+            rows: vec![
+                vec![Some("1"), Some("2026-02-03 09:14:22")],
+                vec![Some("2"), Some(LONGEST)],
+            ],
+        }
+    }
+
+    /// What a column holding `text` ought to fit to, worked out the way the grid
+    /// works it out: shape the value with the window's own text system, then add
+    /// what the cell's padding and border take out of the width.
+    fn fitted_width_of(text: &str, cx: &mut VisualTestContext) -> f32 {
+        cx.update(|window, _| {
+            let font = window.text_style().font();
+            (shaped_width(text, &font, px(TEXT_SIZE), window) + CELL_PADDING * 2. + CELL_BORDER)
+                .ceil()
+        })
+    }
+
     /// A view that does nothing but hold the grid, as a result panel would.
     struct Harness<S: GridSource> {
         grid: Entity<GridView<S>>,
@@ -2690,7 +3110,31 @@ mod tests {
     }
 
     /// Opens a focused grid over `source` and hands back its handles.
+    ///
+    /// **Fixed widths**, unlike a grid a host gets: nearly every test here works
+    /// out where to click from `DEFAULT_COLUMN_WIDTH`, and a grid that sized its
+    /// own columns would slide the target out from under that arithmetic. It
+    /// also keeps the "only the visible rows are read" tests honest — a fit
+    /// reads the sample, which is exactly the budget those tests are policing.
+    /// The tests that are *about* fitting use [`open_fitted`].
     fn open<S: GridSource>(source: S, cx: &mut TestAppContext) -> (Handles<S>, VisualTestContext) {
+        open_with(source, true, cx)
+    }
+
+    /// The same, with the column fitting a host gets by default left switched
+    /// on.
+    fn open_fitted<S: GridSource>(
+        source: S,
+        cx: &mut TestAppContext,
+    ) -> (Handles<S>, VisualTestContext) {
+        open_with(source, false, cx)
+    }
+
+    fn open_with<S: GridSource>(
+        source: S,
+        fixed: bool,
+        cx: &mut TestAppContext,
+    ) -> (Handles<S>, VisualTestContext) {
         cx.update(rugpui::init);
         cx.update(crate::init);
 
@@ -2698,7 +3142,10 @@ mod tests {
         let window = cx.add_window({
             let events = events.clone();
             move |_, cx| {
-                let grid = cx.new(|cx| GridView::new(source, cx));
+                let grid = cx.new(|cx| {
+                    let grid = GridView::new(source, cx);
+                    if fixed { grid.fixed_widths() } else { grid }
+                });
                 // Cloned rather than copied: `GridEvent::EditCommitted` carries
                 // the text that was typed.
                 cx.subscribe(&grid, move |_: &mut Harness<S>, _, event: &GridEvent, _| {
@@ -3290,6 +3737,10 @@ mod tests {
 
     /// A column can be widened and fitted, and a fit never shrinks a column
     /// below what can be grabbed again.
+    ///
+    /// On a `fixed_widths` grid, so that the starting width is known and so that
+    /// the fit under test is the one the double click asks for rather than the
+    /// one the first frame would have done anyway.
     #[gpui::test]
     fn a_column_can_be_widened_and_fitted(cx: &mut TestAppContext) {
         let (grid, mut cx) = open(
@@ -3317,6 +3768,189 @@ mod tests {
         assert!(
             fitted > DEFAULT_COLUMN_WIDTH && fitted <= MAX_AUTOFIT_WIDTH,
             "a twenty-six character value fitted to {fitted}"
+        );
+    }
+
+    /// The default a host gets: every column sized to what is in it, so a
+    /// number column is narrow, a timestamp column is wide enough to read, and
+    /// neither is the width the other one happens to need.
+    #[gpui::test]
+    fn the_columns_fit_their_content_by_default(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+
+        let (number, timestamp) =
+            grid.read(&mut cx, |grid| (grid.column_width(0), grid.column_width(1)));
+        assert!(
+            number < DEFAULT_COLUMN_WIDTH,
+            "a two-character number column fitted to {number}"
+        );
+        assert!(
+            timestamp > DEFAULT_COLUMN_WIDTH,
+            "a nineteen-character timestamp column fitted to {timestamp}"
+        );
+        assert!(
+            timestamp > number,
+            "the wide column ({timestamp}) came out no wider than the narrow one ({number})"
+        );
+    }
+
+    /// The fit is a *measurement*: the width is what the text system says the
+    /// longest value shapes to, plus the padding either side of it, and not a
+    /// guess from character cells that would leave the value an ellipsis short.
+    #[gpui::test]
+    fn a_fitted_width_is_the_shaped_width_of_the_widest_value(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+
+        let expected = fitted_width_of(LONGEST, &mut cx);
+        assert_eq!(grid.read(&mut cx, |grid| grid.column_width(1)), expected);
+    }
+
+    /// Character cells are not pixels, and the fit must not confuse the two.
+    ///
+    /// On the face an app really ships this is `Pinewood Hardware` beating
+    /// `Northwind Traders` — the same seventeen characters, visibly different
+    /// widths, because `W` is broad and `i` is a hairline. A fit that shaped only
+    /// the longest few values by character count picks whichever of those the
+    /// sample happened to reach first and truncates the other.
+    ///
+    /// A test has no real face to show that with: gpui's test text system gives
+    /// every character in the basic plane exactly the same advance, so `W` and
+    /// `i` are the same width there. What it does give is the same *divergence*
+    /// approached from the other end — `unicode-width` counts an ideograph as
+    /// two cells while the test font advances it by one — so here the value that
+    /// is longest by cells is the one that shapes narrowest. Which is the case
+    /// that has to come out right either way.
+    #[gpui::test]
+    fn a_column_fits_the_widest_value_and_not_the_longest(cx: &mut TestAppContext) {
+        // Eighteen cells, nine glyphs.
+        let by_cells = "漢字漢字漢字漢字漢";
+        // Sixteen cells, sixteen glyphs: narrower by the count that is cheap to
+        // take, wider by the one that is on screen.
+        let by_pixels = "WWWWWWWWWWWWWWWW";
+
+        let (grid, mut cx) = open_fitted(
+            Small {
+                headings: vec![("customer", GridColumnKind::Text)],
+                rows: vec![
+                    vec![Some(by_cells)],
+                    vec![Some(by_cells)],
+                    vec![Some(by_cells)],
+                    vec![Some(by_pixels)],
+                    vec![Some("short")],
+                ],
+            },
+            cx,
+        );
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(0)),
+            fitted_width_of(by_pixels, &mut cx),
+            "the column was fitted to its longest value rather than its widest"
+        );
+    }
+
+    /// `fixed_widths()` is the way out, and it means what it says.
+    #[gpui::test]
+    fn fixed_widths_leaves_every_column_at_the_default(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(narrow_and_wide(), cx);
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| (grid.column_width(0), grid.column_width(1))),
+            (DEFAULT_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH)
+        );
+    }
+
+    /// A width the user dragged is theirs: neither another batch of the same
+    /// result nor a refresh takes it back.
+    #[gpui::test]
+    fn a_width_the_user_set_survives_more_rows(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+        grid.update(&mut cx, |grid, cx| grid.set_column_width(1, 300., cx));
+        assert_eq!(grid.read(&mut cx, |grid| grid.column_width(1)), 300.);
+
+        grid.update(&mut cx, |grid, cx| {
+            grid.source_mut(cx).rows.push(vec![
+                Some("3"),
+                Some("a value far longer than three hundred pixels of it"),
+            ]);
+        });
+        grid.update(&mut cx, |grid, cx| grid.refresh(cx));
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(1)),
+            300.,
+            "another batch took back a width the user had dragged"
+        );
+    }
+
+    /// A *new* result is the one thing that does take it back: the widths were
+    /// chosen for values that are not there any more.
+    #[gpui::test]
+    fn a_new_result_fits_the_columns_again(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+        let fitted = grid.read(&mut cx, |grid| grid.column_width(1));
+
+        grid.update(&mut cx, |grid, cx| grid.set_column_width(1, 300., cx));
+        grid.update(&mut cx, |grid, cx| grid.reset(cx));
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(1)),
+            fitted,
+            "a new result left the last one's dragged width behind"
+        );
+    }
+
+    /// Paging only ever widens. A column that narrowed as the next batch landed
+    /// would slide every column after it sideways under a pointer that is
+    /// reading them, which is worse than a column a few pixels too wide.
+    #[gpui::test]
+    fn more_rows_only_ever_widen_a_fitted_column(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+        let fitted = grid.read(&mut cx, |grid| grid.column_width(1));
+
+        // More rows than before — so a fit does run — but every value in them
+        // shorter than what the column was sized to.
+        grid.update(&mut cx, |grid, cx| {
+            grid.source_mut(cx).rows = vec![
+                vec![Some("1"), Some("x")],
+                vec![Some("2"), Some("y")],
+                vec![Some("3"), Some("z")],
+            ];
+        });
+        grid.update(&mut cx, |grid, cx| grid.refresh(cx));
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(1)),
+            fitted,
+            "a second batch of shorter values narrowed the column"
+        );
+
+        // A longer one, though, does widen it: the sample is still filling up.
+        let longer = "a good deal longer than any timestamp";
+        grid.update(&mut cx, |grid, cx| {
+            grid.source_mut(cx).rows.push(vec![Some("4"), Some(longer)]);
+        });
+        grid.update(&mut cx, |grid, cx| grid.refresh(cx));
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(1)),
+            fitted_width_of(longer, &mut cx),
+            "a longer value in a later batch did not widen the column"
+        );
+    }
+
+    /// "Fit all columns" is somebody asking, so it is allowed to take back a
+    /// width the user dragged — which is the whole difference between it and
+    /// the fitting the grid does on its own.
+    #[gpui::test]
+    fn fitting_every_column_overrules_a_width_the_user_set(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_fitted(narrow_and_wide(), cx);
+        grid.update(&mut cx, |grid, cx| grid.set_column_width(1, 400., cx));
+        assert_eq!(grid.read(&mut cx, |grid| grid.column_width(1)), 400.);
+
+        grid.update(&mut cx, |grid, cx| grid.autofit_all_columns(cx));
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.column_width(1)),
+            fitted_width_of(LONGEST, &mut cx)
         );
     }
 

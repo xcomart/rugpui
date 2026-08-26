@@ -150,27 +150,48 @@ let grid = cx.new(|cx| {
 
 Give it a bounded box to live in — the gallery puts it in a bordered `div().h(px(256.))` — and render it with `self.grid.clone()`.
 
+### Column widths
+
+**Every column fits its content, by default.** A grid whose columns are all the same width shows a timestamp as `2026-02-03 09:14…`, and a timestamp the user has to drag a column to read is not a timestamp. So the first draw that has rows to measure sizes every column to what is in it. Call `.fixed_widths()` — or `.autofit(false)` — to turn that off, for a grid whose widths the host sets itself or one where two grids lining up column for column matters more than the values fitting.
+
+The fit is a **measurement, not an estimate**: the candidate strings are shaped by the window's own text system, with the font and size the cells are drawn in, and the column is that width plus the cell's padding and border. Guessing from character counts is what leaves a column a few pixels short on a proportional face, and a few pixels short is an ellipsis. `Pinewood Hardware` and `Northwind Traders` are both seventeen characters and are not the same width, which is why counting characters can narrow the field but can never pick the winner.
+
+Each column remembers where its width came from, and that decides what may happen to it next:
+
+| how the width came about | what the grid may do to it |
+| --- | --- |
+| **default** — no rows to measure yet, or fitting is off | fit it as soon as there are rows |
+| **fitted** — the grid measured it | *widen* it as later batches of the same result arrive, while the 500-row sample is still filling up; never narrow it |
+| **user** — dragged by the grip, or set through `set_column_width` | nothing, until somebody asks: `reset`, `autofit_column`, `autofit_all_columns` |
+
+The "never narrow" rule is the one that looks odd written down and is obvious in use: a column that shrank as page three landed would slide every column after it sideways under a pointer that was reading them, and that jitter is worse than a column a few pixels wider than it needs to be.
+
+What it costs, per column: one pass over the sampled rows comparing character counts — allocating nothing, shaping nothing — which keeps every value within three characters of the longest, at most sixteen of them; then those, plus the heading, are shaped. Seventeen shaped lines at the very worst, and usually two or three. This is the one thing the grid does that is proportional to the size of the result rather than to the size of the window, and it is paid on the frame a result first has rows and on the frames a further batch arrives, not every frame. The fitting itself happens at the top of `render`, before the header and the rows are laid out, so the frame that decides a width is the frame that draws it — there is no flash of the default width.
+
 | method | argument | effect |
 | --- | --- | --- |
 | `GridView::new` | `source: S, cx` | A grid over `source`, nothing selected, nothing sorted. |
+| `.autofit(enabled)` | `bool` | Whether the grid sizes every column to its content. **On by default**; see [Column widths](#column-widths) (builder; consumes `self`). |
+| `.fixed_widths()` | — | Every column at 140 px until something moves it — `autofit(false)`, spelled the way a host reads it (builder). |
 | `.tab_index(index)` | `isize` | Places the grid in the window's tab order (builder; consumes `self`). |
 | `.insert_table(table)` | `impl Into<SharedString>` | The table name written into a copied `INSERT` (builder). |
 | `set_insert_table(table)` | `Option<SharedString>` | The same, after the fact. |
 | `source()` / `source_mut(cx)` | — | Read the source, or change it — dropping a fetched batch in, most of the time. `source_mut` commits any edit in progress first and re-reads the shape on the next draw. |
 | `refresh(cx)` | — | Re-read the source, for a change the grid cannot have seen. |
-| `reset(cx)` | — | Throw away column widths, hidden flags, the selection, the sort marker and the scroll position — what a *new* result deserves, as opposed to another batch of the same one. |
+| `reset(cx)` | — | Throw away column widths, hidden flags, the selection, the sort marker and the scroll position, and fit the columns afresh — what a *new* result deserves, as opposed to another batch of the same one. |
 | `selection()` | — | `&Selection`. |
 | `is_selected(row, column)` | display column | Whether that cell is picked. |
 | `sort()` / `set_sort(sort, cx)` | `Option<(usize, SortDirection)>` | Read the marker, or put it where the host says the result really is ordered — without asking for anything. |
 | `toggle_sort(column, cx)` | source column | Walk the sort on one step (ascending, descending, none) and raise `SortRequested`. What a header click does. |
 | `visible_rows()` | — | `Range<usize>`: the rows the list built last frame. |
 | `visible_column_indices()` | — | `Vec<usize>`: the source columns showing, left to right. The index into this is a *display* column. |
-| `column_width(column)` / `set_column_width(column, width, cx)` | source column, `f32` | Width in pixels, clamped so a column can still be found and dragged. |
+| `column_width(column)` / `set_column_width(column, width, cx)` | source column, `f32` | Width in pixels, clamped so a column can still be found and dragged. Setting one makes it the *user's*: the grid stops sizing that column on its own. |
 | `is_column_hidden(column)` / `set_column_hidden(column, hidden, cx)` | source column, `bool` | Hiding clears the selection, because display positions renumber. |
 | `hidden_column_count()` | — | Whether "show every column" is worth offering. |
 | `show_all_columns(cx)` | — | The way back: a hidden column has no heading to right click. |
 | `column_name(column)` | source column | `Option<&str>`, for labelling a menu item. |
-| `autofit_column(column, cx)` | source column | Fit to content, sampling the first 500 rows and capped at 480 px. What a double click on the resize grip does. |
+| `autofit_column(column, cx)` | source column | Fit one column to its content, sampling the first 500 rows and capped at 480 px. What a double click on the resize grip does. Explicit, so it takes back a width the user dragged. Lands on the next draw, which is where the measuring can happen. |
+| `autofit_all_columns(cx)` | — | The same for every column at once, for a menu's "fit all columns". Also takes back dragged widths. |
 | `select_cell(row, column, cx)` / `extend_selection(row, column, cx)` | display column | Replace or stretch, and scroll the cell into view. |
 | `select_row(row, cx)` / `select_all(cx)` / `clear_selection(cx)` | — | As a click on a row number, `Ctrl+A`, and nothing. |
 | `copy(format, cx)` | `CopyFormat` | Writes the selection to the clipboard. |
@@ -246,7 +267,8 @@ A `CellAddress` is `{ row, column }`, and its `column` is the column's **display
 | `Shift`/`Ctrl`-click a row number | grows the block, or adds a row to it |
 | right click | takes the focus, moves the selection only if the press fell *outside* it, then raises `ContextMenu` — no drag, no activation |
 | click a heading | `toggle_sort` on that column |
-| drag a heading's right edge | resizes; double click on it auto-fits |
+| drag a heading's right edge | resizes, and the width becomes the user's — the grid stops sizing that column itself |
+| double click a heading's right edge | fits that column to its content again, dragged width and all |
 | right click a heading or its grip | raises `ContextMenu` with `MenuTarget::Header` and leaves the selection alone |
 | `Shift`+wheel | scrolls sideways, for a mouse with no horizontal wheel |
 
@@ -315,7 +337,7 @@ The grid raises `GridEvent::ContextMenu { target, position }` and stops. It does
 
 `MenuTarget::Cell` covers the body — a cell or a row number. `MenuTarget::Header { column }` is a column heading, and `column` is the source column.
 
-Everything such a menu needs is on `GridView` already: `copy`, `select_all`, `clear_selection`, `toggle_sort`, `set_column_hidden`, `show_all_columns`, `autofit_column` to act, and `sort`, `is_column_hidden`, `hidden_column_count`, `column_name` to label and disable. The host stores the position, renders a [`ContextMenu`](./widgets/menu.md) and clears the position on dismiss:
+Everything such a menu needs is on `GridView` already: `copy`, `select_all`, `clear_selection`, `toggle_sort`, `set_column_hidden`, `show_all_columns`, `autofit_column`, `autofit_all_columns` to act, and `sort`, `is_column_hidden`, `hidden_column_count`, `column_name` to label and disable. The host stores the position, renders a [`ContextMenu`](./widgets/menu.md) and clears the position on dismiss:
 
 ```rust
 GridEvent::ContextMenu { target, position } => {
@@ -398,7 +420,7 @@ From the [`grid.rs`](../crates/rugpui-grid/src/grid.rs) header. Nothing per fram
 * **The horizontal offset is the grid's own field**, not a gpui scroll container's — a scroll container lays its content out in full, which is exactly the cost being avoided. It also makes the header and the body trivially agree: they read the same number.
 * **Hit testing is arithmetic**, not a listener per cell. A cell that answered presses would need an id and a hitbox, and a screenful is several hundred of both, every frame, for a gesture four numbers resolve.
 * **The viewport is measured during prepaint** by a `canvas` in the body, which asks for a repaint when the width changed. A resize — and the very first frame — costs one extra frame and nothing after that.
-* **Auto-fit samples 500 rows** and measures in character cells rather than shaping text, capped at 480 px. Being a few pixels out only means the user drags the column afterwards, which they can.
+* **Fitting a column shapes a handful of strings, not five hundred.** One pass over the 500-row sample — no allocation, nothing shaped — keeps every value within three characters of the longest, capped at sixteen; only those and the heading go to the text system. The character count narrows the field and deliberately does not pick the winner, because on a proportional face two values of the same length are not the same width. That is what makes an *exact* fit affordable, and exactness is the point: a width guessed from character counts is short by however far the font disagrees with the guess, and short is an ellipsis. Capped at 480 px, so one `TEXT` column cannot push the rest off the screen. This is the one piece of work here that scales with the result rather than with the window, and it is the reason it is bounded at 500 rows and done once per batch rather than once per frame.
 
 The budget this buys is what `row_status` and `cell_dirty` must respect: a source that answered either by walking a million rows would undo the virtualisation on its own. Keep staged changes in a map keyed by row so the answer is a lookup.
 
@@ -432,6 +454,6 @@ impl GridSource for Fixture {
 
 For editing and staging, the tests add the three defaulted methods over plain fields — a `Vec<RowStatus>`, a `Vec<(usize, usize)>` of dirty cells and a `Vec<usize>` of editable columns — which is the shape of the overlay a host wraps a real result in.
 
-The widget's own tests do need a window, and use gpui's `TestAppContext`. The pattern in `grid.rs` is worth copying: a `Harness` view that does nothing but `div().size_full().child(self.grid.clone())`, an `Rc<RefCell<Vec<GridEvent>>>` filled by a `cx.subscribe` so a test can drain what the grid announced, and helpers that `cx.update(…)` then `cx.run_until_parked()`. Mouse gestures are simulated with `cx.simulate_event(MouseDownEvent { … })` at coordinates worked out from the row height and the column widths, so a click on a given cell is a one-line helper.
+The widget's own tests do need a window, and use gpui's `TestAppContext`. The pattern in `grid.rs` is worth copying: a `Harness` view that does nothing but `div().size_full().child(self.grid.clone())`, an `Rc<RefCell<Vec<GridEvent>>>` filled by a `cx.subscribe` so a test can drain what the grid announced, and helpers that `cx.update(…)` then `cx.run_until_parked()`. Mouse gestures are simulated with `cx.simulate_event(MouseDownEvent { … })` at coordinates worked out from the row height and the column widths, so a click on a given cell is a one-line helper — which is why the shared `open` helper there builds its grid with `.fixed_widths()`: a grid that sized its own columns would slide the target out from under that arithmetic. The tests that are about fitting open theirs the way a host gets one.
 
 To count how often a source is touched, a source can note each call on a shared probe — which is how "does it still only touch the visible rows?" becomes an assertion rather than something to eyeball.
