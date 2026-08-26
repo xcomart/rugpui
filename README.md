@@ -33,6 +33,25 @@ palette with it. The screenshots above are that window captured at 1180×1020 in
 `dark` and in `light` — regenerate them by running the gallery in each and
 saving the window to `docs/screenshots/gallery-<theme>.png`.
 
+## Documentation
+
+The guide sits in [`docs/README.md`](docs/README.md); the reference is the
+rustdoc (`cargo doc --workspace --no-deps`), generated from the same doc
+comments the guide points at.
+
+- [Getting started](docs/getting-started.md) — from an empty crate to a window
+  with a rugpui widget in it.
+- [Theming](docs/theming.md) — the two palettes and how a host picks and
+  stores them.
+- [Widgets](docs/widgets/) — one page per widget, including
+  [text input](docs/widgets/text-input.md), [tree](docs/widgets/tree.md) and
+  [scrollbar](docs/widgets/scrollbar.md).
+- [Grid](docs/grid.md) — the virtualised result grid, over a `GridSource` the
+  host implements.
+- [Editor](docs/editor.md) — the code editor, its lexers and its syntax cache.
+- [Shell](docs/shell.md) — the layer above the widget kit: title bar,
+  updater, about/update dialogs, split panes.
+
 ## The crates
 
 | crate | what it is |
