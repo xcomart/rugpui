@@ -21,9 +21,9 @@ use gpui::{
     prelude::*, px, size,
 };
 use rugpui::{
-    Button, ButtonVariant, Checkbox, DraggedThumb, EditorTheme, MenuButton, MenuEntry, ProgressBar,
-    Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Splitter, Switch, TabBar,
-    TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme,
+    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, EditorTheme, MenuButton, MenuEntry,
+    ProgressBar, Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Splitter, Switch,
+    TabBar, TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme,
     set_theme, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
@@ -209,10 +209,16 @@ struct Gallery {
     select_open: bool,
     /// Whether the toolbar button's menu is showing.
     menu_open: bool,
+    /// Whether each of the two fold-away sections is open.
+    advanced_open: bool,
+    ssh_open: bool,
     /// The three text fields: one with a value, one empty, one disabled.
     filled: Entity<TextInput>,
     empty: Entity<TextInput>,
     locked: Entity<TextInput>,
+    /// The field inside the closed "SSH tunnel" section, which is built here
+    /// and yet not rendered until the section is opened.
+    tunnel_host: Entity<TextInput>,
     /// The surface the "Scrollbar" list scrolls on.
     list: ScrollHandle,
     /// The three larger widgets.
@@ -245,6 +251,7 @@ impl Gallery {
             input.set_content("read-only", cx);
             input
         });
+        let tunnel_host = cx.new(|cx| TextInput::new(cx).placeholder("bastion:22"));
 
         let tree = cx.new(|cx| {
             let mut tree = TreeView::new(Catalog, cx);
@@ -290,9 +297,12 @@ impl Gallery {
             choice: "PostgreSQL".into(),
             select_open: false,
             menu_open: false,
+            advanced_open: true,
+            ssh_open: false,
             filled,
             empty,
             locked,
+            tunnel_host,
             list: ScrollHandle::new(),
             tree,
             grid,
@@ -365,6 +375,61 @@ impl Gallery {
                 )
                 .child(Checkbox::new("nulls", "Show nulls"))
                 .child(Checkbox::new("locked-check", "Read only").checked(true)),
+        );
+
+        let collapsibles = section("Collapsible", &palette).child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    Collapsible::new("advanced", "Advanced options")
+                        .open(self.advanced_open)
+                        .on_toggle({
+                            let this = this.clone();
+                            move |open, _window, cx| {
+                                this.update(cx, |gallery, cx| {
+                                    gallery.advanced_open = open;
+                                    cx.notify();
+                                });
+                            }
+                        })
+                        // Beside the disclosure rather than inside it: arming
+                        // the block and folding it away are two gestures, and
+                        // a switch nested in the header would perform both.
+                        .trailing(
+                            Switch::new("advanced-on", "")
+                                .checked(self.switch_on)
+                                .on_toggle({
+                                    let this = this.clone();
+                                    move |value, _window, cx| {
+                                        this.update(cx, |gallery, cx| {
+                                            gallery.switch_on = value;
+                                            cx.notify();
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(Checkbox::new("advanced-nulls", "Show nulls"))
+                        .child(Checkbox::new("advanced-locked", "Read only").checked(true)),
+                )
+                .child(
+                    // Closed, so `tunnel_host` is built and yet never drawn —
+                    // which is the point: a folded section costs no elements
+                    // and holds no focus.
+                    Collapsible::new("ssh", "SSH tunnel")
+                        .open(self.ssh_open)
+                        .on_toggle({
+                            let this = this.clone();
+                            move |open, _window, cx| {
+                                this.update(cx, |gallery, cx| {
+                                    gallery.ssh_open = open;
+                                    cx.notify();
+                                });
+                            }
+                        })
+                        .child(self.tunnel_host.clone()),
+                ),
         );
 
         let switches = section("Switches", &palette).child(
@@ -513,6 +578,7 @@ impl Gallery {
             .gap(px(16.))
             .child(buttons)
             .child(checkboxes)
+            .child(collapsibles)
             .child(switches)
             .child(slider)
             .child(spinners)
