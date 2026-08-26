@@ -33,6 +33,7 @@ gallery is right.
 | [tooltip](./widgets/tooltip.md) | `tooltip_label` / `Tooltip` | A box that appears when the pointer rests on a control: one line of text, a column of parts, or content the host draws itself. |
 | [modal](./widgets/modal.md) | `modal` / `form_row` | A centred dialog panel over a translucent backdrop, plus the labelled row its body is usually built out of. |
 | [scrollbar](./widgets/scrollbar.md) | `Scrollbar` | An overlay scroll indicator: a thumb with no track behind it, drawn over the content rather than beside it. |
+| [splitter](./widgets/splitter.md) | `Splitter` | Two panes side by side, or one above the other, with a divider the pointer can move. |
 | [tree](./widgets/tree.md) | `TreeView` | A virtualised tree whose branches arrive one round trip at a time. |
 | [scheme-select](./widgets/scheme-select.md) | `SchemeSelect` | A dropdown that picks one colour scheme out of a list. |
 | [editor-theme-picker](./widgets/editor-theme-picker.md) | `EditorThemePicker` | A grid of selectable cards, each previewing one editor theme. |
@@ -61,7 +62,8 @@ gallery is right.
 - **Embedding the grid or the editor** — [Getting started](./getting-started.md)
   and [Theming](./theming.md) first, since both crates read the same `Theme`;
   then [Grid](./grid.md) or [Editor](./editor.md) directly — each is a single
-  widget with its own source trait and doesn't need the rest of the kit.
+  widget with its own source trait and doesn't need the rest of the kit. Add
+  [splitter](./widgets/splitter.md) once two of them have to share one window.
 - **Writing a theme** — [Theming](./theming.md) end to end, then
   [scheme-select](./widgets/scheme-select.md) and
   [editor-theme-picker](./widgets/editor-theme-picker.md) for the pickers a

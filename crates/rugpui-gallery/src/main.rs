@@ -16,15 +16,15 @@
 use std::borrow::Cow;
 
 use gpui::{
-    AnyView, App, AssetSource, Bounds, Context, Div, DragMoveEvent, Entity, Hsla, Result,
+    AnyView, App, AssetSource, Axis, Bounds, Context, Div, DragMoveEvent, Entity, Hsla, Result,
     ScrollHandle, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
     prelude::*, px, size,
 };
 use rugpui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, EditorTheme, MenuButton, MenuEntry, ProgressBar,
-    Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Switch, TabBar, TabItem,
-    TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme,
-    tooltip_label,
+    Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Splitter, Switch, TabBar,
+    TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme,
+    set_theme, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::GridView;
@@ -222,6 +222,12 @@ struct Gallery {
     json: Entity<EditorView>,
     /// The fixed-pitch family both editors draw with.
     mono: SharedString,
+    /// Where the two dividers sit, as the first half's share of its box. Two
+    /// `f32`s are the whole of what a `Splitter` does not keep for itself:
+    /// `split_x` is the tree against the results beside it, `split_y` the grid
+    /// against the editors below it.
+    split_x: f32,
+    split_y: f32,
 }
 
 impl Gallery {
@@ -293,6 +299,13 @@ impl Gallery {
             sql,
             json,
             mono: monospace(cx),
+            // Roughly the 230 px the tree column used to be pinned at, out of
+            // the 802 the data side gets in the window the screenshots are
+            // taken in — plus the half of the 14 px gutter it now pays for
+            // itself, since the flex `gap` that used to separate the columns is
+            // gone and each half keeps its own breathing room beside the seam.
+            split_x: 0.3,
+            split_y: 0.4,
         }
     }
 
@@ -588,19 +601,35 @@ impl Gallery {
         )
     }
 
-    /// The right-hand column: the tree, the grid and the two editors.
+    /// The right-hand column: the tree, the grid and the two editors, divided
+    /// by two [`Splitter`]s.
+    ///
+    /// The dividers are the point of the arrangement. The tree used to be
+    /// pinned at 230 px and the grid at 256, and both numbers are now a share
+    /// of whatever box the window happens to give them — which is what a
+    /// splitter buys, and the reason the halves are `min_w_0`/`min_h_0` and
+    /// grow into their share rather than asking for a height of their own.
+    ///
+    /// The padding beside each seam is the gap the flex `gap` used to leave:
+    /// a splitter's halves meet on the divider, so the breathing room has to be
+    /// paid for from inside them.
     fn data(&self, cx: &mut Context<Self>) -> Div {
         let palette = theme(cx);
+        let this = cx.entity();
 
-        // Fills whatever height is left in its column, so that the column does
+        // Fills whatever height is left in its half, so that the column does
         // not end in a band of nothing.
         let tree = section("Tree", &palette)
             .flex_1()
             .min_h_0()
             .child(framed(&palette).flex_1().child(self.tree.clone()));
 
-        let grid =
-            section("Grid", &palette).child(framed(&palette).h(px(256.)).child(self.grid.clone()));
+        // Fills its half of the vertical split, rather than the fixed 256 px it
+        // was pinned at before the divider existed.
+        let grid = section("Grid", &palette)
+            .flex_1()
+            .min_h_0()
+            .child(framed(&palette).flex_1().child(self.grid.clone()));
 
         let sql = section("Editor — SQL", &palette).child(
             framed(&palette)
@@ -621,32 +650,59 @@ impl Gallery {
                 .child(self.json.clone()),
         );
 
-        div()
+        let editors = div()
             .flex()
-            .flex_row()
-            .flex_1()
-            .min_w_0()
+            .flex_col()
+            .size_full()
+            .min_h_0()
+            .pt(px(7.))
             .gap(px(14.))
-            .child(
+            .child(sql)
+            .child(json);
+
+        let results = Splitter::new("results-split", Axis::Vertical)
+            .ratio(self.split_y)
+            .first(
                 div()
                     .flex()
                     .flex_col()
-                    .flex_none()
+                    .size_full()
                     .min_h_0()
-                    .w(px(230.))
-                    .child(tree),
+                    .pb(px(7.))
+                    .child(grid),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(14.))
-                    .child(grid)
-                    .child(sql)
-                    .child(json),
-            )
+            .second(editors)
+            .on_change({
+                let this = this.clone();
+                move |ratio, _window, cx| {
+                    this.update(cx, |gallery, cx| {
+                        gallery.split_y = ratio;
+                        cx.notify();
+                    });
+                }
+            });
+
+        div().flex().flex_1().min_w_0().child(
+            Splitter::new("data-split", Axis::Horizontal)
+                .ratio(self.split_x)
+                .min_ratio(0.15)
+                .first(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .size_full()
+                        .min_h_0()
+                        .pr(px(7.))
+                        .child(tree),
+                )
+                .second(div().flex().size_full().min_w_0().pl(px(7.)).child(results))
+                .on_change(move |ratio, _window, cx| {
+                    this.update(cx, |gallery, cx| {
+                        gallery.split_x = ratio;
+                        cx.notify();
+                    });
+                }),
+        )
     }
 }
 
