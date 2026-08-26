@@ -24,11 +24,13 @@
 //! bar needs, which are the same four files in every application that draws
 //! one. Everything else an application draws — its own mark, its toolbar, the
 //! glyphs of whatever it shows in a tree — belongs to that application, whose
-//! table concatenates this one:
+//! table concatenates this one. So does [`rugpui::ICONS`], the two disclosure
+//! marks the widget layer draws with; a set that leaves it out has trees with
+//! blank arrow columns and dropdowns with no chevron:
 //!
 //! ```ignore
 //! const ICONS: &[(&str, &[u8])] = &[ /* the application's own */ ];
-//! static SET: IconSet = IconSet::new(&[rugpui_shell::WINDOW_CONTROL_ICONS, ICONS]);
+//! static SET: IconSet = IconSet::new(&[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, ICONS]);
 //! ```
 
 use std::borrow::Cow;
@@ -105,9 +107,10 @@ pub fn window_control_icons() -> rugpui::WindowControlIcons {
 /// without it gpui's default source answers every path with `None` and the
 /// icons paint as nothing at all.
 ///
-/// Several tables rather than one, so that an application's own icons and this
-/// crate's caption glyphs stay two `const` slices in two crates. A path present
-/// in more than one is answered by the first table that has it.
+/// Several tables rather than one, so that an application's own icons, this
+/// crate's caption glyphs and [`rugpui::ICONS`] stay `const` slices in the
+/// crates they belong to. A path present in more than one is answered by the
+/// first table that has it.
 #[derive(Debug, Clone, Copy)]
 pub struct IconSet {
     /// The tables, searched in order.
@@ -219,6 +222,23 @@ mod tests {
                 .expect("loading cannot fail")
                 .is_some()
         );
+    }
+
+    /// The set an application actually installs: the widget layer's disclosure
+    /// marks, the caption glyphs, and its own. Without the first of the three
+    /// every tree and dropdown draws its arrow as nothing.
+    #[test]
+    fn the_widget_layers_own_table_chains_in_too() {
+        const OWN: &[(&str, &[u8])] = &[("icons/app-icon.svg", b"<svg/>")];
+        let set = IconSet::new(&[rugpui::ICONS, WINDOW_CONTROL_ICONS, OWN]);
+
+        for path in [rugpui::CARET_RIGHT, rugpui::CARET_DOWN] {
+            assert!(
+                set.load(path).expect("loading cannot fail").is_some(),
+                "{path} is not in the set"
+            );
+        }
+        assert_eq!(set.len(), rugpui::ICONS.len() + 5);
     }
 
     #[test]

@@ -41,6 +41,7 @@ use gpui::{
     AnyElement, App, ClickEvent, ElementId, SharedString, Window, div, prelude::*, px, svg,
 };
 
+use crate::icons::{CARET_DOWN, CARET_RIGHT};
 use crate::theme::theme;
 
 /// Width of the box the disclosure arrow is drawn in.
@@ -48,32 +49,17 @@ use crate::theme::theme;
 /// Also what the body is indented by, so its content starts under the title
 /// rather than under the arrow.
 ///
-/// The four arrow constants below are deliberately a second copy of the ones in
-/// [`tree`](crate::tree): the two widgets have to draw the same triangle to read
-/// as the same idea, and neither is worth making depend on the other for four
-/// numbers.
+/// The two arrow constants here are deliberately a second copy of the ones in
+/// [`tree`](crate::tree): the two widgets have to draw the same chevron at the
+/// same size to read as the same idea, and neither is worth making depend on
+/// the other for two numbers.
 const ARROW_WIDTH: f32 = 16.;
 
-/// Fallback arrow of a section that is closed, for a host without icons.
-const ARROW_CLOSED: &str = "\u{25b8}";
-
-/// Fallback arrow of a section that is open, for a host without icons.
-const ARROW_OPEN: &str = "\u{25be}";
-
-/// Size the fallback arrow glyph is drawn at.
+/// Edge length of the arrow icon.
 ///
-/// The largest that still sits inside the [`ARROW_WIDTH`] box with air around
-/// it. U+25B8 and U+25BE fill only a fraction of their em square, so the
-/// triangle is always smaller than the size asks for — which is why
-/// [`Collapsible::arrow_icons`] exists.
-const ARROW_SIZE: f32 = 12.;
-
-/// Edge length of the arrow icon, when the host has supplied one.
-///
-/// Nearly the full width of the [`ARROW_WIDTH`] box, where the glyph had to
-/// leave room around itself: a drawn chevron carries its own inset inside its
-/// viewBox, so running it edge to edge here is what makes it the size the glyph
-/// only claimed to be.
+/// Nearly the full width of the [`ARROW_WIDTH`] box rather than inset into it:
+/// a drawn chevron carries its own margin inside its viewBox, so running it
+/// edge to edge here is what makes it the size it looks.
 const ARROW_ICON_SIZE: f32 = 14.;
 
 /// Padding above and below the header, inside its clickable target.
@@ -158,14 +144,14 @@ impl Collapsible {
         self
     }
 
-    /// Draws the disclosure with the host's own icons instead of the fallback
-    /// glyphs.
+    /// Draws the disclosure with the host's own icons instead of
+    /// [`CARET_RIGHT`]/[`CARET_DOWN`].
     ///
     /// Both paths are resolved by the application's `AssetSource` and are
     /// painted in `theme.icon`, so one monochrome pair follows the palette. The
     /// same two icons a [`TreeView`](crate::TreeView) is given are the ones to
     /// hand over here: a form's sections and a tree's branches disclose the same
-    /// way and should not disagree about which way the triangle points.
+    /// way and should not disagree about which way the chevron points.
     pub fn arrow_icons(
         mut self,
         closed: impl Into<SharedString>,
@@ -243,17 +229,17 @@ impl RenderOnce for Collapsible {
             (palette.text, palette.icon)
         };
 
-        let mark = match &self.arrow_icons {
-            Some((closed, opened)) => svg()
-                .size(px(ARROW_ICON_SIZE))
-                .flex_none()
-                .path(if open { opened.clone() } else { closed.clone() })
-                // An SVG takes its tint from the element itself; unlike text it
-                // does not inherit the one the box below sets.
-                .text_color(icon_color)
-                .into_any_element(),
-            None => if open { ARROW_OPEN } else { ARROW_CLOSED }.into_any_element(),
+        let (closed, opened) = match &self.arrow_icons {
+            Some((closed, opened)) => (closed.clone(), opened.clone()),
+            None => (CARET_RIGHT.into(), CARET_DOWN.into()),
         };
+        let mark = svg()
+            .size(px(ARROW_ICON_SIZE))
+            .flex_none()
+            .path(if open { opened } else { closed })
+            // An SVG takes its tint from the element itself; unlike text it
+            // does not inherit the one the box around it sets.
+            .text_color(icon_color);
 
         let arrow = div()
             .flex()
@@ -261,8 +247,6 @@ impl RenderOnce for Collapsible {
             .items_center()
             .justify_center()
             .w(px(ARROW_WIDTH))
-            .text_size(px(ARROW_SIZE))
-            .text_color(icon_color)
             .child(mark);
 
         let header = div()

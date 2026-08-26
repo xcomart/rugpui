@@ -194,12 +194,16 @@ div().relative().size_full().children(
 ### Icons
 
 [`IconSet`](../crates/rugpui-shell/src/icons.rs) is a `gpui::AssetSource` over
-several `const` tables, searched in order, so this crate's four caption glyphs
-and your own icons stay two slices in two crates:
+several `const` tables, searched in order, so this crate's four caption glyphs,
+the widget layer's two disclosure marks and your own icons stay three slices in
+the three crates they belong to:
 
 ```rust
-static SET: IconSet = IconSet::new(&[rugpui_shell::WINDOW_CONTROL_ICONS, ICONS]);
+static SET: IconSet = IconSet::new(&[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, ICONS]);
 ```
+
+`rugpui::ICONS` is not optional: leave it out and every tree, collapsible
+section and dropdown draws its arrow as nothing at all.
 
 Install it with `Application::with_assets`; without it gpui's default source
 answers every path with `None` and the icons paint as nothing at all. `icon(path,

@@ -51,11 +51,16 @@ const FILE: &str = "icons/file.svg";
 const WARNING: &str = "icons/warning.svg";
 /// A database, for the leading slot of the driver dropdown's rows.
 const DATABASE: &str = "icons/database.svg";
-/// A closed disclosure, for the shot that replaces a `Collapsible`'s own arrow
-/// and for the one that replaces a `Select`'s chevron.
-const CARET_RIGHT: &str = "icons/caret-right.svg";
-/// The open disclosure that goes with [`CARET_RIGHT`].
-const CARET_DOWN: &str = "icons/caret-down.svg";
+/// A filled triangle pointing right, for the shot that replaces a
+/// `Collapsible`'s own disclosure arrow.
+///
+/// Nothing like `rugpui::CARET_RIGHT`, which is the default those widgets draw
+/// without being asked: a shot about handing a widget an icon of your own has
+/// to show an icon that is visibly not the one it came with.
+const TRIANGLE_RIGHT: &str = "icons/triangle-right.svg";
+/// The open disclosure that goes with [`TRIANGLE_RIGHT`], and the one the shot
+/// that replaces a `Select`'s chevron hands over.
+const TRIANGLE_DOWN: &str = "icons/triangle-down.svg";
 
 /// A thumbnail of a table, for the rich tooltip.
 ///
@@ -83,18 +88,25 @@ const ICONS: &[(&str, &[u8])] = &[
     (DATABASE, include_bytes!("../assets/icons/database.svg")),
     (PREVIEW, include_bytes!("../assets/icons/preview.svg")),
     (
-        CARET_RIGHT,
-        include_bytes!("../assets/icons/caret-right.svg"),
+        TRIANGLE_RIGHT,
+        include_bytes!("../assets/icons/triangle-right.svg"),
     ),
-    (CARET_DOWN, include_bytes!("../assets/icons/caret-down.svg")),
+    (
+        TRIANGLE_DOWN,
+        include_bytes!("../assets/icons/triangle-down.svg"),
+    ),
 ];
 
 /// Every table [`Icons`] answers out of, searched in order.
 ///
-/// The shell's four caption glyphs are a table of its own in `rugpui-shell`,
-/// exactly as [`ICONS`] is one here, so the gallery's asset source is the two
-/// slices chained rather than a copy of either.
-const ICON_TABLES: &[&[(&str, &[u8])]] = &[ICONS, rugpui_shell::WINDOW_CONTROL_ICONS];
+/// The widget layer's two disclosure marks and the shell's four caption glyphs
+/// are each a table of their own in their own crate, exactly as [`ICONS`] is
+/// one here, so the gallery's asset source is the three slices chained rather
+/// than a copy of any of them. `rugpui::ICONS` is not optional: without it
+/// every tree, collapsible section and dropdown here would draw its arrow as
+/// nothing at all.
+const ICON_TABLES: &[&[(&str, &[u8])]] =
+    &[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, ICONS];
 
 /// Every `(path, bytes)` pair the gallery can resolve.
 fn icon_table() -> impl Iterator<Item = (&'static str, &'static [u8])> {

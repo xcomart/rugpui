@@ -11,7 +11,7 @@ use rugpui::{
 use rugpui_editor::{highlighter_for_extension, tooltip_code};
 
 use super::{Motion, Shot, bare, caption, framed, panel, row};
-use crate::{CARET_DOWN, DATABASE, WARNING, data, monospace};
+use crate::{DATABASE, TRIANGLE_DOWN, WARNING, data, monospace};
 
 /// Every shot on the seven pages above.
 pub const SHOTS: &[Shot] = &[
@@ -228,13 +228,13 @@ fn select_icons(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-/// The `▾` glyph replaced with an svg path of the host's own.
+/// The default caret replaced with an svg path of the host's own.
 fn select_chevron(_window: &mut Window, cx: &mut App) -> AnyView {
     panel(cx, |_window, _cx| {
         Select::new("driver")
             .options(DRIVERS)
             .selected(Some("PostgreSQL"))
-            .chevron_icon(CARET_DOWN)
+            .chevron_icon(TRIANGLE_DOWN)
             .width(px(200.))
             .into_any_element()
     })
