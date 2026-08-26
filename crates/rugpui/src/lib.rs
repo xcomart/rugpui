@@ -6,7 +6,7 @@
 //! ([`text_input`]), buttons ([`button`]), checkboxes ([`checkbox`]) and
 //! switches ([`switch`]), one-of-many strips ([`segmented`]), sliders
 //! ([`slider`]), progress bars ([`progress`]) and busy spinners ([`spinner`]),
-//! tabs ([`tab_bar`]), dropdown menus
+//! tabs ([`tab_bar`]), fold-away sections ([`collapsible`]), dropdown menus
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
 //! palettes ([`scheme_select`]), hover tooltips of a line, a column of parts
 //! or content the host draws itself ([`tooltip`]), dialogs
@@ -35,6 +35,7 @@
 
 pub mod button;
 pub mod checkbox;
+pub mod collapsible;
 pub mod editor_theme;
 pub mod editor_theme_picker;
 pub mod menu;
@@ -58,6 +59,7 @@ pub mod window_controls;
 
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
+pub use collapsible::Collapsible;
 pub use editor_theme::{
     CustomEditorTheme, EditorTheme, EditorThemeColors, EditorThemeEntry, EditorThemeFile,
     EditorThemeRegistry, editor_theme, set_editor_theme,

@@ -22,6 +22,7 @@ gallery is right.
 | [button](./widgets/button.md) | `Button` | A stateless push button with four visual weights. |
 | [checkbox](./widgets/checkbox.md) | `Checkbox` | A labelled on/off box for a setting the user reads as a list of independent choices. |
 | [switch](./widgets/switch.md) | `Switch` | A labelled on/off switch — a track with a knob that slides from one end to the other. |
+| [collapsible](./widgets/collapsible.md) | `Collapsible` | A titled section that folds its body away, and does not render it while folded. |
 | [segmented](./widgets/segmented.md) | `Segmented` | A horizontal one-of-many strip, used where a group of radio buttons would otherwise go. |
 | [slider](./widgets/slider.md) | `Slider` | A horizontal slider over a fraction from `0.0` to `1.0`. |
 | [progress](./widgets/progress.md) | `ProgressBar` | A thin horizontal bar showing how far along a piece of work is. |
@@ -57,8 +58,10 @@ gallery is right.
 - **Embedding a form** — [Getting started](./getting-started.md), then
   [Theming](./theming.md), then whichever widgets the form needs:
   [text-input](./widgets/text-input.md), [select](./widgets/select.md),
-  [checkbox](./widgets/checkbox.md)/[switch](./widgets/switch.md), and
-  [modal](./widgets/modal.md) if the form is a dialog.
+  [checkbox](./widgets/checkbox.md)/[switch](./widgets/switch.md),
+  [collapsible](./widgets/collapsible.md) for the optional blocks the form
+  would rather not ask about up front, and [modal](./widgets/modal.md) if the
+  form is a dialog.
 - **Embedding the grid or the editor** — [Getting started](./getting-started.md)
   and [Theming](./theming.md) first, since both crates read the same `Theme`;
   then [Grid](./grid.md) or [Editor](./editor.md) directly — each is a single
