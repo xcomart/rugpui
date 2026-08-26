@@ -55,6 +55,7 @@ use gpui::{
     svg, uniform_list,
 };
 
+use crate::icons::{CARET_DOWN, CARET_RIGHT};
 use crate::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
@@ -101,27 +102,12 @@ const ARROW_WIDTH: f32 = 16.;
 /// Padding at both ends of a row, before the indent is added.
 const ROW_PADDING: f32 = 4.;
 
-/// Fallback arrow of a node that is closed, for a host without icons.
-const ARROW_CLOSED: &str = "\u{25b8}";
-
-/// Fallback arrow of a node that is open, for a host without icons.
-const ARROW_OPEN: &str = "\u{25be}";
-
-/// Size the fallback arrow glyph is drawn at.
+/// Edge length of the arrow icon.
 ///
-/// The largest that still sits inside the [`ARROW_WIDTH`] box with air around
-/// it, so the column stays a column and the row keeps its [`ROW_HEIGHT`]. It
-/// cannot be pushed much further: U+25B8 and U+25BE fill only a fraction of
-/// their em square, so the triangle is always smaller than the size asks for —
-/// which is the whole reason [`TreeView::with_arrow_icons`] exists.
-const ARROW_SIZE: f32 = 12.;
-
-/// Edge length of the arrow icon, when the host has supplied one.
-///
-/// Nearly the full width of the [`ARROW_WIDTH`] box, where the glyph had to
-/// leave room around itself: a drawn chevron carries its own inset inside its
-/// viewBox, so running it edge to edge here is what makes it the size the glyph
-/// only claimed to be.
+/// Nearly the full width of the [`ARROW_WIDTH`] box rather than inset into it:
+/// a drawn chevron carries its own margin inside its viewBox, so running it
+/// edge to edge here is what makes it the size it looks, and the column still
+/// stays a column inside [`ROW_HEIGHT`].
 const ARROW_ICON_SIZE: f32 = 14.;
 
 /// What the placeholder row draws while children are on their way.
@@ -381,7 +367,7 @@ pub struct TreeView<S: TreeSource> {
     /// window do not answer each other's drags.
     bar_id: ElementId,
     /// Asset paths of the disclosure marks — closed, then open — or `None` for
-    /// the text glyphs. See [`TreeView::with_arrow_icons`].
+    /// [`CARET_RIGHT`]/[`CARET_DOWN`]. See [`TreeView::with_arrow_icons`].
     arrow_icons: Option<(SharedString, SharedString)>,
 }
 
@@ -409,15 +395,13 @@ impl<S: TreeSource> TreeView<S> {
     }
 
     /// Draws the assets at `closed` and `open` as the disclosure marks instead
-    /// of the text glyphs.
+    /// of [`CARET_RIGHT`]/[`CARET_DOWN`].
     ///
-    /// The paths come in from the host rather than being named here, the way
-    /// [`crate::WindowControls`] and [`crate::TabBar`] take theirs: the asset
-    /// namespace belongs to the application that installed the
-    /// [`AssetSource`](gpui::AssetSource), and this layer owns no icons it could
-    /// reach for. Leaving them out is a working tree either way — the glyphs are
-    /// the fallback, which is also what keeps a host that has not got as far as
-    /// an icon set from drawing a column of blanks.
+    /// The paths come in from the host, the way [`crate::WindowControls`] and
+    /// [`crate::TabBar`] take theirs: the asset namespace belongs to the
+    /// application that installed the [`AssetSource`](gpui::AssetSource).
+    /// Leaving them out is a working tree either way — the default pair is
+    /// [`crate::ICONS`], which the host chains into that same source.
     pub fn with_arrow_icons(
         mut self,
         closed: impl Into<SharedString>,
@@ -856,21 +840,17 @@ impl<S: TreeSource> TreeView<S> {
 
         // Picked before the row is built, because the closure below cannot
         // borrow the tree while `cx.listener` is handing it back mutably.
-        let mark = match &self.arrow_icons {
-            Some((closed, open)) => svg()
-                .size(px(ARROW_ICON_SIZE))
-                .flex_none()
-                .path(if expanded {
-                    open.clone()
-                } else {
-                    closed.clone()
-                })
-                // An SVG takes its tint from the element itself; unlike text it
-                // does not inherit the one the box below sets.
-                .text_color(theme.text_muted)
-                .into_any_element(),
-            None => if expanded { ARROW_OPEN } else { ARROW_CLOSED }.into_any_element(),
+        let (closed, open) = match &self.arrow_icons {
+            Some((closed, open)) => (closed.clone(), open.clone()),
+            None => (CARET_RIGHT.into(), CARET_DOWN.into()),
         };
+        let mark = svg()
+            .size(px(ARROW_ICON_SIZE))
+            .flex_none()
+            .path(if expanded { open } else { closed })
+            // An SVG takes its tint from the element itself; unlike text it
+            // does not inherit the one the box below sets.
+            .text_color(theme.text_muted);
 
         let arrow = div()
             .id(ElementId::from(("tree-arrow", ix)))
@@ -880,8 +860,6 @@ impl<S: TreeSource> TreeView<S> {
             .justify_center()
             .w(px(ARROW_WIDTH))
             .h(px(ROW_HEIGHT))
-            .text_size(px(ARROW_SIZE))
-            .text_color(theme.text_muted)
             .when(has_children, |this| {
                 let id = id.clone();
                 this.cursor_pointer()

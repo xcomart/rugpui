@@ -9,7 +9,7 @@ use rugpui::{
 };
 
 use super::{Motion, Shot, caption, column, panel, row};
-use crate::{CARET_DOWN, CARET_RIGHT};
+use crate::{TRIANGLE_DOWN, TRIANGLE_RIGHT};
 
 /// Every shot on the nine pages above.
 pub const SHOTS: &[Shot] = &[
@@ -299,12 +299,12 @@ fn collapsible_trailing(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-/// The two glyphs replaced with the host's own svg paths.
+/// The default caret pair replaced with the host's own svg paths.
 fn collapsible_arrows(_window: &mut Window, cx: &mut App) -> AnyView {
     panel(cx, |_window, _cx| {
         Collapsible::new("advanced", "Advanced options")
             .open(true)
-            .arrow_icons(CARET_RIGHT, CARET_DOWN)
+            .arrow_icons(TRIANGLE_RIGHT, TRIANGLE_DOWN)
             .child(Checkbox::new("nulls", "Show nulls"))
             .child(Checkbox::new("locked", "Read only").checked(true))
             .into_any_element()

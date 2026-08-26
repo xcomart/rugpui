@@ -30,6 +30,11 @@
 //!
 //! Call [`init`] once during application start-up so the widgets that need key
 //! bindings get them.
+//!
+//! One thing here is not self-contained: the disclosure marks a tree, a
+//! collapsible section and a dropdown draw are svg files, and gpui resolves an
+//! svg path through the host's `AssetSource`. Chain [`ICONS`] into yours — see
+//! [`icons`] — or those marks paint as nothing at all.
 
 #![warn(missing_docs)]
 
@@ -38,6 +43,7 @@ pub mod checkbox;
 pub mod collapsible;
 pub mod editor_theme;
 pub mod editor_theme_picker;
+pub mod icons;
 pub mod menu;
 pub mod modal;
 pub mod progress;
@@ -65,6 +71,7 @@ pub use editor_theme::{
     EditorThemeRegistry, editor_theme, set_editor_theme,
 };
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
+pub use icons::{CARET_DOWN, CARET_RIGHT, ICONS};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
 pub use progress::ProgressBar;
@@ -107,4 +114,21 @@ pub fn init(cx: &mut App) {
     set_window_tint(1.0, cx);
     TextInput::init(cx);
     tree::init(cx);
+    warn_about_missing_icons(cx);
+}
+
+/// Says once, in the log, that the disclosure marks will paint as nothing.
+///
+/// The host's `AssetSource` is the only thing that can answer for
+/// [`icons::CARET_DOWN`], and a host that has not chained [`ICONS`] into it
+/// gets no error from gpui — a missing asset is drawn as an empty box, which is
+/// hard to tell from an arrow column that is merely subtle. One of the two
+/// paths stands in for both: they are in the same table or neither is.
+fn warn_about_missing_icons(cx: &App) {
+    if !matches!(cx.asset_source().load(icons::CARET_DOWN), Ok(Some(_))) {
+        log::warn!(
+            "rugpui::ICONS is not served by the AssetSource; disclosure arrows will paint as \
+             nothing — chain rugpui::ICONS into your AssetSource"
+        );
+    }
 }

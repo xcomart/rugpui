@@ -87,8 +87,13 @@ application was built with. gpui's default source answers every path with
 error, no placeholder, an empty box where a folder should be. That covers the
 tree's row icons, a `TabItem::mark`, and the glyphs `WindowControls` draws.
 
-The gallery's source is worth copying verbatim; it embeds the files with
-`include_bytes!` so the binary carries them:
+It also covers two icons that are *this crate's* rather than yours: the
+disclosure chevrons a `TreeView`, a `Collapsible` and every dropdown draw with,
+`rugpui::CARET_RIGHT` and `rugpui::CARET_DOWN`. Their bytes are in
+`rugpui::ICONS`, and a source that does not answer for them leaves trees with a
+column of blanks and dropdowns with no chevron; `rugpui::init` says so once in
+the log rather than leaving it to be found by squinting. So the source is your
+own table *and* that one, searched in order:
 
 ```rust
 const ICONS: &[(&str, &[u8])] = &[
@@ -96,26 +101,38 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/file.svg", include_bytes!("../assets/icons/file.svg")),
 ];
 
+/// Every table the source answers out of, searched in order.
+const TABLES: &[&[(&str, &[u8])]] = &[rugpui::ICONS, ICONS];
+
+fn table() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    TABLES.iter().copied().flatten().copied()
+}
+
 struct Icons;
 
 impl AssetSource for Icons {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(ICONS
-            .iter()
+        Ok(table()
             .find(|(name, _)| *name == path)
-            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
+            .map(|(_, bytes)| Cow::Borrowed(bytes)))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(ICONS
-            .iter()
-            .map(|(name, _)| *name)
+        Ok(table()
+            .map(|(name, _)| name)
             .filter(|name| name.starts_with(path))
             .map(SharedString::from)
             .collect())
     }
 }
 ```
+
+The gallery's source is worth copying verbatim; like this one it embeds the
+files with `include_bytes!` so the binary carries them, and it chains a third
+table for the shell's caption glyphs. `rugpui-shell` ships that chaining as
+[`IconSet`](./shell.md#icons), which is the same thing with the boilerplate
+already written. The paths in `rugpui::ICONS` carry a `rugpui/` segment, so a
+`caret-down.svg` of your own keeps its place.
 
 An SVG reaching gpui is painted as a monochrome sprite: only the alpha channel
 survives and the element's `text_color` supplies the colour, so the fills

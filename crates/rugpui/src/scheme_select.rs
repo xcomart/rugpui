@@ -23,6 +23,7 @@ use gpui::{
     SharedString, Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
 };
 
+use crate::icons::CARET_DOWN;
 use crate::scrollbar::Scrollbar;
 use crate::theme::{Theme, theme};
 
@@ -63,8 +64,12 @@ const BACKDROP_PRIORITY: usize = 1;
 /// never eats clicks meant for an option row.
 const LIST_PRIORITY: usize = 2;
 
-/// Glyph drawn at the right edge of the trigger.
-const CHEVRON: &str = "\u{25be}";
+/// Edge length of the chevron drawn at the right edge of the trigger.
+///
+/// Smaller than a tree's or a collapsible's disclosure mark: those sit in a
+/// column of their own where the arrow is the whole point, and this one is an
+/// ornament at the end of a line of text.
+const CHEVRON_SIZE: f32 = 12.;
 
 /// Text drawn on the pill of an entry that has no colors of its own.
 ///
@@ -344,10 +349,10 @@ impl SchemeSelect {
         self
     }
 
-    /// Draws the asset at `path` in place of the `▾` glyph.
+    /// Draws the asset at `path` in place of [`CARET_DOWN`].
     ///
-    /// Painted in `theme.text_muted` — the glyph's own tint — whether the list
-    /// is open or closed and whether or not the control is
+    /// Painted in `theme.text_muted` — the default's own tint — whether the
+    /// list is open or closed and whether or not the control is
     /// [`disabled`](SchemeSelect::disabled): a select's chevron always points
     /// down, unlike a tree's arrow, so there is only ever the one path to hand
     /// over, not the open/closed pair
@@ -486,23 +491,14 @@ impl RenderOnce for SchemeSelect {
             // read as a dropdown at all, and a disabled one is still a
             // dropdown — just one somebody else is driving.
             .child(
-                div()
+                svg()
+                    .size(px(CHEVRON_SIZE))
                     .flex_none()
-                    .text_size(px(11.))
-                    .text_color(theme.text_muted)
-                    .child(match chevron_icon.clone() {
-                        // An SVG takes its colour from its own `text_color`,
-                        // which — unlike a glyph's — does not inherit from the
-                        // box around it, so the muted tint has to be handed to
-                        // it directly.
-                        Some(path) => svg()
-                            .size(px(12.))
-                            .flex_none()
-                            .path(path)
-                            .text_color(theme.text_muted)
-                            .into_any_element(),
-                        None => CHEVRON.into_any_element(),
-                    }),
+                    .path(chevron_icon.clone().unwrap_or_else(|| CARET_DOWN.into()))
+                    // An SVG takes its colour from its own `text_color`, which
+                    // — unlike text's — does not inherit from the box around
+                    // it, so the muted tint has to be handed to it directly.
+                    .text_color(theme.text_muted),
             );
 
         // A full-window sheet under the list: a pointer press anywhere it can
@@ -724,10 +720,10 @@ mod tests {
         }
     }
 
-    /// [`SchemeSelect::chevron_icon`] swaps the glyph for an `svg` at the
+    /// [`SchemeSelect::chevron_icon`] swaps [`CARET_DOWN`] for an `svg` at the
     /// given path. The test `AssetSource` answers every path with `None`,
-    /// which gpui draws as nothing, so this only proves the swap does not
-    /// panic layout or paint.
+    /// which gpui draws as nothing — the default included — so this only
+    /// proves the swap does not panic layout or paint.
     #[gpui::test]
     fn a_chevron_icon_renders_without_panicking(cx: &mut TestAppContext) {
         cx.update(crate::init);

@@ -75,7 +75,7 @@ struct Gallery {
 | `.scrollbar` | `Scrollbar` | none | overlay indicator down the open list |
 | `.on_select` | `Fn(usize, &str, …)` | none | index and text of the option picked |
 | `.on_open_change` | `Fn(bool, …)` | none | the open state the control would like |
-| `.chevron_icon` | `impl Into<SharedString>` | the `▾` glyph | host svg path drawn in place of the chevron, painted in `theme.text_muted` |
+| `.chevron_icon` | `impl Into<SharedString>` | `rugpui::CARET_DOWN` | host svg path drawn in place of the chevron, painted in `theme.text_muted` |
 
 `on_select` hands over **both** the zero-based index and the text. Key off the index when the list has a fixed shape — a leading "no choice" row, say — because the text is translated and comparing against it would break in every language but one. Key off the text for a list discovered at runtime.
 
@@ -89,9 +89,9 @@ struct Gallery {
 
 *`open(true)`: five rows under the trigger, the current one highlighted.*
 
-![A trigger with a drawn chevron instead of the glyph](../screenshots/select/chevron-icon.png)
+![A trigger with a drawn triangle instead of the default caret](../screenshots/select/chevron-icon.png)
 
-*`chevron_icon(..)` with a host svg path in place of the `▾` glyph, painted in `theme.text_muted`.*
+*`chevron_icon(..)` with a host svg path in place of `rugpui::CARET_DOWN`, painted in `theme.text_muted`.*
 
 ### `SelectOption`
 
@@ -157,9 +157,11 @@ The trigger is 32 px tall, matching `TextInput`, so a form that mixes the two li
 | `background` | the list panel's fill |
 | `text` | selected value, and a normal row |
 | `icon` | an option's leading and trailing icon, on the rows and on the trigger |
-| `text_muted` | the placeholder, and the `▾` chevron or its `.chevron_icon` replacement |
+| `text_muted` | the placeholder, and the chevron or its `.chevron_icon` replacement |
 
-`.chevron_icon` swaps the glyph for a host svg, painted in `theme.text_muted` whether the list is open or closed — a select's chevron always points down, so unlike [`TreeView::with_arrow_icons`](./tree.md) or [`Collapsible::arrow_icons`](./collapsible.md) there is only the one path to hand over; give it the same asset those two take so a tree, a collapsible section and a dropdown all disclose with the one mark.
+The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a collapsible section open with, so all three disclose with the one mark. It is an asset path like any other: chain `rugpui::ICONS` into the host's `AssetSource` or the trigger wears nothing at all — see [getting started](../getting-started.md#with_assets).
+
+`.chevron_icon` swaps it for a host svg, painted in `theme.text_muted` whether the list is open or closed — a select's chevron always points down, so unlike [`TreeView::with_arrow_icons`](./tree.md) or [`Collapsible::arrow_icons`](./collapsible.md) there is only the one path to hand over; give it the same asset those two take.
 
 ## Pitfalls
 

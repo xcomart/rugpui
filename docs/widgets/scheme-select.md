@@ -91,7 +91,7 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 | `.scrollbar` | `Scrollbar` | none | overlay indicator down the open list |
 | `.on_select` | `Fn(&str, …)` | none | **the id** of the newly picked entry |
 | `.on_open_change` | `Fn(bool, …)` | none | the open state the control would like |
-| `.chevron_icon` | `impl Into<SharedString>` | the `▾` glyph | host svg path drawn in place of the chevron, painted in `theme.text_muted` |
+| `.chevron_icon` | `impl Into<SharedString>` | `rugpui::CARET_DOWN` | host svg path drawn in place of the chevron, painted in `theme.text_muted` |
 
 `on_select` is never fired for the entry that is already selected — clicking it only puts the list away — which spares the parent an update that changes nothing.
 
@@ -128,11 +128,13 @@ The chrome the control is drawn in comes from the *current* `Theme`; the pill co
 | `accent` | trigger border while focused, and the text of the current row |
 | `background` | the list panel's fill |
 | `text` | trigger label, normal rows |
-| `text_muted` | disabled trigger label, placeholder pill text, the `▾` chevron or its `.chevron_icon` replacement |
+| `text_muted` | disabled trigger label, placeholder pill text, the chevron or its `.chevron_icon` replacement |
 
 The trigger is 32 px tall (matching `Select` and `TextInput`); rows are 30 px, taller than a plain dropdown's because they carry a pill.
 
-`.chevron_icon` swaps the glyph for a host svg, painted in `theme.text_muted` whether the list is open or closed and whether or not the control is disabled — a select's chevron always points down, so unlike [`TreeView::with_arrow_icons`](./tree.md) or [`Collapsible::arrow_icons`](./collapsible.md) there is only the one path to hand over; give it the same asset those two take so a tree, a collapsible section and a dropdown all disclose with the one mark.
+The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a collapsible section open with, so all three disclose with the one mark. It is an asset path like any other: chain `rugpui::ICONS` into the host's `AssetSource` or the trigger wears nothing at all — see [getting started](../getting-started.md#with_assets).
+
+`.chevron_icon` swaps it for a host svg, painted in `theme.text_muted` whether the list is open or closed and whether or not the control is disabled — a select's chevron always points down, so unlike [`TreeView::with_arrow_icons`](./tree.md) or [`Collapsible::arrow_icons`](./collapsible.md) there is only the one path to hand over; give it the same asset those two take.
 
 ## Pitfalls
 

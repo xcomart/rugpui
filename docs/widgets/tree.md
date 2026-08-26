@@ -183,7 +183,7 @@ The keys activate whatever is selected, branch or leaf, because the keyboard alr
 | method | argument | effect |
 | --- | --- | --- |
 | `TreeView::new` | `S`, `cx` | a tree over `source`, nothing open, nothing selected |
-| `.with_arrow_icons` | closed path, open path | draws host assets as the disclosure marks instead of the `▸`/`▾` glyphs |
+| `.with_arrow_icons` | closed path, open path | draws host assets as the disclosure marks instead of `rugpui::CARET_RIGHT`/`CARET_DOWN` |
 | `.tab_index` | `isize` | joins the window's tab ring |
 | `.source()` | — | the source, to read |
 | `.source_mut(cx)` | — | the source, to change; marks dirty and notifies for you |
@@ -229,11 +229,11 @@ The list carries a full overlay [`Scrollbar`](./scrollbar.md), wired the complet
 | `text` | row text (set on the tree's root) |
 | `surface_active` | background of the selected row |
 | `surface_hover` | background of a hovered row |
-| `text_muted` | the disclosure arrow, glyph or icon, and the default loading `…` |
+| `text_muted` | the disclosure arrow, the default caret or a replacement, and the default loading `…` |
 
 Everything *inside* a row is the source's, so the icon tint, badges and secondary text are the host's choice — the gallery uses `theme.icon` for a resting row and `theme.text` for the selected one.
 
-Layout constants worth knowing when you draw a row: rows are 24 px tall, each level indents 14 px, and the arrow column is a fixed 16 px reserved on leaf rows too, so labels line up down a level instead of stepping sideways.
+Layout constants worth knowing when you draw a row: rows are 24 px tall, each level indents 14 px, and the arrow column is a fixed 16 px reserved on leaf rows too, so labels line up down a level instead of stepping sideways. The arrow itself is 14 px, nearly the full width of that column: a drawn chevron carries its own margin inside its viewBox.
 
 ## Pitfalls
 
@@ -243,5 +243,5 @@ Layout constants worth knowing when you draw a row: rows are 24 px tall, each le
 - **`source_mut` refreshes; a source that only *reads* host data does not.** If your nodes live somewhere else entirely, call `refresh(cx)` yourself after they change.
 - **A double click on a branch never reaches `Activated`.** Do not wait for it there.
 - **`selected()` can name a node no row carries** — inside something closed, or reloaded away. Use `selected_index()` when you need a row.
-- **`with_arrow_icons` takes asset paths**, not elements: this crate owns no icons, and the glyph fallback is what keeps a host without an icon set from drawing a column of blanks.
+- **`with_arrow_icons` takes asset paths**, not elements — and so does the default it replaces: the two carets are svg files like any other, resolved through the host's `AssetSource`. A host that has not chained `rugpui::ICONS` into it draws a column of blanks; see [getting started](../getting-started.md#with_assets).
 - **The tree follows a source only 64 levels deep.** That cap is only reachable by a source that answers `children` with an ancestor of the node it was asked about; it keeps such a bug a wrong drawing rather than a blown stack.

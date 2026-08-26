@@ -84,7 +84,7 @@ title.*
 | `open` | `bool` | `false` | Whether the body is showing. A closed section does not render its children at all — see below. |
 | `on_toggle` | `impl Fn(bool, &mut Window, &mut App) + 'static` | none | Fired with the value the section is folding *to*. |
 | `trailing` | `impl IntoElement` | none | An element at the far end of the header, beside the disclosure. Clicking it does not fold the section. |
-| `arrow_icons` | `closed: impl Into<SharedString>`, `open: impl Into<SharedString>` | the two glyphs | Host svg paths for the disclosure, painted in `theme.icon` at 14 px. |
+| `arrow_icons` | `closed: impl Into<SharedString>`, `open: impl Into<SharedString>` | `rugpui::CARET_RIGHT` / `CARET_DOWN` | Host svg paths for the disclosure, painted in `theme.icon` at 14 px. |
 | `tab_index` | `isize` | none | Places the header in the window's tab order. A disabled section takes no stop. |
 | `indent` | `bool` | `true` | Pads the body left by the arrow box, so its content lines up with the title. |
 | `disabled` | `bool` | `false` | Greys the header and stops it answering presses. The body still draws if `open` says so. |
@@ -162,33 +162,35 @@ the far end of the header, outside the clickable disclosure.*
 
 ## Arrow icons
 
-The default disclosure is a pair of text glyphs, U+25B8 closed and U+25BE open,
-drawn at 12 px inside a 16 px box. They fill only a fraction of their em square,
-so the triangle always looks smaller than the size asks for. A host with icons
-of its own passes both paths:
+The default disclosure is a pair of svg chevrons this crate ships itself —
+`rugpui::CARET_RIGHT` closed and `rugpui::CARET_DOWN` open — drawn at 14 px
+inside a 16 px box, nearly its full width, since a drawn chevron carries its own
+margin inside its viewBox. Both are resolved by the application's `AssetSource`
+like every other icon path, so chain `rugpui::ICONS` into yours or the arrow
+paints as nothing at all; see [getting started](../getting-started.md#with_assets).
+
+A host with icons of its own passes both paths instead:
 
 ```rust
 Collapsible::new("advanced", "Advanced options")
     .arrow_icons("icons/chevron-right.svg", "icons/chevron-down.svg")
 ```
 
-Both are resolved by the application's `AssetSource` and drawn at 14 px — nearly
-the full width of the box, since a drawn chevron carries its own inset inside
-its viewBox — and painted in `theme.icon`. These are the same two icons a
-[`TreeView`](./tree.md) is given through `with_arrow_icons`: a form's sections
-and a tree's branches disclose the same way and should not disagree about which
-way the triangle points.
+They are drawn at the same 14 px and painted in `theme.icon`. These are the same
+two icons a [`TreeView`](./tree.md) is given through `with_arrow_icons`: a
+form's sections and a tree's branches disclose the same way and should not
+disagree about which way the chevron points.
 
-![A section whose disclosure is a drawn chevron](../screenshots/collapsible/arrow-icons.png)
+![A section whose disclosure is a drawn triangle](../screenshots/collapsible/arrow-icons.png)
 
-*`arrow_icons(..)` with the gallery's own two paths: a 14 px svg chevron in
-`theme.icon` where the 12 px glyph would be.*
+*`arrow_icons(..)` with two paths of the gallery's own: filled triangles in
+`theme.icon` where the default carets would be.*
 
 ## Keyboard and mouse
 
 - Clicking anywhere on the disclosure — the arrow, the title, or the empty width
   after it up to the trailing control — folds the section. The target is
-  `flex_1`, so it is the whole row rather than the 16 px triangle.
+  `flex_1`, so it is the whole row rather than the 16 px arrow box.
 - With `tab_index`, a focused header draws an accent outline and folds on
   `Space` or `Enter`, which gpui delivers as an ordinary click. One `on_click`
   therefore covers pointer and keyboard both.
@@ -197,7 +199,7 @@ way the triangle points.
 
 ## Theme slots
 
-- `icon` — the disclosure arrow, glyph or svg.
+- `icon` — the disclosure arrow, the default caret or a replacement.
 - `text` — the title.
 - `text_muted` — the title *and* the arrow while `disabled(true)`.
 - `surface_hover` — the wash under the disclosure while the pointer is on it.
