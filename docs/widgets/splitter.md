@@ -64,6 +64,7 @@ Splitter::new("results-split", Axis::Vertical)
 | `first` | `impl IntoElement` | empty | The leading half — left of the divider, or above it. |
 | `second` | `impl IntoElement` | empty | The trailing half — right of the divider, or below it. |
 | `handle_thickness` | `Pixels` | `6 px` | How thick the band that answers a press is. The grab area alone: the line on the seam stays a hairline whatever this is widened to. |
+| `bar_thickness` | `Pixels` | `3 px` | How thick the accent bar drawn inside the band is. Clamped to the band's own thickness, so the two can be set in either order; `0 px` gives a splitter that answers a press but never marks itself. |
 | `seamless` | — | seam drawn | Drops the line on the seam, leaving the grab band invisible until the pointer finds it. |
 | `on_change` | `impl Fn(f32, &mut Window, &mut App) + 'static` | none | Fired with the ratio the divider is moving to, already clamped and finite, and never with the ratio already showing. |
 
@@ -85,6 +86,14 @@ The value handed to `on_change` is already clamped to the range and is always a
 finite number, so it can be stored unexamined. That is deliberate: the two ways
 a stored ratio goes wrong — collapsing a half to nothing, and catching a `NaN` —
 are both decided inside the widget rather than left to every host to rediscover.
+
+The fade is *not* the host's. A fade is a fact about one pointer and one
+divider, and no view has any use for it, so the handle keeps it under gpui's
+element state — the same store an `on_click` uses to remember it saw a press —
+keyed by the splitter's own id. It comes into being the first time the divider
+is drawn and is gone the moment it stops being drawn, which is exactly as long
+as a fade should live. Nothing to declare, nothing to initialise, nothing to
+reset: the ratio stays the one thing a host stores per divider.
 
 ## `id` has to be unique in the *window*
 
@@ -108,6 +117,69 @@ flowchart TD
 Without the id check the outer divider would jump every time the inner one was
 touched, and it would jump to the wrong place, since the outer listener measures
 the pointer against a box several times the size.
+
+## The handle: a band you can hit, a bar you can see
+
+Two different numbers wanted at once. The band that answers a press has to be
+wide enough for a pointer to find — 6 px, the same bargain a scrollbar's grab
+area makes with its thumb. The mark on the seam has to be thin enough not to
+read as a gutter. So they are two elements: an invisible band that takes the
+press and the cursor, and a rounded 3 px bar inside it that takes the accent.
+
+The bar is not drawn at all until the pointer first arrives, and after that it
+fades rather than snapping:
+
+| | duration | easing |
+| --- | --- | --- |
+| in | `FADE_IN`, 120 ms | `ease_in_out` |
+| out | `FADE_OUT`, 250 ms | `ease_in_out` |
+
+Those are `rugpui::scrollbar`'s own two constants, used here on purpose. The
+scrollbar and the splitter handle are the same kind of thing — an overlay that
+appears under the pointer and leaves when it goes — and two overlays breathing
+at different rates make a window look assembled from parts. Out is twice in for
+the reason it is there: nothing is waiting on a bar that is leaving, so it can
+afford to go gently, while one arriving is a reaction to something the user has
+just done and anything slower reads as lag.
+
+Each phase animates under an element id of its own (`…/bar-fade-in`,
+`…/bar-fade-out`). gpui keeps an animation's start time in element state keyed
+by that id and drops it once the id stops being drawn, so switching phase
+restarts the new one from zero, while staying on one phase leaves the clock
+running.
+
+## Dragging
+
+The bar stays fully up for the whole of a drag — from the press until the
+release — however far the pointer runs ahead of the divider. It always does run
+ahead eventually: once the ratio hits `min_ratio` the band stops moving and the
+pointer keeps going, often clean out of the window.
+
+That needs saying because gpui reports *every* element as unhovered while a drag
+is in flight, so hover alone would take the bar down the instant the gesture
+began. The handle therefore remembers the press, and a press outranks the
+pointer: while the divider is held the phase stays `In` whatever hover says, and
+because the phase is unchanged the animation keeps its id and its clock across
+every re-render the moving ratio causes. The bar does not blink as the divider
+travels.
+
+The release is read from where it landed:
+
+- **on the band** — the handle's own `on_mouse_up`, which gpui only runs when
+  the band is under the pointer, so the bar demonstrably still has a pointer on
+  it and stays up. No fade out and straight back in, which is what a blink is,
+  and this is the common ending: a short drag never reaches the minimum, so the
+  divider is still under the pointer when the button comes up.
+- **anywhere else, inside the container or outside the window** — the
+  container's `on_mouse_up` / `on_mouse_up_out`, which fade the bar out. Both are
+  no-ops unless a press of this splitter's own band is outstanding, so an
+  ordinary click in either pane leaves the bar alone.
+
+Every one of those handlers asks for a repaint even when the phase is unchanged.
+The repaint is the point: gpui re-checks each hover listener against the pointer
+as it paints, and the frame drawn after a release is what tells the band it is
+being hovered again — a fact it had no way to learn during the drag, and without
+which the bar could not hear the pointer eventually leave.
 
 ## Why the container hears the drag, not the handle
 
@@ -161,7 +233,14 @@ Two boxes in a flex line, and two more floating over the seam between them:
   same place a border between the two halves would have landed;
 - the **handle** is an absolutely positioned band at the same percentage, pulled
   back half its own thickness so the grab area is symmetric about the line the
-  eye sees. It `occlude()`s, and carries the resize cursor for its axis.
+  eye sees. It `occlude()`s, carries the resize cursor for its axis, and paints
+  nothing itself;
+- the **bar** is a child of the band and is what the eye actually follows: 3 px
+  across against the band's 6, `rounded_full`, centred in the band by whatever
+  room is left over, and held 6 px back from both ends of the seam so the
+  rounding reads as a capsule rather than running into the container's corners.
+  On `Horizontal` it is `w(bar)` by the band's height less the insets; on
+  `Vertical`, the transpose.
 
 The divider is out of the flow on purpose. One that took part in the layout would
 have to be paid for out of one half's share, and the arithmetic that decides
@@ -170,12 +249,11 @@ which one is exactly the arithmetic this widget exists to avoid.
 ## Theme slots
 
 - `border` — the hairline drawn on the seam. `seamless()` drops it.
-- `accent` — the grab band while the pointer is on it or holding it. gpui keeps
-  the hover style on the element a drag started from, so one rule covers both
-  "you can grab this" and "you are holding it".
+- `accent` — the rounded bar inside the grab band, while the pointer is on it or
+  holding it.
 
 Nothing else is painted: the halves are whatever the host put in them, and the
-band is transparent until the pointer finds it.
+band itself is transparent in every state.
 
 ## Pitfalls
 
