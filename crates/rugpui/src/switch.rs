@@ -18,8 +18,8 @@ type ToggleHandler = Box<dyn Fn(bool, &mut Window, &mut App)>;
 /// ```ignore
 /// Switch::new("notifications", "Enable notifications")
 ///     .checked(self.notifications)
-///     .on_toggle(cx.listener(|this, checked, _window, cx| {
-///         this.notifications = *checked;
+///     .on_toggle(cx.processor(|this, checked, _window, cx| {
+///         this.notifications = checked;
 ///         cx.notify();
 ///     }))
 /// ```

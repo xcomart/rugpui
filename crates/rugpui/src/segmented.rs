@@ -22,7 +22,7 @@ type SelectHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 /// Segmented::new("auth")
 ///     .options(vec![("password", "Password"), ("key", "Private key")])
 ///     .selected(self.auth.index())
-///     .on_select(cx.listener(|this, index, _window, cx| this.set_auth(*index, cx)))
+///     .on_select(cx.processor(|this, index, _window, cx| this.set_auth(index, cx)))
 /// ```
 #[derive(IntoElement)]
 pub struct Segmented {
