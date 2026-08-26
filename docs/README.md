@@ -30,7 +30,7 @@ gallery is right.
 | [select](./widgets/select.md) | `Select` | A dropdown that picks one string out of a list. |
 | [menu](./widgets/menu.md) | `MenuButton` / `ContextMenu` | Two ways to show the same list of commands: a compact toolbar trigger and a panel with no trigger at all. |
 | [tab-bar](./widgets/tab-bar.md) | `TabBar` | A horizontal strip of tabs with a status dot, an optional mark, close buttons and a dropdown listing every tab. |
-| [tooltip](./widgets/tooltip.md) | `tooltip_label` | A one-line label that appears when the pointer rests on a control. |
+| [tooltip](./widgets/tooltip.md) | `tooltip_label` / `Tooltip` | A box that appears when the pointer rests on a control: one line of text, a column of parts, or content the host draws itself. |
 | [modal](./widgets/modal.md) | `modal` / `form_row` | A centred dialog panel over a translucent backdrop, plus the labelled row its body is usually built out of. |
 | [scrollbar](./widgets/scrollbar.md) | `Scrollbar` | An overlay scroll indicator: a thumb with no track behind it, drawn over the content rather than beside it. |
 | [tree](./widgets/tree.md) | `TreeView` | A virtualised tree whose branches arrive one round trip at a time. |
@@ -44,7 +44,9 @@ gallery is right.
   rows it never fetches itself.
 - [Editor](./editor.md) — `rugpui-editor` is a multi-line code editor: a rope,
   a pluggable line highlighter, an incremental syntax cache, and a gpui
-  element that shapes only the rows that fit on screen.
+  element that shapes only the rows that fit on screen — plus `CodeSnippet`,
+  the same colours with none of the editor, for code that is read rather than
+  typed into.
 - [Shell](./shell.md) — `rugpui-shell` is the layer above the widget kit: the
   parts of an application that turned out not to be about the application at
   all.

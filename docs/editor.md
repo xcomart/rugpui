@@ -307,7 +307,8 @@ and there is nowhere for the table to travel with it.
 
 Every variant but `QuotedIdentifier` names one of `EditorTheme`'s fourteen token
 slots, so mapping a span onto a colour is a total function with no fallback and
-no invented slot ([element.rs](../crates/rugpui-editor/src/element.rs)).
+no invented slot ([highlight.rs](../crates/rugpui-editor/src/highlight.rs), where
+`color_for` is the match).
 
 | `Token` | `EditorTheme` slot | what it is |
 | --- | --- | --- |
@@ -347,6 +348,141 @@ equals the one it had. For an edit that opens no comment and no string that is
 one line, whatever the document's length; typing `/*` on line three of a hundred
 thousand walks down to the line that closes the comment or to the end of the
 file, and typing the `*/` walks back no further than it came.
+
+## Snippets and code tooltips
+
+`EditorView` is an entity: a caret, a history, a scroll offset and an input
+handler, because someone is going to type into it. A completion popup's
+documentation box, a tooltip over a saved query, a preview beside a file list —
+none of those are typed into, and paying for an editor to draw four read-only
+lines is the wrong trade.
+
+`CodeSnippet` is the other end. A stateless element, rebuilt on every render of
+its parent, that lexes its text line by line and hands gpui one `StyledText` per
+line. Same `Highlighter`, same colours, same gap filling as the editor; no
+gutter, no caret, no selection, no virtualisation.
+
+```rust
+use rugpui_editor::{CodeSnippet, highlighter_for_extension};
+
+CodeSnippet::new(query, highlighter_for_extension("sql").expect("sql"))
+    .font_family(self.mono.clone())
+    .max_lines(4)
+```
+
+| method | argument | default | effect |
+| --- | --- | --- | --- |
+| `CodeSnippet::new` | `impl Into<SharedString>`, `Arc<dyn Highlighter>` | | The code and the lexer. |
+| `font_family` | `impl Into<SharedString>` | the window's | The family the runs are shaped in. |
+| `text_size` | `Pixels` | 11.5 px | The type size. |
+| `max_lines` | `usize` | unbounded | Draw at most this many lines, then one holding `…` in the `comment` colour. |
+| `bare` | — | off | Drop the code-block background, padding and corner. |
+
+The default box is `background` from the *editor* palette, 8 px of horizontal
+and 6 px of vertical padding, and a small corner — enough to read as a
+quotation. `bare()` is for a host that has already drawn the container.
+
+Blank lines are drawn as a single space rather than as an empty `StyledText`,
+which would have no text to take a height from and would collapse the line.
+
+**Name a family that exists.** By default a snippet draws in whatever family the
+window's text style is in, which for most hosts is proportional — and code in a
+proportional face does not line up. Either name one with `.font_family(..)` or
+put one on a container above it, the way the gallery does for the editors; both
+reach the runs. The literal `"monospace"` is a fontconfig alias and resolves on
+Linux only, so the gallery's `monospace(cx)` walks
+`cx.text_system().all_font_names()` for the first of its candidates that is
+installed — the same rule as [Why the font goes on the
+container](#why-the-font-goes-on-the-container).
+
+### `tooltip_code`
+
+```rust
+pub fn tooltip_code(
+    text: impl Into<SharedString>,
+    highlighter: Arc<dyn Highlighter>,
+    font_family: Option<SharedString>,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static
+```
+
+`rugpui::tooltip_with` over a `CodeSnippet`: the box every other tooltip in the
+application is drawn in, with a listing inside it.
+
+```rust
+div()
+    .id("saved-query")
+    .tooltip(tooltip_code(
+        query.clone(),
+        highlighter_for_extension("sql").expect("sql"),
+        Some(self.mono.clone()),
+    ))
+    .child(name)
+```
+
+`font_family` is `None` for "whatever the window is in", which is the right
+answer only when the tooltip is opened from a subtree that already has a
+fixed-pitch family on it.
+
+A tooltip that is code *and other things* is a `rugpui::Tooltip` with the
+snippet handed in through `.element(..)`. This is what the gallery's second
+hover target does ([main.rs](../crates/rugpui-gallery/src/main.rs)):
+
+```rust
+let sql = highlighter_for_extension("sql").expect("sql");
+let mono = self.mono.clone();
+
+Tooltip::new()
+    .image(PREVIEW, px(96.))
+    .note("public.orders — 12 rows")
+    .element(move |_window, _cx| {
+        CodeSnippet::new(data::SQL, sql.clone())
+            .font_family(mono.clone())
+            .max_lines(4)
+            .into_any_element()
+    })
+    .build()
+```
+
+The closure runs once per hover, so the lexer, the family and the text are
+cloned into it rather than borrowed. See
+[tooltip](./widgets/tooltip.md#composite-tooltips) for the rest of the builder.
+
+### Drawing your own listing
+
+A host whose popup is not a snippet — a diff view, a log pane, a completion list
+that colours the matched prefix — wants the colours without the element. Two
+functions are public for exactly that:
+
+```rust
+pub fn runs_for_spans(
+    text: &str,
+    spans: &[Span],
+    palette: &EditorTheme,
+    font: &Font,
+) -> Vec<TextRun>
+
+pub const fn color_for(token: Token, palette: &EditorTheme) -> Hsla
+```
+
+`runs_for_spans` is the gap filling: gpui shapes a line from runs whose lengths
+add up to its length, and a highlighter's spans need not tile the line, so the
+bytes no span covers come back as `foreground`. It also clamps — a span past the
+end of a line, or one that starts inside the one before it, is a bug in ordinary
+code, and the alternative to clamping is a panic inside gpui's shaper. Its output
+always tiles `text`, which is what `StyledText::with_runs` asserts on.
+
+```rust
+let (spans, next) = highlighter.line(line, state);
+let runs = runs_for_spans(line, &spans, &palette, &font);
+StyledText::new(line.to_string()).with_runs(runs)
+```
+
+Thread `state` from `LineState::START` through the lines in order, exactly as the
+syntax cache does; a lexer that is handed the wrong start state will disagree
+about where a block comment or a string ends.
+
+`color_for` is the `Token` → `EditorTheme` map tabulated
+[above](#token-and-the-editor-theme-slots).
 
 ## Built-in languages
 
@@ -764,6 +900,7 @@ Source: [lib.rs](../crates/rugpui-editor/src/lib.rs), and beside it
 [syntax.rs](../crates/rugpui-editor/src/syntax.rs),
 [find.rs](../crates/rugpui-editor/src/find.rs),
 [history.rs](../crates/rugpui-editor/src/history.rs),
+[snippet.rs](../crates/rugpui-editor/src/snippet.rs),
 [sql_syntax.rs](../crates/rugpui-editor/src/sql_syntax.rs) and
 [lang/](../crates/rugpui-editor/src/lang/mod.rs)
 ([registry](../crates/rugpui-editor/src/lang/registry.rs),

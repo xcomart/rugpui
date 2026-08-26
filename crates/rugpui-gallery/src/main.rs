@@ -16,16 +16,17 @@
 use std::borrow::Cow;
 
 use gpui::{
-    App, AssetSource, Bounds, Context, Div, DragMoveEvent, Entity, Hsla, Result, ScrollHandle,
-    SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
+    AnyView, App, AssetSource, Bounds, Context, Div, DragMoveEvent, Entity, Hsla, Result,
+    ScrollHandle, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
+    prelude::*, px, size,
 };
 use rugpui::{
     Button, ButtonVariant, Checkbox, DraggedThumb, EditorTheme, MenuButton, MenuEntry, ProgressBar,
     Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Switch, TabBar, TabItem,
-    TabStatus, TextInput, Theme, TreeView, scroll_to, set_editor_theme, set_theme, theme,
+    TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme,
     tooltip_label,
 };
-use rugpui_editor::{EditorView, MarkKind, highlighter_for_extension};
+use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::GridView;
 
 mod data;
@@ -40,6 +41,11 @@ const FOLDER: &str = "icons/folder.svg";
 const FILE: &str = "icons/file.svg";
 /// The mark on the tab that stands for a file with something wrong in it.
 const WARNING: &str = "icons/warning.svg";
+/// A thumbnail of a table, for the rich tooltip.
+///
+/// Drawn by [`img`](gpui::img) rather than by [`svg`](gpui::svg), so unlike the
+/// three above its colours are the ones written in the file.
+const PREVIEW: &str = "icons/preview.svg";
 
 /// The id of the list's overlay scroll bar.
 ///
@@ -58,6 +64,7 @@ const ICONS: &[(&str, &[u8])] = &[
     (FOLDER, include_bytes!("../assets/icons/folder.svg")),
     (FILE, include_bytes!("../assets/icons/file.svg")),
     (WARNING, include_bytes!("../assets/icons/warning.svg")),
+    (PREVIEW, include_bytes!("../assets/icons/preview.svg")),
 ];
 
 /// The asset source the application is built with.
@@ -470,6 +477,18 @@ impl Gallery {
                         .text_color(palette.text_muted)
                         .tooltip(tooltip_label("Rests here to show a tooltip"))
                         .child("Hover me"),
+                )
+                .child(
+                    div()
+                        .id("tooltip-rich")
+                        .px(px(8.))
+                        .py(px(4.))
+                        .rounded_md()
+                        .border_1()
+                        .border_color(palette.border)
+                        .text_color(palette.text_muted)
+                        .tooltip(self.preview_tooltip())
+                        .child("Hover for a preview"),
                 ),
         );
 
@@ -489,6 +508,34 @@ impl Gallery {
             .child(fields)
             .child(menu)
             .child(self.list(cx))
+    }
+
+    /// The rich tooltip: a thumbnail, a caption and four lines of highlighted
+    /// SQL, in one [`Tooltip`].
+    ///
+    /// Three parts, three kinds. The image is an `img` and therefore keeps the
+    /// colours written in its file, unlike the monochrome `svg` icons the tree
+    /// and the tabs use. The note is the caption slot. The snippet is a
+    /// [`CodeSnippet`] handed in through `.element(..)`, which is how anything
+    /// `rugpui` has never heard of gets into the column — it reads the *editor*
+    /// palette, so it matches the two editors on the right rather than the
+    /// tooltip's own surface.
+    ///
+    /// Everything the closure needs is cloned into it: gpui calls it afresh on
+    /// every hover, so it cannot borrow from the gallery.
+    fn preview_tooltip(&self) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+        let sql = highlighter_for_extension("sql").expect("sql ships with rugpui-editor");
+        let mono = self.mono.clone();
+        Tooltip::new()
+            .image(PREVIEW, px(96.))
+            .note("public.orders — 12 rows")
+            .element(move |_window, _cx| {
+                CodeSnippet::new(data::SQL, sql.clone())
+                    .font_family(mono.clone())
+                    .max_lines(4)
+                    .into_any_element()
+            })
+            .build()
     }
 
     /// A scrolling list with an overlay bar over it.
