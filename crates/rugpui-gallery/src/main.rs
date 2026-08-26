@@ -212,6 +212,10 @@ struct Gallery {
     /// Whether each of the two fold-away sections is open.
     advanced_open: bool,
     ssh_open: bool,
+    /// The switch in the "Advanced options" header — its own value, not the
+    /// one the "Switches" section drives, so toggling one leaves the other
+    /// alone.
+    advanced_on: bool,
     /// The three text fields: one with a value, one empty, one disabled.
     filled: Entity<TextInput>,
     empty: Entity<TextInput>,
@@ -298,6 +302,7 @@ impl Gallery {
             select_open: false,
             menu_open: false,
             advanced_open: true,
+            advanced_on: true,
             ssh_open: false,
             filled,
             empty,
@@ -344,6 +349,10 @@ impl Gallery {
     }
 
     /// The left-hand column: the small widgets a form is built out of.
+    ///
+    /// The four stateless indicators and pickers — spinner, segmented control,
+    /// select and scrollbar — live in the middle column instead, under the
+    /// tree, so that this column is short enough to fit beside it.
     fn controls(&self, cx: &mut Context<Self>) -> Div {
         let palette = theme(cx);
         let this = cx.entity();
@@ -399,12 +408,12 @@ impl Gallery {
                         // a switch nested in the header would perform both.
                         .trailing(
                             Switch::new("advanced-on", "")
-                                .checked(self.switch_on)
+                                .checked(self.advanced_on)
                                 .on_toggle({
                                     let this = this.clone();
                                     move |value, _window, cx| {
                                         this.update(cx, |gallery, cx| {
-                                            gallery.switch_on = value;
+                                            gallery.advanced_on = value;
                                             cx.notify();
                                         });
                                     }
@@ -463,58 +472,6 @@ impl Gallery {
             }))
             .child(ProgressBar::new("amount-progress").fraction(amount))
             .child(ProgressBar::new("loading").indeterminate());
-
-        let spinners = section("Spinner", &palette).child(
-            row()
-                .child(Spinner::new("spinner-small"))
-                .child(Spinner::new("spinner-large").size(px(24.))),
-        );
-
-        let segmented = section("Segmented", &palette).child(
-            Segmented::new("format")
-                .options(vec![("csv", "CSV"), ("json", "JSON"), ("insert", "INSERT")])
-                .selected(self.segment)
-                .on_select({
-                    let this = this.clone();
-                    move |index, _window, cx| {
-                        this.update(cx, |gallery, cx| {
-                            gallery.segment = index;
-                            cx.notify();
-                        });
-                    }
-                }),
-        );
-
-        let select = section("Select", &palette).child(
-            Select::new("driver")
-                .options(
-                    ["PostgreSQL", "MySQL", "Oracle", "SQLite", "SQL Server"]
-                        .map(SharedString::new_static),
-                )
-                .selected(Some(self.choice.clone()))
-                .placeholder("Pick a driver")
-                .open(self.select_open)
-                .width(px(180.))
-                .on_select({
-                    let this = this.clone();
-                    move |_index, text, _window, cx| {
-                        let text = SharedString::from(text.to_owned());
-                        this.update(cx, |gallery, cx| {
-                            gallery.choice = text;
-                            cx.notify();
-                        });
-                    }
-                })
-                .on_open_change({
-                    let this = this.clone();
-                    move |open, _window, cx| {
-                        this.update(cx, |gallery, cx| {
-                            gallery.select_open = open;
-                            cx.notify();
-                        });
-                    }
-                }),
-        );
 
         let fields = section("Text fields", &palette)
             .child(self.filled.clone())
@@ -581,12 +538,8 @@ impl Gallery {
             .child(collapsibles)
             .child(switches)
             .child(slider)
-            .child(spinners)
-            .child(segmented)
-            .child(select)
             .child(fields)
             .child(menu)
-            .child(self.list(cx))
     }
 
     /// The rich tooltip: a thumbnail, a caption and four lines of highlighted
@@ -667,8 +620,12 @@ impl Gallery {
         )
     }
 
-    /// The right-hand column: the tree, the grid and the two editors, divided
-    /// by two [`Splitter`]s.
+    /// The middle column: the tree, and under it the small stateless
+    /// indicators and pickers — spinner, segmented control, select and
+    /// scrollbar — for which a form field's two-column layout would waste
+    /// width. The right-hand column holds the grid and the two editors.
+    /// Divided from the left by one [`Splitter`], and the grid from the
+    /// editors by a second.
     ///
     /// The dividers are the point of the arrangement. The tree used to be
     /// pinned at 230 px and the grid at 256, and both numbers are now a share
@@ -683,12 +640,68 @@ impl Gallery {
         let palette = theme(cx);
         let this = cx.entity();
 
-        // Fills whatever height is left in its half, so that the column does
-        // not end in a band of nothing.
+        // Fills whatever height is left in its column, so that the column
+        // does not end in a band of nothing — but never below 200 px, so the
+        // four sections beneath it cannot squeeze the tree away entirely.
         let tree = section("Tree", &palette)
             .flex_1()
             .min_h_0()
+            .min_h(px(200.))
             .child(framed(&palette).flex_1().child(self.tree.clone()));
+
+        let spinners = section("Spinner", &palette).child(
+            row()
+                .child(Spinner::new("spinner-small"))
+                .child(Spinner::new("spinner-large").size(px(24.))),
+        );
+
+        let segmented = section("Segmented", &palette).child(
+            Segmented::new("format")
+                .options(vec![("csv", "CSV"), ("json", "JSON"), ("insert", "INSERT")])
+                .selected(self.segment)
+                .on_select({
+                    let this = this.clone();
+                    move |index, _window, cx| {
+                        this.update(cx, |gallery, cx| {
+                            gallery.segment = index;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+
+        let select = section("Select", &palette).child(
+            Select::new("driver")
+                .options(
+                    ["PostgreSQL", "MySQL", "Oracle", "SQLite", "SQL Server"]
+                        .map(SharedString::new_static),
+                )
+                .selected(Some(self.choice.clone()))
+                .placeholder("Pick a driver")
+                .open(self.select_open)
+                .width(px(180.))
+                .on_select({
+                    let this = this.clone();
+                    move |_index, text, _window, cx| {
+                        let text = SharedString::from(text.to_owned());
+                        this.update(cx, |gallery, cx| {
+                            gallery.choice = text;
+                            cx.notify();
+                        });
+                    }
+                })
+                .on_open_change({
+                    let this = this.clone();
+                    move |open, _window, cx| {
+                        this.update(cx, |gallery, cx| {
+                            gallery.select_open = open;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+
+        let list = self.list(cx);
 
         // Fills its half of the vertical split, rather than the fixed 256 px it
         // was pinned at before the divider existed.
@@ -758,8 +771,13 @@ impl Gallery {
                         .flex_col()
                         .size_full()
                         .min_h_0()
+                        .gap(px(16.))
                         .pr(px(7.))
-                        .child(tree),
+                        .child(tree)
+                        .child(spinners)
+                        .child(segmented)
+                        .child(select)
+                        .child(list),
                 )
                 .second(div().flex().size_full().min_w_0().pl(px(7.)).child(results))
                 .on_change(move |ratio, _window, cx| {
