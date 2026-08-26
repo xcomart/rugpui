@@ -22,9 +22,9 @@ use gpui::{
 };
 use rugpui::{
     Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, EditorTheme, MenuButton, MenuEntry,
-    ProgressBar, Scrollbar, ScrollbarAxis, Segmented, Select, Slider, Spinner, Splitter, Switch,
-    TabBar, TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme,
-    set_theme, theme, tooltip_label,
+    ProgressBar, Scrollbar, ScrollbarAxis, Segmented, Select, SelectOption, Slider, Spinner,
+    Splitter, Switch, TabBar, TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to,
+    set_editor_theme, set_theme, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::GridView;
@@ -39,8 +39,11 @@ use data::{Catalog, Orders};
 const FOLDER: &str = "icons/folder.svg";
 /// A document, for the leaves of the tree.
 const FILE: &str = "icons/file.svg";
-/// The mark on the tab that stands for a file with something wrong in it.
+/// The mark on the tab that stands for a file with something wrong in it, and
+/// on the dropdown row whose driver the demo calls out.
 const WARNING: &str = "icons/warning.svg";
+/// A database, for the leading slot of the driver dropdown's rows.
+const DATABASE: &str = "icons/database.svg";
 /// A thumbnail of a table, for the rich tooltip.
 ///
 /// Drawn by [`img`](gpui::img) rather than by [`svg`](gpui::svg), so unlike the
@@ -64,6 +67,7 @@ const ICONS: &[(&str, &[u8])] = &[
     (FOLDER, include_bytes!("../assets/icons/folder.svg")),
     (FILE, include_bytes!("../assets/icons/file.svg")),
     (WARNING, include_bytes!("../assets/icons/warning.svg")),
+    (DATABASE, include_bytes!("../assets/icons/database.svg")),
     (PREVIEW, include_bytes!("../assets/icons/preview.svg")),
 ];
 
@@ -672,9 +676,20 @@ impl Gallery {
 
         let select = section("Select", &palette).child(
             Select::new("driver")
+                // Every driver gets the same leading mark; the first also
+                // gets a trailing one, so both slots are on show and the
+                // gallery says out loud that a list may mark only some rows.
                 .options(
                     ["PostgreSQL", "MySQL", "Oracle", "SQLite", "SQL Server"]
-                        .map(SharedString::new_static),
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, name)| {
+                            let option = SelectOption::new(name).leading(DATABASE);
+                            match index {
+                                0 => option.trailing(WARNING),
+                                _ => option,
+                            }
+                        }),
                 )
                 .selected(Some(self.choice.clone()))
                 .placeholder("Pick a driver")

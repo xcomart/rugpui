@@ -74,7 +74,7 @@ pub use scrollbar::{
     scrolled,
 };
 pub use segmented::Segmented;
-pub use select::Select;
+pub use select::{Select, SelectOption};
 pub use slider::{DraggedKnob, Slider, stepped};
 pub use spinner::Spinner;
 pub use splitter::{DraggedSplit, Splitter, split_share};
