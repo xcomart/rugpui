@@ -1106,6 +1106,32 @@ pub fn shift_lightness(color: Hsla, delta: f32) -> Hsla {
     }
 }
 
+/// Mixes `from` into `to` by `fraction`, channel by channel in sRGB.
+///
+/// The blend a widget wants while it is animating between two theme slots: at
+/// `0.0` the answer is `from`, at `1.0` it is `to`, and `fraction` is clamped
+/// to that range so an easing function that overshoots cannot produce a color
+/// outside the pair.
+///
+/// sRGB rather than HSL on purpose. Interpolating hue takes the short way
+/// round a circle, which sends a fade between two colors of unrelated hue —
+/// a grey border and an accent, say — sightseeing through whatever lies
+/// between them; and a grey has no meaningful hue to travel *from* in the
+/// first place. Mixing the channels goes straight there, which is what the eye
+/// expects of a control changing state.
+pub fn lerp(from: Hsla, to: Hsla, fraction: f32) -> Hsla {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let from = Rgba::from(from);
+    let to = Rgba::from(to);
+    let channel = |a: f32, b: f32| a + (b - a) * fraction;
+    Hsla::from(Rgba {
+        r: channel(from.r, to.r),
+        g: channel(from.g, to.g),
+        b: channel(from.b, to.b),
+        a: channel(from.a, to.a),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1600,5 +1626,47 @@ mod tests {
         let theme = file.to_theme();
         assert_ne!(theme.grid_header, Theme::dark().grid_header);
         assert!(theme.grid_header.l < theme.surface.l, "went the wrong way");
+    }
+
+    /// The two ends of a blend are the colors themselves, and the middle is the
+    /// channel-wise average of them — not a detour through the hues between.
+    #[test]
+    fn a_blend_starts_at_one_color_and_ends_at_the_other() {
+        let black = gpui::rgb(0x000000).into();
+        let white = gpui::rgb(0xffffff).into();
+
+        assert_same(lerp(black, white, 0.0), black);
+        assert_same(lerp(black, white, 1.0), white);
+        assert_same(lerp(black, white, 0.5), gpui::rgb(0x7f7f7f).into());
+
+        // Red to blue passes through the mixture of the two rather than
+        // through the greens a hue interpolation would have visited.
+        let halfway = Rgba::from(lerp(
+            gpui::rgb(0xff0000).into(),
+            gpui::rgb(0x0000ff).into(),
+            0.5,
+        ));
+        assert!((halfway.r - 0.5).abs() <= CHANNEL_EPSILON);
+        assert!(halfway.g <= CHANNEL_EPSILON, "went by way of green");
+        assert!((halfway.b - 0.5).abs() <= CHANNEL_EPSILON);
+    }
+
+    /// A fraction outside `0..=1` is pinned to the pair, so an easing function
+    /// that overshoots cannot paint a color neither end asked for.
+    #[test]
+    fn a_blend_past_either_end_stops_there() {
+        let from = gpui::rgb(0x102030).into();
+        let to = gpui::rgb(0xa0b0c0).into();
+
+        assert_same(lerp(from, to, -2.0), from);
+        assert_same(lerp(from, to, 3.0), to);
+        // Alpha travels with the channels rather than being carried over from
+        // either end.
+        let faded = lerp(
+            gpui::rgba(0x00000000).into(),
+            gpui::rgb(0x000000).into(),
+            0.5,
+        );
+        assert!((faded.a - 0.5).abs() <= CHANNEL_EPSILON);
     }
 }
