@@ -4632,6 +4632,7 @@ dependencies = [
  "rugpui",
  "rugpui-editor",
  "rugpui-grid",
+ "rugpui-shell",
 ]
 
 [[package]]

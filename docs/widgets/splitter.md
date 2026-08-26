@@ -54,6 +54,15 @@ Splitter::new("results-split", Axis::Vertical)
 `on_change` takes its `f32` by value, so `cx.listener` — which produces an
 `Fn(&E, ..)` — does not fit; `cx.processor` is the by-value counterpart.
 
+![Two halves side by side with a divider off the middle](../screenshots/splitter/horizontal.png)
+
+*`Axis::Horizontal` with `ratio(0.35)`: the halves sit side by side and the
+divider moves left and right.*
+
+![One half above the other](../screenshots/splitter/vertical.png)
+
+*`Axis::Vertical` with `ratio(0.4)`: the same call with the axis changed.*
+
 ## Builder options
 
 | method | argument | default | effect |
@@ -147,6 +156,11 @@ Each phase animates under an element id of its own (`…/bar-fade-in`,
 by that id and drops it once the id stops being drawn, so switching phase
 restarts the new one from zero, while staying on one phase leaves the clock
 running.
+
+![Two splits, one with a line on the seam and one without](../screenshots/splitter/seamless.png)
+
+*The default above, which draws a hairline on the seam, and `seamless()` below,
+where the grab band is there but nothing marks it.*
 
 ## Dragging
 

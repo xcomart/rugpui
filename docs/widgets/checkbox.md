@@ -45,6 +45,11 @@ A checkbox with no handler still draws — the gallery includes
 `Checkbox::new("locked-check", "Read only").checked(true)` as static examples —
 but clicking it does nothing.
 
+![An unticked checkbox beside a ticked one](../screenshots/checkbox/states.png)
+
+*The two states the box has: `checked(false)`, the default, and
+`checked(true)`.*
+
 ## Builder options
 
 | method | argument | default | effect |

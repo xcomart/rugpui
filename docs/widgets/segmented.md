@@ -31,6 +31,11 @@ Segmented::new("format")
 `on_select` takes its `usize` by value, so `cx.listener` — which produces an
 `Fn(&E, ..)` — does not fit; `cx.processor` is the by-value counterpart.
 
+![Three segments with the middle one selected](../screenshots/segmented/selected.png)
+
+*Three options under `selected(1)`: the picked segment takes `surface_active`
+and `text`, the rest stay `text_muted`.*
+
 ## Builder options
 
 | method | argument | default | effect |

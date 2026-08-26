@@ -102,6 +102,12 @@ div()
     .child(self.editor.clone())
 ```
 
+![A SQL editor with line numbers and a warning in the gutter](./screenshots/editor/sql.png)
+
+*What that comes to: the `sql` highlighter's colours, line numbers, the band on
+the caret's line, and — from `set_marks(..)` — a warning against line 9. The
+[gutter marks](#gutter-marks) section below is where that last one comes from.*
+
 ### Why the font goes on the container
 
 `EditorElement::prepaint` takes its font, size and line height from
@@ -524,6 +530,11 @@ dot, case-insensitively, in the form `Path::extension` returns it. An unknown
 extension answers `None`, which is a plain-text editor. A host whose files carry
 a second extension of their own — `Model.java.tpl` — strips it before asking.
 
+![The same editor over a JSON document](./screenshots/editor/json.png)
+
+*The same `EditorView` with `highlighter_for_extension("json")`: nothing about
+the widget changes, only which state machine runs over the bytes.*
+
 `LanguageRegistry` answers the wider questions: what may a document be *set* to,
 and what is this file given that half the shell scripts on a server are called
 `deploy`. `detect(name, first_line)` runs three rules in order, each more certain
@@ -794,6 +805,11 @@ buffer. Case-insensitive matching compares `char::to_lowercase` a character at a
 time rather than lowercasing the haystack, because lowercasing changes byte
 lengths and every offset handed back has to index the buffer as it stands.
 
+![An editor with a find bar along its foot and every match highlighted](./screenshots/editor/find.png)
+
+*The find bar down, with a query in it: every match is marked in the buffer, the
+count reads `1/2`, and the bar's own widgets are drawn with the chrome `Theme`.*
+
 **History** groups by intent, which is why one `ctrl-z` takes back a word rather
 than a letter. A single-character insertion at the caret extends the previous
 transaction if that one was also typing and ended exactly where this one starts;
@@ -821,6 +837,16 @@ The editor draws from `EditorTheme`, a syntax palette of twenty-one slots kept
 separate from the chrome `Theme` — a light chrome around a dark editor is a real
 preference, not a mistake. See [theming.md](./theming.md) for the slots, the file
 format and the built-in palettes; the token mapping is the table above.
+
+One listing in a dark palette and in a light one, with a range selected so the
+selection colour sits beside the current-line band and the caret:
+
+| `one-dark` | `solarized-light` |
+| --- | --- |
+| ![The listing in one-dark](./screenshots/editor/theme-dark.png) | ![The listing in solarized-light](./screenshots/editor/theme-solarized-light.png) |
+
+All six are side by side in
+[theming.md](./theming.md#the-six-built-ins-1).
 
 By default an editor reads the application-wide `rugpui::editor_theme(cx)`, and
 that is where nearly every editor should stay. `set_palette(Some(palette), cx)`

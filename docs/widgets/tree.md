@@ -131,6 +131,10 @@ sequenceDiagram
 
 Nothing here ever blocks, and nothing here spawns a task either: the host owns the connection, so the host owns the fetch. A request is remembered until the source answers with anything other than `NotLoaded`, so a node is asked for once however many times it is redrawn — and a node whose children the host later drops back to `NotLoaded` is asked again. Requests are collected during the walk and emitted afterwards, so a host that answers one synchronously is never reading a half-built list.
 
+![An open branch with an ellipsis placeholder under it](../screenshots/tree/loading.png)
+
+*A branch whose `children(..)` answered `ChildState::Loading`: the placeholder row is what the tree draws while the host's fetch is in flight, and `render_loading` is what draws it.*
+
 ## Creating and subscribing
 
 `TreeView` is an entity, created once and rendered as a child element:
@@ -156,6 +160,10 @@ cx.subscribe(&tree, |view, tree, event, cx| match event {
 ```
 
 The first draw asks the source for its outermost level and emits `LoadChildren(None)` if it has not been fetched — so a host that subscribes right after building the tree still catches the request for the root.
+
+![A catalogue tree with two levels open and a leaf selected](../screenshots/tree/expanded.png)
+
+*Two branches opened with `expand(..)` and a leaf under `set_selected(..)`: both disclosure states are on screen, and every row is drawn by the source's own `render_row`.*
 
 ### Events
 

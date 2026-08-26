@@ -62,6 +62,36 @@ Before the first window opens, call [`rugpui::init`](../getting-started.md) (whi
 
 `multiline(rows)` clamps to at least one row and sizes the field to what it *shows*: longer text scrolls inside the frame instead of pushing the form apart. A masked multiline field is a contradiction and the mask is ignored.
 
+### In pictures
+
+![An empty field showing a muted placeholder](../screenshots/text-input/placeholder.png)
+
+*`placeholder("Search tables…")` on an empty field, drawn in `text_muted`.*
+
+![The same field with a value in it](../screenshots/text-input/value.png)
+
+*The same field after `set_content("db.internal:5432", cx)` — the placeholder gives way to the value in `text`.*
+
+![A focused field with an accent border and a caret](../screenshots/text-input/focused.png)
+
+*Focused: the border becomes `accent` and the caret is drawn.*
+
+![A field whose content is drawn as bullets](../screenshots/text-input/masked.png)
+
+*`masked(true)`: every grapheme is drawn as `•`, and copy and cut are refused.*
+
+![A three-row field holding three lines](../screenshots/text-input/multiline.png)
+
+*`multiline(3)`: three rows tall, and `Enter` breaks the line instead of submitting.*
+
+![A greyed, read-only field](../screenshots/text-input/disabled.png)
+
+*`disabled(true)`: muted text, no menu, and no actions wired at all.*
+
+![A field outlined in red](../screenshots/text-input/invalid.png)
+
+*`set_invalid(true, cx)` — a setter rather than a builder option, since validity is decided after the field is built.*
+
 ## Reading the value, and reacting to it
 
 `TextInput` emits no events. It calls `cx.notify()` whenever the content, placeholder, invalid flag or caret changes, so the host observes it:

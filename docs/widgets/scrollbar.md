@@ -70,6 +70,14 @@ Three things to copy exactly:
 
 That example leaves `fade` at its default `Fade::Shown`, so the bar is simply always there.
 
+![A list taller than its box with a bar down the right of it](../screenshots/scrollbar/vertical.png)
+
+*`ScrollbarAxis::Vertical` over an `overflow_y_scroll` list: the bar is an overlay, drawn against the wrapper rather than inside the scrolling box.*
+
+![A row wider than its box with a bar along the bottom](../screenshots/scrollbar/horizontal.png)
+
+*The same bar as `ScrollbarAxis::Horizontal` under an `overflow_x_scroll` row.*
+
 ## API
 
 ### Building and drawing

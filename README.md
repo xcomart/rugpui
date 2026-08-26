@@ -29,9 +29,27 @@ Every widget in this repository, in one window, in the two default palettes:
 Run it yourself with `cargo run -p rugpui-gallery -- --theme light`; `--theme`
 takes any of the six built-in palettes (`dark`, `light`, `solarized-dark`,
 `solarized-light`, `gruvbox-dark`, `dracula`) and picks the matching editor
-palette with it. The screenshots above are that window captured at 1180×1020 in
-`dark` and in `light` — regenerate them by running the gallery in each and
-saving the window to `docs/screenshots/gallery-<theme>.png`.
+palette with it. The two screenshots above are that window captured at 1180×1020
+in `dark` and in `light`; `scripts/docshots.sh --gallery` takes them both again
+and writes them back to `docs/screenshots/gallery-<theme>.png`.
+
+The same binary has a second mode, which is where the per-option pictures in the
+documentation come from. `--shot <name>` opens *one* widget in *one* state in a
+window sized to it — `button/variants`, `select/open`, `grid/choice-editor` — and
+`--list-shots` writes the registry of them out. `scripts/docshots.sh` walks that
+registry, photographs each window and files it under `docs/screenshots/<name>.png`,
+checking as it goes that every file came out the size its shot asked for; a name
+prefix (`scripts/docshots.sh select`) narrows the run to one page's worth. The
+shots themselves live in
+[`crates/rugpui-gallery/src/shots/`](crates/rugpui-gallery/src/shots), so adding
+a picture to a page is adding an entry there.
+
+A widget that moves gets a GIF instead. Nothing here can record a window, only
+photograph it, so a shot that declares a motion is photographed many times over
+and `scripts/docshots_gif.py` puts the pile in order by what is *in* each frame
+— the angle a spinner's arc has turned to, how far a sweep has crossed its
+track — rather than by when it arrived, then holds each frame for as long as the
+gap to the next one deserves. That needs Pillow; nothing else does.
 
 ## Documentation
 

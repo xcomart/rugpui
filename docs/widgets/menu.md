@@ -53,6 +53,10 @@ The shortcut is decoration only. The key binding itself is registered by the app
 
 A disabled row is inert by having no handler rather than by having one that thinks better of it — which also means clicking it leaves the menu open, since the panel occludes the backdrop a press would otherwise dismiss from. Showing a greyed-out command says "the surface has this, and this is not the moment"; dropping it says nothing.
 
+![An open menu panel with shortcuts, a rule, a checked row and a disabled one](../screenshots/menu/open.png)
+
+*The five rows the gallery draws: two commands with `.shortcut(..)`, a `MenuEntry::separator()`, a `.checked(true)` row and a `.disabled(true)` one. The check column is laid out on every row because one row asked for it.*
+
 ## MenuButton
 
 | method | argument | default | effect |
@@ -68,6 +72,10 @@ A disabled row is inert by having no handler rather than by having one that thin
 `on_open_change` fires with `true` when the trigger is clicked while closed, and with `false` when the trigger is clicked again, when a row is activated, or when the pointer goes down anywhere outside the panel.
 
 The dropdown is a **fixed 280 px** wide, deliberately: the same trigger opens the same menu every time, and a width that followed the entries would make the panel breathe under a button that never moves. It hangs 32 px below the trigger's top-left corner.
+
+![Two closed menu triggers, one glyph and one icon](../screenshots/menu/button.png)
+
+*Two closed triggers: the default `☰` glyph, and one given `.icon(..)` instead.*
 
 ## ContextMenu
 
@@ -122,6 +130,10 @@ div()
 - `Anchor::BottomLeft` is for a trigger along the bottom of the window — a status bar's encoding picker — so the list stands *on* the trigger and opens upward, instead of being snapped back over the thing it was opened from.
 
 Unlike a `MenuButton`, a context menu is **content-sized**: as wide as its widest row, between 180 px and 360 px, with longer labels truncated by ellipsis. The commands a right-click offers depend on what was under the pointer, so two surfaces of the same window can want very differently sized menus. `.width(px)` opts out, for a menu the same trigger reopens over rows that come and go.
+
+![The same rows with no trigger, placed where a click landed](../screenshots/menu/context.png)
+
+*The same entries as a `ContextMenu` at `position(point(px(24.), px(24.)))`: no trigger, and the panel sized to its widest row rather than to a fixed 280 px.*
 
 ## How the panel is drawn
 

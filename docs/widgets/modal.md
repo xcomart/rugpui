@@ -94,6 +94,12 @@ div()
     .child(form_row("Host", self.host_input.clone()))
 ```
 
+![A connection dialog over a dimmed backdrop](../screenshots/modal/dialog.png)
+
+*`modal("connect", "New connection", px(420.), body, on_dismiss)` with three
+`form_row(..)` fields, a checkbox and the two buttons that end it. The backdrop
+covers the whole window; the card is centred and 420 px wide.*
+
 ## Where it must be rendered
 
 The returned element positions itself absolutely (`inset_0`, `size_full`), so it

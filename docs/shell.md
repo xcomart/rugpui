@@ -176,6 +176,11 @@ before whatever it starts with, trailing after whatever it ends with. Build
 `rugpui::WindowControlIcons` wants; see
 [window-controls](./widgets/window-controls.md) for what the strip draws.
 
+![A title bar row with a menu trigger, a title and caption buttons](./screenshots/shell/title-bar.png)
+
+*The pieces together: a `MenuButton` at the leading end, the window's title in
+the middle, and the trailing `WindowControls` strip.*
+
 The shadow band, when the window carries one, goes at the window root:
 
 ```rust
@@ -352,6 +357,12 @@ because a test of *your* menu lives in *your* crate, where this crate's
 elsewhere, and it is decoration only — the binding itself is registered against
 a gpui keymap, which has its own spelling.
 
+![An open menu built from MenuRow values](./screenshots/shell/menu-rows.png)
+
+*A `Vec<MenuRow>` after `entries(..)`: shortcuts from `SHORTCUT_MODIFIER`, two
+`MenuRow::separator()` rules, a `checked(true)` row and an `enabled(false)` one.
+The same list a test reads through `labels(&rows)`.*
+
 ## The about dialog
 
 [`AboutDialog`](../crates/rugpui-shell/src/about.rs) is a read-only card: the
@@ -374,6 +385,11 @@ the last child of a `relative()` root. `Escape` from anywhere inside it
 dismisses. It owns no form state, so unlike the other dialogs it has nothing to
 collect or persist — it only reports that it went away, so you can put focus
 back.
+
+![An about card with a wordmark, version and repository button](./screenshots/shell/about.png)
+
+*Everything on it but the `about.*` wording comes out of `AppIdentity`: the
+name, the compiled-in version, the repository button and its label.*
 
 ## Updates
 
@@ -526,6 +542,12 @@ Structurally it is a twin of `AboutDialog` — same `open`/`close`/`is_open`
 shape, same `Escape` handling, same "renders nothing while closed" contract — so
 it wires up the same way.
 
+![An update dialog announcing a new release](./screenshots/shell/update.png)
+
+*The `Announce` state, which is where `open(release, cx)` leaves it: the version
+that is out, the one running, and the three ways out — `Cancel`, "skip this
+version" (which emits `Ignored { tag }`) and `Update`.*
+
 ## Catalogues and the theme editor
 
 Two things here are written against a *catalogue* rather than against a
@@ -610,6 +632,12 @@ slot has neither. Fields are marked invalid as the editor opens, not only once
 typed into — a file edited by hand can arrive with a slot that is not a colour,
 and the editor is exactly where that has to be visible.
 
+![A theme editor with a live preview above a grid of colour fields](./screenshots/shell/theme-editor.png)
+
+*One palette edited slot by slot, with the preview at the top repainting as the
+fields change, the name and the dark flag above them, and `Cancel` / `Save` on
+the ring's last two stops.*
+
 ### The management row
 
 [`CatalogActions::new(catalog, base)`](../crates/rugpui-shell/src/catalog_ui.rs)
@@ -645,6 +673,12 @@ counted and skipped rather than failing the batch, nothing is ever written over
 `one-dark-2`), and when *nothing* could be installed the first refusal is what
 gets reported — which is what makes picking a single file of the wrong kind say
 so in as many words instead of counting to one.
+
+![A row of duplicate, edit, delete, import and export buttons](./screenshots/shell/catalog-actions.png)
+
+*The five buttons under a picker, with a built-in selected: duplicate and export
+answer for it, edit and delete are greyed because it is not the user's own, and
+import never looks at the selection.*
 
 ## Settings pieces
 
@@ -699,6 +733,11 @@ cx)`, `format_number(value)` (14.0 renders as "14"), and
 that rewrites the field after every edit — the text field has no input filter,
 and rewriting only when the text actually changes is what stops the observer
 re-triggering itself.
+
+![A titled settings card with two fields and a muted hint](./screenshots/shell/settings-form.png)
+
+*All three pieces at once: `section(..)` around the card, `suffixed(..)` putting
+the `px` beside a narrow field, and `hint(..)` under both.*
 
 ## Locale helpers
 
