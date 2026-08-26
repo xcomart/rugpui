@@ -10,7 +10,8 @@
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
 //! palettes ([`scheme_select`]), hover tooltips of a line, a column of parts
 //! or content the host draws itself ([`tooltip`]), dialogs
-//! ([`modal`]), overlay scroll indicators ([`scrollbar`]), lazily filled trees
+//! ([`modal`]), overlay scroll indicators ([`scrollbar`]), split panes
+//! ([`splitter`]), lazily filled trees
 //! ([`tree`]) and the caption buttons of a self-drawn title bar
 //! ([`window_controls`]). A widget that would need to understand the host's
 //! data to draw itself belongs in the host, not here — the tree included: it
@@ -45,6 +46,7 @@ pub mod segmented;
 pub mod select;
 pub mod slider;
 pub mod spinner;
+pub mod splitter;
 pub mod switch;
 pub mod tab_bar;
 pub mod text_input;
@@ -73,6 +75,7 @@ pub use segmented::Segmented;
 pub use select::Select;
 pub use slider::{DraggedKnob, Slider, stepped};
 pub use spinner::Spinner;
+pub use splitter::{DraggedSplit, Splitter, split_share};
 pub use switch::Switch;
 pub use tab_bar::{TabBar, TabItem, TabMark, TabStatus};
 pub use text_input::{InputMenuLabels, TextInput};

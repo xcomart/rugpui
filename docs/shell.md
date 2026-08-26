@@ -276,7 +276,10 @@ tree is rewritten whenever a pane opens or closes.
 Nothing here is serialised, and dragging a divider belongs to the view — which
 is what owns the pixels a ratio is computed from. The host walks `root()` and
 renders one nested flex box per node, sizing the two children by `ratio` along
-`axis`.
+`axis`. [`rugpui::Splitter`](./widgets/splitter.md) is the natural renderer for a
+`PaneNode::Split`: its `ratio` is the node's, its `on_change` feeds
+`PaneTree::set_ratio`, and `SplitId::as_u64()` is the element id that tells one
+divider's drag from an enclosing split's.
 
 ### The item type
 
