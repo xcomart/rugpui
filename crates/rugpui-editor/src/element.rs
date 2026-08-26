@@ -43,10 +43,10 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font,
-    GlobalElementId, InspectorElementId, LayoutId, PaintQuad, Pixels, Point, ShapedLine,
-    SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window, fill, point, prelude::*, px,
-    relative, size,
+    App, Bounds, ContentMask, CursorStyle, Element, ElementId, ElementInputHandler, Entity, Font,
+    GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, LayoutId, PaintQuad, Pixels,
+    Point, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window, fill,
+    point, prelude::*, px, relative, size,
 };
 use rugpui::EditorTheme;
 
@@ -110,6 +110,10 @@ pub struct PrepaintState {
     first_line: usize,
     /// The widest shaped line, for the horizontal scroll extent.
     content_width: Pixels,
+    /// The text area — the body minus the gutter — registered so that the
+    /// pointer over it is an I-beam. The gutter is left out: nothing there is
+    /// text, and an I-beam over a line number promises a caret it cannot give.
+    text_hitbox: Hitbox,
 }
 
 impl IntoElement for EditorElement {
@@ -342,6 +346,14 @@ impl Element for EditorElement {
             lines.push((line, shaped));
         }
 
+        let text_hitbox = window.insert_hitbox(
+            Bounds::from_corners(
+                point(bounds.left() + gutter, bounds.top()),
+                bounds.bottom_right(),
+            ),
+            HitboxBehavior::Normal,
+        );
+
         PrepaintState {
             lines,
             numbers,
@@ -353,6 +365,7 @@ impl Element for EditorElement {
             scroll,
             first_line,
             content_width,
+            text_hitbox,
         }
     }
 
@@ -377,6 +390,11 @@ impl Element for EditorElement {
             ElementInputHandler::new(bounds, self.editor.clone()),
             cx,
         );
+
+        // A read-only editor still selects and copies, so it still gets the
+        // I-beam; `TextInput` shows an arrow only when it is *disabled*, which
+        // an editor cannot be.
+        window.set_cursor_style(CursorStyle::IBeam, &prepaint.text_hitbox);
 
         let line_height = prepaint.line_height;
         let scroll = prepaint.scroll;
