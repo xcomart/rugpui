@@ -44,14 +44,14 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font,
-    GlobalElementId, Hsla, InspectorElementId, LayoutId, PaintQuad, Pixels, Point, ShapedLine,
+    GlobalElementId, InspectorElementId, LayoutId, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window, fill, point, prelude::*, px,
     relative, size,
 };
 use rugpui::EditorTheme;
 
 use crate::editor::EditorView;
-use crate::highlight::Token;
+use crate::highlight::{plain_run, runs_for_spans};
 
 /// Space between the line numbers and the text.
 const GUTTER_PADDING: f32 = 12.;
@@ -480,26 +480,12 @@ fn span_bounds(
     )
 }
 
-/// A run of `len` bytes in one color, in the editor's font.
-fn plain_run(len: usize, color: Hsla, font: &Font) -> TextRun {
-    TextRun {
-        len,
-        font: font.clone(),
-        color,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    }
-}
-
 /// The colored runs of one line: the highlighter's spans, plus the composing
 /// underline laid over them.
 ///
-/// The runs have to tile the line, because gpui shapes a line from a list of
-/// runs whose lengths add up to its length -- but a highlighter's spans need
-/// not, and a template's spans deliberately do not (the text between two
-/// statements is nobody's token). So the gaps are filled here, in the palette's
-/// foreground color, and that is most of what this function is.
+/// The gap filling is [`runs_for_spans`]; what is left here is the split the
+/// IME needs, which is the editor's alone -- nothing else in this crate draws
+/// text that is halfway through being composed.
 fn runs_for(
     editor: &EditorView,
     line: usize,
@@ -512,26 +498,7 @@ fn runs_for(
     }
     let start = editor.buffer().line_start(line);
     let spans = editor.syntax().spans(editor.buffer(), line);
-
-    let mut runs: Vec<TextRun> = Vec::with_capacity(spans.len() * 2 + 1);
-    let mut at = 0;
-    for span in &spans {
-        // Clamped rather than trusted: a highlighter is ordinary code, and one
-        // span past the end of a line would otherwise be a panic inside gpui's
-        // shaper rather than a wrong color.
-        let from = span.range.start.clamp(at, text.len());
-        let to = span.range.end.clamp(from, text.len());
-        if from > at {
-            runs.push(plain_run(from - at, palette.foreground, font));
-        }
-        if to > from {
-            runs.push(plain_run(to - from, color_for(span.token, palette), font));
-        }
-        at = to;
-    }
-    if at < text.len() {
-        runs.push(plain_run(text.len() - at, palette.foreground, font));
-    }
+    let runs = runs_for_spans(text, &spans, palette, font);
 
     let Some(marked) = editor.marked() else {
         return runs;
@@ -572,31 +539,6 @@ fn runs_for(
         at = run_end;
     }
     split
-}
-
-/// The palette slot a token draws in.
-///
-/// One arm per variant and no fallback: every [`Token`] maps to one of the
-/// palette's fourteen slots, which is what keeps a highlighter from inventing a
-/// class no theme has a color for. [`Token::QuotedIdentifier`] shares
-/// [`Token::Identifier`]'s slot rather than needing one of its own.
-const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
-    match token {
-        Token::Keyword => palette.keyword,
-        Token::Type => palette.r#type,
-        Token::Function => palette.function,
-        Token::String => palette.string,
-        Token::Number => palette.number,
-        Token::Comment => palette.comment,
-        Token::Operator => palette.operator,
-        Token::Punctuation => palette.punctuation,
-        Token::Identifier | Token::QuotedIdentifier => palette.identifier,
-        Token::Key => palette.key,
-        Token::Variable => palette.variable,
-        Token::BracketMatch => palette.bracket_match,
-        Token::Error => palette.error,
-        Token::Warning => palette.warning,
-    }
 }
 
 /// How many decimal digits `n` needs, at least two.

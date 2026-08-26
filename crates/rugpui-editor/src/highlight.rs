@@ -50,12 +50,15 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+use gpui::{Font, Hsla, TextRun};
+use rugpui::EditorTheme;
+
 use crate::buffer::Buffer;
 
 /// One of the token colours an editor palette hands out.
 ///
 /// Every variant but [`Token::QuotedIdentifier`] names one of the fourteen
-/// token slots of [`EditorTheme`](rugpui::EditorTheme), so that mapping a span
+/// token slots of [`EditorTheme`], so that mapping a span
 /// onto a colour is a total function with no fallback and no invented slot;
 /// `QuotedIdentifier` shares [`Token::Identifier`]'s slot rather than adding a
 /// fifteenth. Text a highlighter classifies as nothing at all gets no span,
@@ -138,6 +141,105 @@ impl Span {
     /// Whether the span covers nothing.
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+/// A run of `len` bytes in one colour, in `font`.
+///
+/// The plain case: no background, no underline, no strikethrough. The editor
+/// element adds an underline to a copy of one of these when the IME is
+/// composing over it.
+pub(crate) fn plain_run(len: usize, color: Hsla, font: &Font) -> TextRun {
+    TextRun {
+        len,
+        font: font.clone(),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
+/// The coloured runs of one line, from the spans a [`Highlighter`] gave for it.
+///
+/// The runs have to tile `text`, because gpui shapes a line from a list of runs
+/// whose lengths add up to its length -- but a highlighter's spans need not,
+/// and a template's spans deliberately do not (the text between two statements
+/// is nobody's token). So the gaps are filled here, in
+/// [`EditorTheme::foreground`], and that is most of what this function does.
+///
+/// Spans are clamped rather than trusted: a highlighter is ordinary code, and
+/// one span past the end of a line would otherwise be a panic inside gpui's
+/// shaper rather than a wrong colour. A span that starts before the previous
+/// one ended is pulled forward to where that one ended, so the result is
+/// always sorted and non-overlapping whatever came in.
+///
+/// Public because the editor is not the only thing that draws code with this
+/// crate's colours. A host's completion popup, a diff view, a log pane -- and
+/// [`CodeSnippet`](crate::CodeSnippet), which is this crate's own use of it --
+/// all want the same answer, and the alternative is every one of them getting
+/// the gap-filling subtly wrong.
+///
+/// ```ignore
+/// let (spans, next) = highlighter.line(line, state);
+/// let runs = runs_for_spans(line, &spans, &palette, &font);
+/// StyledText::new(line.to_string()).with_runs(runs)
+/// ```
+pub fn runs_for_spans(
+    text: &str,
+    spans: &[Span],
+    palette: &EditorTheme,
+    font: &Font,
+) -> Vec<TextRun> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let mut runs: Vec<TextRun> = Vec::with_capacity(spans.len() * 2 + 1);
+    let mut at = 0;
+    for span in spans {
+        let from = span.range.start.clamp(at, text.len());
+        let to = span.range.end.clamp(from, text.len());
+        if from > at {
+            runs.push(plain_run(from - at, palette.foreground, font));
+        }
+        if to > from {
+            runs.push(plain_run(to - from, color_for(span.token, palette), font));
+        }
+        at = to;
+    }
+    if at < text.len() {
+        runs.push(plain_run(text.len() - at, palette.foreground, font));
+    }
+    runs
+}
+
+/// The palette slot a token draws in.
+///
+/// One arm per variant and no fallback: every [`Token`] maps to one of the
+/// palette's fourteen slots, which is what keeps a highlighter from inventing a
+/// class no theme has a colour for. [`Token::QuotedIdentifier`] shares
+/// [`Token::Identifier`]'s slot rather than needing one of its own.
+///
+/// Public for the same reason [`runs_for_spans`] is: a host drawing its own
+/// popup over this crate's spans should ask the same question and get the same
+/// answer.
+pub const fn color_for(token: Token, palette: &EditorTheme) -> Hsla {
+    match token {
+        Token::Keyword => palette.keyword,
+        Token::Type => palette.r#type,
+        Token::Function => palette.function,
+        Token::String => palette.string,
+        Token::Number => palette.number,
+        Token::Comment => palette.comment,
+        Token::Operator => palette.operator,
+        Token::Punctuation => palette.punctuation,
+        Token::Identifier | Token::QuotedIdentifier => palette.identifier,
+        Token::Key => palette.key,
+        Token::Variable => palette.variable,
+        Token::BracketMatch => palette.bracket_match,
+        Token::Error => palette.error,
+        Token::Warning => palette.warning,
     }
 }
 
@@ -399,6 +501,17 @@ mod tests {
     use super::*;
     use crate::sql_syntax::SqlHighlighter;
 
+    /// A font to hang runs on. Never shaped in these tests -- only the lengths
+    /// and the colours are read -- so the family need not exist.
+    fn test_font() -> Font {
+        gpui::font("test")
+    }
+
+    /// The lengths of `runs`, which is what "tiles the text" is asserted on.
+    fn lengths(runs: &[TextRun]) -> Vec<usize> {
+        runs.iter().map(|run| run.len).collect()
+    }
+
     /// A cache over `text`, with the SQL highlighter.
     fn cache(text: &str) -> (Buffer, SyntaxCache) {
         let buffer = Buffer::new(text);
@@ -559,5 +672,107 @@ mod tests {
             Some(Token::Keyword),
             "`class` is a keyword to the Java highlighter"
         );
+    }
+
+    #[test]
+    fn runs_tile_the_text_across_a_gap() {
+        let palette = EditorTheme::default();
+        let font = test_font();
+        // `select 1` with only `select` claimed: the space and the `1` are
+        // nobody's token and have to come back as foreground runs.
+        let spans = [Span::new(0..6, Token::Keyword)];
+        let runs = runs_for_spans("select 1", &spans, &palette, &font);
+
+        assert_eq!(lengths(&runs), vec![6, 2]);
+        assert_eq!(runs[0].color, palette.keyword);
+        assert_eq!(runs[1].color, palette.foreground);
+        assert_eq!(
+            runs.iter().map(|run| run.len).sum::<usize>(),
+            "select 1".len()
+        );
+    }
+
+    #[test]
+    fn a_leading_gap_is_filled_too() {
+        let palette = EditorTheme::default();
+        let runs = runs_for_spans(
+            "  select",
+            &[Span::new(2..8, Token::Keyword)],
+            &palette,
+            &test_font(),
+        );
+        assert_eq!(lengths(&runs), vec![2, 6]);
+        assert_eq!(runs[0].color, palette.foreground);
+    }
+
+    #[test]
+    fn spans_past_the_end_and_over_each_other_are_clamped() {
+        let palette = EditorTheme::default();
+        let font = test_font();
+        // A highlighter that has miscounted: one span runs past the line, the
+        // next starts inside the one before it. Both are ordinary bugs, and
+        // neither may produce runs that do not tile -- gpui panics on those.
+        let spans = [
+            Span::new(0..99, Token::Keyword),
+            Span::new(2..4, Token::String),
+            Span::new(50..60, Token::Number),
+        ];
+        let runs = runs_for_spans("abcd", &spans, &palette, &font);
+
+        assert_eq!(lengths(&runs), vec![4]);
+        assert_eq!(runs[0].color, palette.keyword);
+        assert_eq!(runs.iter().map(|run| run.len).sum::<usize>(), 4);
+    }
+
+    #[test]
+    fn empty_text_has_no_runs() {
+        let palette = EditorTheme::default();
+        assert!(runs_for_spans("", &[], &palette, &test_font()).is_empty());
+        // Even with a span over it, which is what a highlighter that answered
+        // for the wrong line would hand in.
+        assert!(
+            runs_for_spans(
+                "",
+                &[Span::new(0..3, Token::Keyword)],
+                &palette,
+                &test_font()
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn text_with_no_spans_is_one_foreground_run() {
+        let palette = EditorTheme::default();
+        let runs = runs_for_spans("plain prose", &[], &palette, &test_font());
+        assert_eq!(lengths(&runs), vec!["plain prose".len()]);
+        assert_eq!(runs[0].color, palette.foreground);
+    }
+
+    #[test]
+    fn every_token_maps_to_its_palette_slot() {
+        let palette = EditorTheme::default();
+        // Written out rather than derived, so that moving a token to another
+        // slot has to be a deliberate edit here as well as there.
+        let pairs = [
+            (Token::Keyword, palette.keyword),
+            (Token::String, palette.string),
+            (Token::Number, palette.number),
+            (Token::Comment, palette.comment),
+            (Token::Function, palette.function),
+            (Token::Type, palette.r#type),
+            (Token::Operator, palette.operator),
+            (Token::Identifier, palette.identifier),
+            (Token::QuotedIdentifier, palette.identifier),
+            (Token::Key, palette.key),
+            (Token::Variable, palette.variable),
+            (Token::Punctuation, palette.punctuation),
+            (Token::BracketMatch, palette.bracket_match),
+            (Token::Error, palette.error),
+            (Token::Warning, palette.warning),
+        ];
+        for (token, slot) in pairs {
+            assert_eq!(color_for(token, &palette), slot, "{token:?}");
+        }
     }
 }

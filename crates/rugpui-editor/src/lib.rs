@@ -78,7 +78,16 @@
 //! needs from the document — [`EditorView::word_before_caret`],
 //! [`EditorView::line_before_caret`], [`EditorView::caret_bounds`],
 //! [`EditorView::replace_range`] — so that no caller ever has to work out a
-//! byte offset into the rope for itself.
+//! byte offset into the rope for itself, plus the two functions that colour a
+//! line the way the editor colours it: [`runs_for_spans`] and [`color_for`].
+//!
+//! # Code that is read rather than typed into
+//!
+//! [`mod@snippet`] is the editor's other half: [`CodeSnippet`] is a stateless
+//! element that lexes a few lines and draws them, with no caret, no gutter and
+//! no history — for a documentation box, a preview, a saved query in a list.
+//! [`tooltip_code`] puts one in a [`rugpui`] tooltip, and
+//! [`rugpui::Tooltip::element`] puts one beside a caption and a thumbnail.
 
 #![warn(missing_docs)]
 
@@ -90,6 +99,7 @@ pub mod find;
 pub mod highlight;
 pub mod history;
 pub mod lang;
+pub mod snippet;
 pub mod sql_syntax;
 pub mod syntax;
 
@@ -98,9 +108,10 @@ pub use composite::{CompositeHighlighter, Overlaid, Overlay};
 pub use editor::{EditorEvent, EditorView, MarkKind, NavKey, init};
 pub use element::EditorElement;
 pub use find::{FindState, find_all};
-pub use highlight::{Highlighter, LineState, Span, SyntaxCache, Token};
+pub use highlight::{Highlighter, LineState, Span, SyntaxCache, Token, color_for, runs_for_spans};
 pub use history::{Edit, EditKind, History, SelectionState, Transaction};
 pub use lang::{FileMatch, LanguageEntry, LanguageRegistry, highlighter_for_extension};
+pub use snippet::{CodeSnippet, tooltip_code};
 pub use sql_syntax::SqlHighlighter;
 pub use syntax::StatementSpan;
 

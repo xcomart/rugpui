@@ -8,7 +8,8 @@
 //! ([`slider`]), progress bars ([`progress`]) and busy spinners ([`spinner`]),
 //! tabs ([`tab_bar`]), dropdown menus
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
-//! palettes ([`scheme_select`]), hover tooltips ([`tooltip`]), dialogs
+//! palettes ([`scheme_select`]), hover tooltips of a line, a column of parts
+//! or content the host draws itself ([`tooltip`]), dialogs
 //! ([`modal`]), overlay scroll indicators ([`scrollbar`]), lazily filled trees
 //! ([`tree`]) and the caption buttons of a self-drawn title bar
 //! ([`window_controls`]). A widget that would need to understand the host's
@@ -80,7 +81,7 @@ pub use theme::{
     set_window_tint, theme, to_hex, window_tint, window_translucent,
 };
 pub use theme_store::ThemeDirs;
-pub use tooltip::tooltip_label;
+pub use tooltip::{Tooltip, tooltip_frame, tooltip_label, tooltip_with};
 pub use tree::{ChildState, TreeEvent, TreeRow, TreeRowInfo, TreeSource, TreeView};
 pub use window_controls::{WindowControlIcons, WindowControls};
 
