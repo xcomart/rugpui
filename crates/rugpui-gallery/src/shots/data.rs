@@ -118,6 +118,14 @@ pub const SHOTS: &[Shot] = &[
         build: editor_find,
     },
     Shot {
+        name: "editor/word-wrap",
+        width: 560.,
+        height: 200.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: editor_word_wrap,
+    },
+    Shot {
         name: "editor/theme",
         width: 560.,
         height: 200.,
@@ -468,6 +476,40 @@ fn editor_theme(_window: &mut Window, cx: &mut App) -> AnyView {
     });
     editor_panel(cx, editor)
 }
+
+/// One statement written on one long line, broken at the width of the text
+/// area rather than run off to the right of it.
+///
+/// Focused, because the caret is half of what the picture is about: it sits on
+/// the second row of the first line, which is a place there is no way to put it
+/// while a line is a row.
+fn editor_word_wrap(window: &mut Window, cx: &mut App) -> AnyView {
+    let editor: Entity<EditorView> = cx.new(|cx| {
+        let mut editor = EditorView::new(cx)
+            .highlighter(highlighter_for_extension("sql").expect("sql"))
+            .word_wrap(true);
+        editor.set_text(WRAP_SQL, cx);
+        editor.move_to(WRAP_CARET, cx);
+        editor
+    });
+
+    let handle = editor.read(cx).focus_handle(cx);
+    window.focus(&handle, cx);
+
+    editor_panel(cx, editor)
+}
+
+/// The listing the word-wrap shot draws: a select list too long to fit, and two
+/// short lines under it to show that a wrapped line is still one line.
+const WRAP_SQL: &str = "\
+SELECT o.order_id, o.placed_at, c.name, c.email, sum(l.quantity * l.unit_price) AS total FROM public.orders AS o
+  JOIN public.customers AS c ON c.customer_id = o.customer_id
+ WHERE o.channel = 'web';
+";
+
+/// Where the caret sits in it — inside `sum(`, which the break above puts on
+/// the second row.
+const WRAP_CARET: usize = 60;
 
 /// The listing the per-palette editor shot draws.
 ///

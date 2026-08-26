@@ -1344,7 +1344,7 @@ fn shaped_geometry(editor: &Handles, cx: &mut VisualTestContext) -> (Pixels, Pix
             .layout
             .lines
             .iter()
-            .find_map(|(line, shaped)| (*line == 0).then_some(shaped.width))
+            .find_map(|(line, shaped)| (*line == 0).then_some(shaped.width()))
             .expect("the first line was drawn");
         (width, editor.layout.line_height)
     })
@@ -1535,4 +1535,323 @@ fn an_edit_menu_reaches_both_of_the_find_bar_s_fields(cx: &mut TestAppContext) {
     // And the bar still draws with one attached.
     cx.simulate_keystrokes("cmd-h ctrl-h");
     draw(&mut cx);
+}
+
+// --- word wrap ---------------------------------------------------------------
+
+/// A line long enough to break several times in the 1920 px test window, and
+/// the two-line buffer it sits at the top of.
+fn wrapped(cx: &mut TestAppContext) -> (Handles, VisualTestContext, String) {
+    let long = format!("select {}from orders", "column_name, ".repeat(40));
+    let text = format!("{long}\nsecond line");
+    let (editor, mut cx) = open(&text, cx);
+    draw(&mut cx);
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    draw(&mut cx);
+    (editor, cx, long)
+}
+
+/// Where the first line breaks, as byte offsets, once it has been measured.
+fn breaks(editor: &Handles, cx: &mut VisualTestContext) -> Vec<usize> {
+    editor.read(cx, |editor| {
+        editor
+            .wrap
+            .breaks(0)
+            .iter()
+            .map(|at| *at as usize)
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn word_wrap_is_off_until_it_is_asked_for(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1", cx);
+    assert!(!editor.read(&mut cx, EditorView::is_word_wrap));
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    assert!(editor.read(&mut cx, EditorView::is_word_wrap));
+}
+
+#[gpui::test]
+fn a_long_line_takes_as_many_rows_as_it_needs(cx: &mut TestAppContext) {
+    let (editor, mut cx, _) = wrapped(cx);
+    let breaks = breaks(&editor, &mut cx);
+    assert!(
+        breaks.len() >= 2,
+        "the line broke {} times in a 1920 px window",
+        breaks.len()
+    );
+    editor.read(&mut cx, |editor| {
+        assert_eq!(editor.wrap.rows_in(0), breaks.len() + 1);
+        assert_eq!(editor.wrap.rows_in(1), 1, "the short line is one row");
+        assert_eq!(editor.wrap.total_rows(2), breaks.len() + 2);
+        assert_eq!(editor.wrap.first_row(1), breaks.len() + 1);
+    });
+}
+
+#[gpui::test]
+fn a_break_falls_on_a_word_boundary(cx: &mut TestAppContext) {
+    let (editor, mut cx, long) = wrapped(cx);
+    for at in breaks(&editor, &mut cx) {
+        assert_eq!(
+            &long[at - 1..at],
+            " ",
+            "the row that begins at {at} began mid-word"
+        );
+    }
+}
+
+#[gpui::test]
+fn down_walks_the_rows_of_a_wrapped_line(cx: &mut TestAppContext) {
+    let (editor, mut cx, _) = wrapped(cx);
+    let breaks = breaks(&editor, &mut cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(0, cx));
+
+    // Down from the head of the line lands on the head of its second row,
+    // rather than on the line below it.
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), breaks[0]);
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), breaks[1]);
+    cx.simulate_keystrokes("up up");
+    assert_eq!(editor.caret(&mut cx), 0);
+
+    // And the goal column is the column of the row, not of the line.
+    editor.update(&mut cx, |editor, cx| editor.move_to(4, cx));
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), breaks[0] + 4);
+}
+
+#[gpui::test]
+fn down_off_the_last_row_reaches_the_next_line(cx: &mut TestAppContext) {
+    let (editor, mut cx, long) = wrapped(cx);
+    let rows = breaks(&editor, &mut cx).len() + 1;
+    editor.update(&mut cx, |editor, cx| editor.move_to(0, cx));
+    cx.simulate_keystrokes(&"down ".repeat(rows));
+    assert_eq!(
+        editor.caret(&mut cx),
+        long.len() + 1,
+        "the head of the second line"
+    );
+}
+
+#[gpui::test]
+fn home_and_end_are_the_ends_of_the_row(cx: &mut TestAppContext) {
+    let (editor, mut cx, long) = wrapped(cx);
+    let breaks = breaks(&editor, &mut cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(breaks[0] + 4, cx));
+
+    cx.simulate_keystrokes("home");
+    assert_eq!(editor.caret(&mut cx), breaks[0], "the head of the row");
+    cx.simulate_keystrokes("end");
+    let end = editor.caret(&mut cx);
+    assert!(
+        end > breaks[0] && end < breaks[1],
+        "the end of the row, at {end}"
+    );
+    assert!(
+        !long[..end].ends_with(' '),
+        "the space the break was taken at is not where End goes"
+    );
+
+    // The last row still ends where the line does.
+    editor.update(&mut cx, |editor, cx| {
+        editor.move_to(*breaks.last().expect("a break") + 2, cx);
+    });
+    cx.simulate_keystrokes("end");
+    assert_eq!(editor.caret(&mut cx), long.len());
+}
+
+#[gpui::test]
+fn a_page_is_a_screenful_of_rows(cx: &mut TestAppContext) {
+    // Long enough that a page of rows lands inside the buffer rather than at
+    // the end of it.
+    let long = format!("select {}from orders\n", "column_name, ".repeat(40));
+    let (editor, mut cx) = open(&long.repeat(60), cx);
+    draw(&mut cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_word_wrap(true, cx);
+        editor.move_to(0, cx);
+    });
+    draw(&mut cx);
+
+    cx.simulate_keystrokes("pagedown");
+    let caret = editor.caret(&mut cx);
+    let rows = editor.read(&mut cx, |editor| editor.wrap.rows_in(0));
+    let (line, row) = editor.read(&mut cx, |editor| {
+        (editor.buffer().line_of(caret), editor.row_of(caret))
+    });
+    // A page is a screenful of rows, so it lands partway down a line rather
+    // than on one: with every line three rows tall, a page of rows is not a
+    // whole number of lines.
+    assert!(caret > 0 && row > 0, "a page down went nowhere");
+    assert!(
+        row > rows && row < 60 * rows,
+        "a page down of {row} rows went nowhere or overshot"
+    );
+    assert!(line < 60);
+    assert_eq!(
+        editor.read(&mut cx, |editor| {
+            let (line, sub) = (line, row - editor.wrap.first_row(line));
+            editor.row_span(line, sub).start
+        }),
+        caret,
+        "the caret kept its goal column of zero, so it is at the head of a row"
+    );
+
+    cx.simulate_keystrokes("pageup");
+    assert_eq!(editor.caret(&mut cx), 0, "and back to the top");
+}
+
+#[gpui::test]
+fn wrapping_takes_the_horizontal_scroll_away(cx: &mut TestAppContext) {
+    use rugpui::scrollbar::ScrollbarAxis;
+
+    let (editor, mut cx) = open(
+        &format!("select {}from orders", "column_name, ".repeat(40)),
+        cx,
+    );
+    draw(&mut cx);
+    // Unwrapped, the line runs off to the right and there is a bar for it.
+    editor.update(&mut cx, |editor, cx| {
+        editor.move_to(editor.buffer().len(), cx);
+        cx.notify();
+    });
+    draw(&mut cx);
+    assert!(
+        editor.read(&mut cx, |editor| editor.scroll_offset().x) > px(0.),
+        "the caret at the end of a long line scrolled the view sideways"
+    );
+    assert!(editor.read(&mut cx, |editor| {
+        editor.scrollbar(ScrollbarAxis::Horizontal).is_some()
+    }));
+
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.scroll_offset().x),
+        px(0.)
+    );
+    assert!(
+        editor.read(&mut cx, |editor| editor
+            .scrollbar(ScrollbarAxis::Horizontal)
+            .is_none()),
+        "a wrapped buffer has nothing to scroll to sideways"
+    );
+}
+
+#[gpui::test]
+fn a_click_lands_on_the_row_it_was_aimed_at(cx: &mut TestAppContext) {
+    use gpui::Point;
+
+    let (editor, mut cx, _) = wrapped(cx);
+    let breaks = breaks(&editor, &mut cx);
+    let (line_height, gutter) = editor.read(&mut cx, |editor| {
+        (editor.layout.line_height, editor.layout.gutter)
+    });
+
+    // The head of the second row of the first line.
+    let at = editor.read(&mut cx, |editor| {
+        editor.offset_for_position(Point {
+            x: gutter + px(1.),
+            y: line_height * 1.5,
+        })
+    });
+    assert_eq!(at, breaks[0]);
+
+    // And past the right edge of it, which is the end of that row and not the
+    // end of the line.
+    let at = editor.read(&mut cx, |editor| {
+        editor.offset_for_position(Point {
+            x: px(4000.),
+            y: line_height * 1.5,
+        })
+    });
+    assert!(
+        at > breaks[0] && at < breaks[1],
+        "clicked off the row: {at}"
+    );
+}
+
+#[gpui::test]
+fn editing_re_measures_the_line_it_touched_and_no_others(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open(&long_script(10_000), cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_word_wrap(true, cx);
+        editor.move_to(editor.buffer().line_start(5_000) + 7, cx);
+    });
+    draw(&mut cx);
+
+    // The first pass measures the whole buffer, once.
+    let measured = editor.read(&mut cx, |editor| editor.wrap.measures());
+    assert!(
+        measured >= 10_000,
+        "turning wrapping on measured {measured} of ten thousand lines"
+    );
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.wrap.measures()),
+        measured,
+        "an idle frame measured a line again"
+    );
+
+    cx.simulate_input("x");
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.wrap.measures()) - measured,
+        1,
+        "a keystroke re-measured more than the line it was typed on"
+    );
+
+    // A newline is two: the line it split and the one it made.
+    cx.simulate_keystrokes("enter");
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.wrap.measures()) - measured,
+        3
+    );
+}
+
+#[gpui::test]
+fn turning_wrapping_off_puts_the_lines_back(cx: &mut TestAppContext) {
+    let (editor, mut cx, long) = wrapped(cx);
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(false, cx));
+    draw(&mut cx);
+
+    editor.read(&mut cx, |editor| {
+        assert_eq!(editor.wrap.rows_in(0), 1);
+        assert_eq!(editor.wrap.total_rows(2), 2);
+    });
+    // And every key is back to counting lines.
+    editor.update(&mut cx, |editor, cx| editor.move_to(4, cx));
+    cx.simulate_keystrokes("end");
+    assert_eq!(editor.caret(&mut cx), long.len());
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), long.len() + 1 + 11);
+}
+
+/// Everything the caret can be sent through, over a buffer whose lines all
+/// wrap, to hold down that no row arithmetic can be handed a row that is not
+/// there.
+#[gpui::test]
+fn a_wrapped_buffer_survives_being_driven_about(cx: &mut TestAppContext) {
+    let long = format!("select {}from orders\n", "column_name, ".repeat(40));
+    let (editor, mut cx) = open(&long.repeat(8), cx);
+    draw(&mut cx);
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    draw(&mut cx);
+
+    cx.simulate_keystrokes(
+        "down down end shift-down shift-end home up pagedown pageup ctrl-end cmd-end",
+    );
+    cx.simulate_input("x");
+    cx.simulate_keystrokes("enter backspace cmd-z ctrl-z");
+    draw(&mut cx);
+
+    let caret = editor.caret(&mut cx);
+    editor.read(&mut cx, |editor| {
+        assert!(caret <= editor.buffer().len());
+        assert_eq!(editor.scroll_offset().x, px(0.));
+        assert!(editor.row_of(caret) < editor.wrap.total_rows(editor.line_count()));
+        assert!(editor.caret_bounds().is_some() || editor.row_of(caret) > 40);
+    });
 }

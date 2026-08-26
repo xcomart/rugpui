@@ -370,6 +370,8 @@ struct Gallery {
     json: Entity<EditorView>,
     /// The fixed-pitch family both editors draw with.
     mono: SharedString,
+    /// Whether the SQL editor breaks its long lines.
+    editor_wrap: bool,
     /// Where the two dividers sit, as the first half's share of its box. Two
     /// `f32`s are the whole of what a `Splitter` does not keep for itself:
     /// `split_x` is the tree against the results beside it, `split_y` the grid
@@ -475,6 +477,7 @@ impl Gallery {
             sql,
             json,
             mono: monospace(cx),
+            editor_wrap: false,
             // Roughly the 230 px the tree column used to be pinned at, out of
             // the 802 the data side gets in the window the screenshots are
             // taken in — plus the half of the 14 px gutter it now pays for
@@ -882,13 +885,29 @@ impl Gallery {
             .min_h_0()
             .child(framed(&palette).flex_1().child(self.grid.clone()));
 
-        let sql = section("Editor — SQL", &palette).child(
-            framed(&palette)
-                .h(px(228.))
-                .font_family(self.mono.clone())
-                .text_size(px(12.5))
-                .child(self.sql.clone()),
-        );
+        let sql = section("Editor — SQL", &palette)
+            .child(
+                Switch::new("editor-wrap", "Wrap long lines")
+                    .checked(self.editor_wrap)
+                    .on_toggle({
+                        let this = this.clone();
+                        let editor = self.sql.clone();
+                        move |value, _window, cx| {
+                            editor.update(cx, |editor, cx| editor.set_word_wrap(value, cx));
+                            this.update(cx, |gallery, cx| {
+                                gallery.editor_wrap = value;
+                                cx.notify();
+                            });
+                        }
+                    }),
+            )
+            .child(
+                framed(&palette)
+                    .h(px(228.))
+                    .font_family(self.mono.clone())
+                    .text_size(px(12.5))
+                    .child(self.sql.clone()),
+            );
 
         // Like the tree, this one takes whatever height is left in its column,
         // so neither column ends in a band of nothing.
