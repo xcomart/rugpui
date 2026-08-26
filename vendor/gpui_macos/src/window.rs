@@ -126,6 +126,20 @@ unsafe extern "C" {
     #[allow(non_upper_case_globals)]
     static NSDraggingImageComponentIconKey: id;
 }
+
+// RULOGMAN PATCH: the WindowServer's own window blur, which gpui reached for
+// itself before it moved the effect onto `NSVisualEffectView` — see
+// `set_background_appearance`, which still needs it on macOS 26. Private, but
+// long-lived and widely used; Apple drives Terminal.app's blur through it.
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGSMainConnectionID() -> id;
+    fn CGSSetWindowBackgroundBlurRadius(
+        connection_id: id,
+        window_id: NSInteger,
+        radius: i64,
+    ) -> i32;
+}
 #[ctor(unsafe)]
 unsafe fn build_classes() {
     unsafe {
@@ -1737,7 +1751,35 @@ impl PlatformWindow for MacWindow {
             };
             this.native_window.setBackgroundColor_(background_color);
 
-            if background_appearance != WindowBackgroundAppearance::Blurred {
+            // RULOGMAN PATCH: macOS 26 (Tahoe) rebuilt the private layer tree
+            // underneath `NSVisualEffectView` for Liquid Glass, and the
+            // sublayers `remove_layer_background` reaches into to strip the
+            // material's tint are no longer the ones drawing it. The effect
+            // view still turns the window translucent, so what is left there is
+            // a see-through window over an unblurred backdrop rather than a
+            // blurred one. From 26 on, ask the WindowServer for the blur
+            // directly instead: the legacy path depends on nothing inside
+            // `NSVisualEffectView`, so Liquid Glass has nothing in it to break.
+            // The radius is the 80 that path carried in gpui 0.2.2, and a
+            // radius of 0 is what takes the blur off again when the window goes
+            // back to `Opaque` or `Transparent` — the effect view would have
+            // been removed from the hierarchy, but this blur belongs to the
+            // window itself and would otherwise stay.
+            let legacy_blur = is_macos_version_at_least(NSOperatingSystemVersion::new(26, 0, 0));
+
+            if legacy_blur {
+                if let Some(blur_view) = this.blurred_view {
+                    NSView::removeFromSuperview(blur_view);
+                    this.blurred_view = None;
+                }
+                let blur_radius = if background_appearance == WindowBackgroundAppearance::Blurred {
+                    80
+                } else {
+                    0
+                };
+                let window_number: NSInteger = msg_send![this.native_window, windowNumber];
+                CGSSetWindowBackgroundBlurRadius(CGSMainConnectionID(), window_number, blur_radius);
+            } else if background_appearance != WindowBackgroundAppearance::Blurred {
                 if let Some(blur_view) = this.blurred_view {
                     NSView::removeFromSuperview(blur_view);
                     this.blurred_view = None;
