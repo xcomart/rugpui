@@ -23,7 +23,7 @@ exclude = [
 # floating dependency would make two checkouts of this repository build
 # different widgets.
 #
-# Zed has no answer of its own for the four things listed below, so the crates
+# Zed has no answer of its own for the five things listed below, so the crates
 # that need one are vendored under `vendor/` and patched back over the git
 # source by the `[patch."https://github.com/zed-industries/zed"]` table. Each
 # vendored copy is the upstream directory with its manifest flattened —
@@ -61,6 +61,12 @@ exclude = [
 #     to the Wayland one's `org_kde_kwin_blur`, so a blurred background
 #     appearance did nothing on KDE X11; `update_blur_region` keeps KWin's
 #     `_KDE_NET_WM_BLUR_BEHIND_REGION` in step with the window.
+#   * `gpui_macos/src/window.rs` — on macOS 26 (Tahoe) Liquid Glass rebuilt the
+#     private layer tree underneath `NSVisualEffectView`, and the sublayers
+#     gpui strips the material's tint from are no longer the ones drawing it, so
+#     a blurred window there is see-through over an unblurred backdrop. From 26
+#     on the patch asks the WindowServer for the blur directly, through the
+#     legacy private API gpui used before the effect view.
 #
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but a consumer still has to name it in its own

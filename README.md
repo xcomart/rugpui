@@ -265,12 +265,13 @@ settings form; the settings type and its globals; your own icons; and the
 manifest flattened and every change to the code marked `RULOGMAN PATCH` — so
 diffing a vendored crate against upstream at that revision shows the whole of
 what we carry. They are patched back over the git source by the root manifest's
-patch table, and they exist because gpui has no answer of its own for four
+patch table, and they exist because gpui has no answer of its own for five
 things: moving an open window between the platform's caption and the
 application's own (`set_titlebar_transparent`), the X11 backend running its
 close callbacks with the client `RefCell` borrowed, X11's `is_transparent`
-ignoring client-side decorations, and X11 having no counterpart to Wayland's
-`org_kde_kwin_blur`. The root
+ignoring client-side decorations, X11 having no counterpart to Wayland's
+`org_kde_kwin_blur`, and macOS 26 blurring nothing behind a window whose
+`NSVisualEffectView` Liquid Glass rebuilt. The root
 [`Cargo.toml`](Cargo.toml) tells the whole story, hunk by hunk.
 
 `vendor/unicode-width` is there for a different reason: nothing in this
