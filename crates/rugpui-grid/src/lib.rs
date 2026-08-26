@@ -30,10 +30,15 @@
 //!   comes back with new rows.
 //! * **The grid does not stage an edit either.** It draws which rows and cells
 //!   have been changed ([`GridSource::row_status`], [`GridSource::cell_dirty`])
-//!   and it hosts the field the user types into, because only it knows where a
-//!   cell is; what a typed value *becomes* is the host's, and reaches it as
+//!   and it hosts the editor, because only it knows where a cell is; what a
+//!   staged value *becomes* is the host's, and reaches it as
 //!   [`GridEvent::EditCommitted`]. See [`grid`] for what a close does and why
 //!   it commits.
+//! * **What a cell shows, and what opens over it, are the source's.** A source
+//!   may draw a cell itself ([`GridSource::render_cell`]) and may say what
+//!   edits it ([`GridSource::cell_editor`]) — a field, a dropdown, or an
+//!   element of its own. Both default to the grid's own behaviour, so a source
+//!   that wants neither says nothing.
 //!
 //! Call [`init`] once during application start-up so the key bindings are
 //! registered.
@@ -64,7 +69,8 @@ pub use copy::{CopyFormat, DEFAULT_INSERT_TABLE, copy_payload};
 pub use grid::{EditValue, GridEvent, GridView, MenuTarget, SortDirection};
 pub use selection::{CellAddress, CellRange, Selection};
 pub use source::{
-    CellLabel, DEFAULT_TEXT, GridCell, GridColumn, GridColumnAlign, GridColumnKind, GridSource,
+    CellCancel, CellCommit, CellEditor, CellEditorBuilder, CellEditorContext, CellInfo, CellLabel,
+    DEFAULT_TEXT, GridCell, GridColumn, GridColumnAlign, GridColumnKind, GridSource,
     GridSourceState, NULL_TEXT, RowStatus, cell_label, lob_label,
 };
 

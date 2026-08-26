@@ -43,7 +43,8 @@ gallery is right.
 ## The larger crates
 
 - [Grid](./grid.md) — `rugpui-grid` is one widget, `GridView`, over a table of
-  rows it never fetches itself.
+  rows it never fetches itself — including the two hooks that let its source
+  draw a cell itself and choose what opens over it when it is edited.
 - [Editor](./editor.md) — `rugpui-editor` is a multi-line code editor: a rope,
   a pluggable line highlighter, an incremental syntax cache, and a gpui
   element that shapes only the rows that fit on screen — plus `CodeSnippet`,

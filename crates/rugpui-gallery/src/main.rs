@@ -27,7 +27,7 @@ use rugpui::{
     set_editor_theme, set_theme, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
-use rugpui_grid::GridView;
+use rugpui_grid::{GridEvent, GridView};
 
 mod data;
 
@@ -247,7 +247,7 @@ struct Gallery {
 impl Gallery {
     /// Builds every widget in its interesting state, so that a screenshot shows
     /// something rather than a column of empty controls.
-    fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filled = cx.new(|cx| {
             let mut input = TextInput::new(cx).placeholder("host:port");
             input.set_content("db.internal:5432", cx);
@@ -277,6 +277,29 @@ impl Gallery {
             grid.extend_selection(4, 3, cx);
             grid
         });
+        // The two halves of editing a cell that a host has to write itself: a
+        // double click (or `Enter`) says *which* cell, and the grid opens
+        // whatever `Orders::cell_editor` asked for over it — a dropdown on
+        // `channel`, a field on `note`.
+        cx.subscribe_in(
+            &grid,
+            window,
+            |_gallery, grid, event: &GridEvent, window, cx| match event {
+                GridEvent::CellActivated { row, column } => {
+                    grid.update(cx, |grid, cx| grid.begin_edit(*row, *column, window, cx));
+                }
+                // A real host would stage this against its result and answer
+                // `cell_dirty` with it afterwards. `Orders` is a unit struct
+                // over a `const` table, so there is nowhere to put a staged
+                // value and the gallery only reports what it was handed: the
+                // grid itself changes nothing either way.
+                GridEvent::EditCommitted { row, column, value } => {
+                    eprintln!("edit committed on row {row}, column {column}: {value:?}");
+                }
+                _ => {}
+            },
+        )
+        .detach();
 
         let sql = cx.new(|cx| {
             let mut editor =
