@@ -44,9 +44,30 @@
 //! which is the truth for the read-only sources — a plan, a `DESCRIBE`, a diff
 //! — that are half of what the grid is pointed at.
 //!
+//! ## Drawing, and choosing an editor, are the source's business too
+//!
+//! Two more defaulted hooks, and the reason they are on the *source* rather
+//! than on the widget: both answers depend on the column's meaning, and the
+//! column's meaning is exactly what the grid has refused to know. A `status`
+//! column is a badge, a `total` is a number with a bar under it, a
+//! `channel` is one of three words — none of which a widget over "columns and
+//! rows" can work out, and all of which the thing that ran the query knows
+//! before the first frame.
+//!
+//! [`GridSource::render_cell`] hands the host the cell's box and lets it draw
+//! whatever it likes in it; [`GridSource::cell_editor`] says what opens over
+//! that cell when it is edited — a field, a dropdown, or an element of the
+//! host's own. Both default to "the grid's own behaviour", so a source that
+//! wants neither says nothing.
+//!
 //! [`Theme::grid_null`]: rugpui::Theme#structfield.grid_null
 
-use gpui::SharedString;
+use std::rc::Rc;
+
+use gpui::{AnyElement, App, Pixels, SharedString, Window};
+use rugpui::Theme;
+
+use crate::grid::EditValue;
 
 /// The text drawn in a cell that holds no value.
 pub const NULL_TEXT: &str = "NULL";
@@ -250,6 +271,151 @@ pub enum RowStatus {
     Deleted,
 }
 
+/// What the grid already worked out about a cell, handed to
+/// [`GridSource::render_cell`] so the host does not work it out again.
+///
+/// Everything here is a number or a flag the widget had to have to draw the
+/// cell at all. A host that wanted the selected state would otherwise have to
+/// keep a copy of the selection in step with the grid's, and one that wanted
+/// the cell's width would have to mirror every column drag — two pieces of
+/// duplicated state that could disagree, for information that is one field
+/// away.
+pub struct CellInfo<'a> {
+    /// The kind of the column the cell is in, which is the whole of what the
+    /// grid knows about its type.
+    ///
+    /// The alignment the grid would have used is
+    /// [`GridColumnKind::align`] — but only *would have*: a custom element is
+    /// given the bare box and lines its own content up. See
+    /// [`GridSource::render_cell`].
+    pub kind: GridColumnKind,
+    /// Whether the cell is inside the selection.
+    ///
+    /// The grid has already painted the selection behind the element, so this
+    /// is for content that has to *react* to it — an icon that goes to the
+    /// selected foreground, say — rather than for painting it again.
+    pub selected: bool,
+    /// Whether [`GridSource::cell_dirty`] said the value is one the server has
+    /// not seen. The grid has already painted the tint.
+    pub dirty: bool,
+    /// Whether the inline editor is open over this very cell.
+    ///
+    /// True for exactly one cell of one row, and only while somebody is
+    /// editing. A host draws a quieter cell under an open editor, or nothing at
+    /// all; the grid goes on drawing the cell either way, because the editor is
+    /// a separate layer over the rows and not a replacement for one.
+    pub editing: bool,
+    /// How wide the cell's box is, borders included — the column's current
+    /// width, whether that was fitted, dragged or defaulted.
+    pub width: Pixels,
+    /// How tall the cell's box is, which is the grid's row height and the same
+    /// for every cell.
+    pub height: Pixels,
+    /// The palette this frame is being drawn with.
+    ///
+    /// Borrowed rather than cloned: a screenful is several hundred cells, and a
+    /// theme is not a small struct. A host draws with these colours rather than
+    /// with its own, so a custom cell follows the app's theme without being
+    /// told it changed.
+    pub theme: &'a Theme,
+}
+
+/// What the host is handed when it builds an editor of its own.
+///
+/// The cell's identity, what was in it, the box to draw in, and the two ways
+/// out — which are the only things a custom editor cannot work out for itself,
+/// since the grid stages nothing and knows where the cell is.
+pub struct CellEditorContext {
+    /// The row being edited.
+    pub row: usize,
+    /// The **source** column being edited, the same numbering
+    /// [`GridSource::cell`] takes.
+    pub column: usize,
+    /// The cell's text, as [`cell_label`] would have drawn it — empty for a
+    /// cell that holds no value.
+    pub seeded: String,
+    /// Whether the cell held no value at all, which `seeded` being empty does
+    /// not say: a cell holding the empty string seeds the same empty editor and
+    /// is not the same cell.
+    pub was_null: bool,
+    /// How wide the editor's box is: the column's current width.
+    pub width: Pixels,
+    /// How tall the editor's box is.
+    pub height: Pixels,
+    /// Stages a value and closes the editor.
+    ///
+    /// Raises [`GridEvent::EditCommitted`](crate::GridEvent::EditCommitted)
+    /// unless the value is what the cell already held, exactly as the grid's
+    /// own field does.
+    pub commit: CellCommit,
+    /// Closes the editor with nothing staged.
+    pub cancel: CellCancel,
+}
+
+/// How a custom editor stages a value. See
+/// [`CellEditorContext::commit`].
+pub type CellCommit = Rc<dyn Fn(EditValue, &mut Window, &mut App)>;
+
+/// How a custom editor gives up. See [`CellEditorContext::cancel`].
+pub type CellCancel = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// How the host builds its own editor. See [`CellEditor::Custom`].
+pub type CellEditorBuilder = Rc<dyn Fn(&CellEditorContext, &mut Window, &mut App) -> AnyElement>;
+
+/// What opens over a cell when it is edited.
+///
+/// Three, and only three, because they are the three shapes of *where the value
+/// comes from*: the user types it, the user picks it out of a list the source
+/// knows, or the host has something better than either. There is deliberately
+/// no `Boolean` variant — a truth column is
+/// `Choice { options: vec!["true".into(), "false".into()], nullable }`, which
+/// spells the two values the way the server will read them back and lets a
+/// dialect that says `t`/`f` say so.
+#[derive(Clone)]
+pub enum CellEditor {
+    /// A one-line field seeded with the cell's text. The default, and what
+    /// every source got before this existed.
+    Text,
+    /// A dropdown over a fixed list, opened at once over the cell.
+    ///
+    /// Picking a row stages it there and then — there is no `Enter` to press,
+    /// because there is nothing half-typed to confirm.
+    Choice {
+        /// The values, in the order they are shown. They are the values
+        /// themselves and not labels for them: what is picked is what is
+        /// staged.
+        options: Vec<SharedString>,
+        /// Whether the list gains a leading [`NULL_TEXT`] row that stages
+        /// [`EditValue::Null`] — the gesture that clears a cell rather than
+        /// emptying it, which is the distinction this crate is built around.
+        nullable: bool,
+    },
+    /// An element of the host's own: a date picker, a colour swatch, a lookup
+    /// against another table.
+    ///
+    /// The host is handed a [`CellEditorContext`] and gives back an element.
+    /// It should take the focus itself, because the grid's rules about closing
+    /// are written in terms of the focus leaving; an editor that never calls
+    /// `commit` or `cancel` is simply dismissed by `Escape` or by a click
+    /// elsewhere, with nothing staged.
+    Custom(CellEditorBuilder),
+}
+
+impl std::fmt::Debug for CellEditor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CellEditor::Text => f.write_str("Text"),
+            CellEditor::Choice { options, nullable } => f
+                .debug_struct("Choice")
+                .field("options", options)
+                .field("nullable", nullable)
+                .finish(),
+            // The closure has nothing printable in it.
+            CellEditor::Custom(_) => f.write_str("Custom(..)"),
+        }
+    }
+}
+
 /// Where a [`GridView`](crate::GridView) gets its columns and rows.
 ///
 /// Implemented on whatever the host already keeps the result in, so that there
@@ -327,6 +493,60 @@ pub trait GridSource: 'static {
     /// edited by accident.
     fn cell_editable(&self, _row: usize, _column: usize) -> bool {
         false
+    }
+
+    /// Draws the cell at `row` and `column` itself, or `None` to let the grid
+    /// draw its text.
+    ///
+    /// The way a result gets a badge, a bar, a swatch or a sparkline without
+    /// the widget learning what any of those mean. What the grid keeps is
+    /// everything *around* the content: the row stripe, the selection
+    /// background, the dirty tint and the cursor outline are painted by the
+    /// wrapper, under and over the element, so a custom cell is picked, tinted
+    /// and outlined exactly as a plain one is.
+    ///
+    /// The contract, which is short on purpose:
+    ///
+    /// * The element is laid out in a box of `info.width` by `info.height` and
+    ///   clipped to it. Unlike the grid's own text the box carries no padding
+    ///   and no alignment — the whole cell is the host's, which is what lets a
+    ///   bar reach the edges — so an element that wants to look like the
+    ///   neighbouring cells supplies its own.
+    /// * It is built **once per visible cell per frame**, the same budget
+    ///   [`GridSource::cell`] is held to. Several hundred calls happen between
+    ///   one frame and the next, so it must allocate little and compute
+    ///   nothing.
+    /// * It must not re-enter the grid. The widget is mid-render while this
+    ///   runs; reading the palette out of `cx` is fine, updating the grid's
+    ///   entity is not.
+    /// * **[`GridSource::cell`] still has to answer.** Copying, column fitting
+    ///   and the inline editor all read the cell's *text*, and none of them can
+    ///   read an element. A cell drawn as a swatch is still copied as
+    ///   `#3b82f6`.
+    ///
+    /// Defaults to `None` for every cell, which is the grid drawing its own
+    /// text — what every source did before this existed.
+    fn render_cell(
+        &self,
+        _row: usize,
+        _column: usize,
+        _info: &CellInfo<'_>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<AnyElement> {
+        None
+    }
+
+    /// What opens over the cell at `row` and `column` when it is edited.
+    ///
+    /// Asked by [`GridView::begin_edit`](crate::GridView::begin_edit), right
+    /// after [`GridSource::cell_editable`] has said the cell will take an edit
+    /// at all — so it is asked per gesture and never per frame, and a source
+    /// may build the option list here rather than keeping one.
+    ///
+    /// Defaults to [`CellEditor::Text`], the field the grid has always opened.
+    fn cell_editor(&self, _row: usize, _column: usize) -> CellEditor {
+        CellEditor::Text
     }
 }
 

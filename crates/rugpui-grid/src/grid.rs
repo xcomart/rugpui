@@ -90,6 +90,25 @@
 //! owns the [`TextInput`] rather than the host owning it and asking where to put
 //! it.
 //!
+//! *Which* editor goes there is the source's, not the widget's:
+//! [`GridSource::cell_editor`] answers with a field, a dropdown over a list the
+//! source knows, or an element the host builds itself. All three land in the
+//! same box for the same reason — only the grid knows where the cell is — and
+//! all three close by the same rules. What differs is when they stage: a field
+//! stages on the close, while a dropdown and a host's editor stage the moment
+//! the user picks, so everything that merely closes one of those takes it down
+//! with nothing staged.
+//!
+//! ## What is drawn in a cell is the source's too
+//!
+//! [`GridSource::render_cell`] is offered every visible cell before the grid
+//! draws its text, and a source that wants a badge, a bar or a swatch returns an
+//! element for it. The grid goes on painting everything *around* the content —
+//! the row stripe, the selection, the dirty tint, the cursor outline — so a
+//! custom cell is picked and marked exactly as a plain one is, and
+//! [`GridSource::cell`] still has to answer, because copying, column fitting
+//! and the editor all read a cell's text and none of them can read an element.
+//!
 //! **A close commits.** `Enter`, focus going elsewhere, a sort, a refresh, a
 //! scroll, a column dragged — all of them end the edit by raising
 //! [`GridEvent::EditCommitted`], and only `Escape` throws the typing away. The
@@ -100,6 +119,7 @@
 //! move on — is silent either way.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, DragMoveEvent,
@@ -113,6 +133,7 @@ use rugpui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
 };
+use rugpui::select::Select;
 use rugpui::text_input::TextInput;
 use rugpui::theme::{Theme, theme, window_translucent};
 use unicode_width::UnicodeWidthStr;
@@ -120,8 +141,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::copy::{CopyFormat, DEFAULT_INSERT_TABLE, copy_payload};
 use crate::selection::{CellAddress, Selection};
 use crate::source::{
-    DEFAULT_TEXT, GridCell, GridColumnAlign, GridSource, GridSourceState, NULL_TEXT, RowStatus,
-    cell_label, lob_label,
+    CellEditor, CellEditorBuilder, CellEditorContext, CellInfo, DEFAULT_TEXT, GridCell,
+    GridColumnAlign, GridSource, GridSourceState, NULL_TEXT, RowStatus, cell_label, lob_label,
 };
 
 actions!(
@@ -399,15 +420,13 @@ pub enum MenuTarget {
     },
 }
 
-/// A value the user typed, on its way to whatever stages it.
+/// A value the user staged, on its way to whatever writes it.
 ///
-/// One variant, because one is what a line of text can produce, and an enum
-/// rather than a bare `String` because the next ones are already visible: a
-/// `Null` for the gesture that clears a cell rather than emptying it — the
-/// distinction the whole crate is built around (design notes, §7.5) —
-/// and a `Lob` for a body that arrives from a file instead of a keyboard.
-/// Matching on it now costs a host nothing and saves it a signature change
-/// later.
+/// Two variants, because a cell can be given a value or be given *no* value,
+/// and those are different statements — the distinction the whole crate is
+/// built around (design notes, §7.5). A `Lob` for a body that arrives
+/// from a file instead of a keyboard is the one still to come; matching on the
+/// enum now costs a host nothing and saves it a signature change later.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditValue {
     /// What was in the field, verbatim.
@@ -416,6 +435,14 @@ pub enum EditValue {
     /// will make of it, and a layer that silently trimmed a `CHAR(10)` would be
     /// wrong in a way nobody could see.
     Text(String),
+    /// The cell is to hold no value at all: `SET x = NULL`, not `SET x = ''`.
+    ///
+    /// Raised by the clearing gesture — the `NULL` row of a
+    /// [`CellEditor::Choice`] whose `nullable` is set, or a custom editor that
+    /// commits it — and never by an emptied field, because emptying a field is
+    /// how the empty string is typed. A cell that already held no value stages
+    /// nothing when this arrives, exactly as an unchanged field does.
+    Null,
 }
 
 /// What the grid asks its host for.
@@ -573,9 +600,51 @@ struct Resize {
     width: f32,
 }
 
+/// Which of the three editors is open, and the state that one needs.
+///
+/// The rest of what an edit is — which cell, what was in it, whether that was a
+/// value at all — is the same for all three and lives on [`Editing`] beside
+/// this. Only the *mechanism* differs, and it differs in what holds the focus:
+/// a field has one of its own, while a dropdown and a host's element are put
+/// inside a box the grid focuses, so that `Escape` reaches
+/// [`EDITOR_KEY_CONTEXT`] whatever is drawn in it.
+enum OpenEditor {
+    /// The one-line field, which is what every edit was before there was a
+    /// choice.
+    Field {
+        /// The field. Rebuilt per edit rather than kept and re-seeded: a field
+        /// carries a caret, a selection and an in-flight IME composition, and
+        /// none of those mean anything in the next cell.
+        input: Entity<TextInput>,
+    },
+    /// A [`Select`] opened over the cell.
+    Choice {
+        /// The box the list hangs from, focused so the keys reach the grid.
+        focus: FocusHandle,
+        /// The rows as they are drawn, the leading `NULL` one included — so
+        /// that an index out of the list is an index into this.
+        rows: Vec<SharedString>,
+        /// Whether row zero is the `NULL` row, and therefore stages
+        /// [`EditValue::Null`] rather than its own text.
+        nullable: bool,
+        /// Which row the keyboard is on, which is also the row the list marks
+        /// as current.
+        highlight: usize,
+    },
+    /// An element the host built, redrawn every frame like everything else.
+    Custom {
+        /// The box the element sits in, focused so that a host element which
+        /// takes no focus of its own can still be dismissed with `Escape`.
+        focus: FocusHandle,
+        /// What builds it. Kept rather than the element it makes: an element is
+        /// consumed by the frame that draws it.
+        build: CellEditorBuilder,
+    },
+}
+
 /// The inline editor, while it is open.
 ///
-/// Holds the field and the three things needed to decide what its content
+/// Holds the editor and the three things needed to decide what a staged value
 /// *means* when it closes — which cell it was opened over, what was in that cell
 /// and whether that was a value at all.
 struct Editing {
@@ -583,10 +652,8 @@ struct Editing {
     row: usize,
     /// The **source** column being edited, which is what the event names.
     column: usize,
-    /// The field. Rebuilt per edit rather than kept and re-seeded: a field
-    /// carries a caret, a selection and an in-flight IME composition, and none
-    /// of those mean anything in the next cell.
-    input: Entity<TextInput>,
+    /// Which editor is open, and what it needs.
+    editor: OpenEditor,
     /// What the field was seeded with, so that a close can tell a value the user
     /// changed from one they only looked at.
     seeded: String,
@@ -612,18 +679,20 @@ struct Editing {
 }
 
 impl Editing {
-    /// Whether `typed` is something other than what the cell held.
+    /// Whether `value` is something other than what the cell held.
     ///
-    /// The whole of "was the field actually changed?", and the reason opening a
+    /// The whole of "was anything actually changed?", and the reason opening a
     /// cell and pressing `Enter` stages nothing. A cell that held no value is
     /// changed the moment anything is typed into it and not before: an empty
     /// field over a null cell is still the null, which is why `was_null` is a
-    /// field of its own rather than `seeded.is_empty()`.
-    fn modified(&self, typed: &str) -> bool {
-        if self.was_null {
-            !typed.is_empty()
-        } else {
-            typed != self.seeded
+    /// field of its own rather than `seeded.is_empty()`. The clearing gesture is
+    /// the same rule read the other way round — clearing a cell that was already
+    /// empty of any value changes nothing.
+    fn changed(&self, value: &EditValue) -> bool {
+        match value {
+            EditValue::Text(typed) if self.was_null => !typed.is_empty(),
+            EditValue::Text(typed) => *typed != self.seeded,
+            EditValue::Null => !self.was_null,
         }
     }
 }
@@ -1106,8 +1175,16 @@ impl<S: GridSource> GridView<S> {
     /// For a host that wants to read the half-typed value — a live validation
     /// hint beside the grid, say. Nothing about the edit is settled until
     /// [`GridEvent::EditCommitted`] arrives.
+    ///
+    /// `None` unless the open editor is the *field*: a
+    /// [`CellEditor::Choice`] or a [`CellEditor::Custom`] has no half-typed
+    /// value to show, which is why picking a row out of a dropdown stages it
+    /// there and then.
     pub fn editor(&self) -> Option<&Entity<TextInput>> {
-        self.editing.as_ref().map(|editing| &editing.input)
+        match &self.editing.as_ref()?.editor {
+            OpenEditor::Field { input } => Some(input),
+            OpenEditor::Choice { .. } | OpenEditor::Custom { .. } => None,
+        }
     }
 
     /// Opens the inline editor over the cell at `row` and *source* `column`.
@@ -1124,13 +1201,22 @@ impl<S: GridSource> GridView<S> {
     /// * or the cell holds a [`GridCell::Lob`], whose body is not in the grid to
     ///   be seeded into a field or replaced from one.
     ///
-    /// The field is seeded with the cell's text and a null cell seeds an empty
-    /// one, so that the caret starts where typing starts. What the emptiness
-    /// *means* is remembered separately: leaving an empty field on a cell that
-    /// was null commits nothing, rather than quietly turning `NULL` into `''`.
+    /// *Which* editor opens is [`GridSource::cell_editor`], asked once the cell
+    /// has agreed to take an edit at all:
+    ///
+    /// * [`CellEditor::Text`] — the field, seeded with the cell's text; a null
+    ///   cell seeds an empty one, so that the caret starts where typing starts.
+    ///   What the emptiness *means* is remembered separately: leaving an empty
+    ///   field on a cell that was null commits nothing, rather than quietly
+    ///   turning `NULL` into `''`.
+    /// * [`CellEditor::Choice`] — a dropdown, opened at once on the value the
+    ///   cell holds. A row picked with the pointer stages immediately; the
+    ///   arrows walk the list and `Enter` stages where they stopped.
+    /// * [`CellEditor::Custom`] — the host's own element, handed a
+    ///   [`CellEditorContext`] with the two ways out on it.
     ///
     /// Any editor already open is committed first, and the selection moves onto
-    /// the cell — a field is a strange place for the cursor not to be.
+    /// the cell — an editor is a strange place for the cursor not to be.
     pub fn begin_edit(
         &mut self,
         row: usize,
@@ -1158,44 +1244,106 @@ impl<S: GridSource> GridView<S> {
             GridCell::Lob { .. } => return false,
         };
 
+        // Asked only now, after the cell has been found and agreed to take an
+        // edit at all — so a source may build its option list here rather than
+        // keeping one for every cell of the result.
+        let editor = self.source.cell_editor(row, column);
+
         self.commit_edit(cx);
 
         let cell = CellAddress::new(row, display);
         self.selection.replace(cell);
         self.reveal(cell);
 
-        let grid = cx.entity().downgrade();
-        let content = seeded.clone();
-        let input = cx.new(|cx| {
-            // `Enter` is the field's own action, bound in the field's own
-            // deeper key context, so the grid's `Activate` never sees it and
-            // this callback is the only way the keystroke comes back. It is
-            // handed the content because the field is mid-update while it runs
-            // and cannot be read out of the entity map.
-            let mut input = TextInput::new(cx).on_submit(move |typed, _window, cx| {
-                let typed = typed.to_string();
-                grid.update(cx, |grid, cx| grid.close_edit(Some(&typed), true, cx))
-                    .ok();
-            });
-            input.set_content(content, cx);
-            input
-        });
+        let (editor, handle) = match editor {
+            CellEditor::Text => {
+                let grid = cx.entity().downgrade();
+                let content = seeded.clone();
+                let input = cx.new(|cx| {
+                    // `Enter` is the field's own action, bound in the field's
+                    // own deeper key context, so the grid's `Activate` never
+                    // sees it and this callback is the only way the keystroke
+                    // comes back. It is handed the content because the field is
+                    // mid-update while it runs and cannot be read out of the
+                    // entity map.
+                    let mut input = TextInput::new(cx).on_submit(move |typed, _window, cx| {
+                        let typed = EditValue::Text(typed.to_string());
+                        grid.update(cx, |grid, cx| grid.close_edit(Some(typed), true, cx))
+                            .ok();
+                    });
+                    input.set_content(content, cx);
+                    input
+                });
+                let handle = input.read(cx).focus_handle(cx);
+                (OpenEditor::Field { input }, handle)
+            }
+            CellEditor::Choice { options, nullable } => {
+                // The `NULL` row is prepended here rather than at every use, so
+                // that the index the list hands back and the index the keyboard
+                // walks are indices into one list.
+                let rows: Vec<SharedString> = nullable
+                    .then(|| SharedString::new_static(NULL_TEXT))
+                    .into_iter()
+                    .chain(options)
+                    .collect();
+                // The list opens on what the cell holds, so that the first
+                // arrow steps away from the current value rather than from the
+                // top of the list.
+                let highlight = if was_null {
+                    0
+                } else {
+                    rows.iter().position(|row| *row == seeded).unwrap_or(0)
+                };
+                let focus = cx.focus_handle();
+                (
+                    OpenEditor::Choice {
+                        focus: focus.clone(),
+                        rows,
+                        nullable,
+                        highlight,
+                    },
+                    focus,
+                )
+            }
+            CellEditor::Custom(build) => {
+                let focus = cx.focus_handle();
+                (
+                    OpenEditor::Custom {
+                        focus: focus.clone(),
+                        build,
+                    },
+                    focus,
+                )
+            }
+        };
 
-        let handle = input.read(cx).focus_handle(cx);
-        let blur = cx.on_focus_out(&handle, window, |grid, _event, _window, cx| {
-            // The focus has gone somewhere deliberate. Committing is right;
-            // taking the focus back is not, which is the one close that leaves
-            // `refocus` alone.
-            let Some(typed) = grid.typed(cx) else {
-                return;
-            };
-            grid.close_edit(Some(&typed), false, cx);
-        });
+        let field = matches!(editor, OpenEditor::Field { .. });
+        let blur = if field {
+            cx.on_focus_out(&handle, window, |grid, _event, _window, cx| {
+                // The focus has gone somewhere deliberate. Committing is right;
+                // taking the focus back is not, which is the one close that
+                // leaves `refocus` alone.
+                let Some(typed) = grid.typed(cx) else {
+                    return;
+                };
+                grid.close_edit(Some(EditValue::Text(typed)), false, cx);
+            })
+        } else {
+            cx.on_focus_out(&handle, window, |grid, _event, _window, cx| {
+                // Neither of the other two has anything half-finished in it: a
+                // dropdown stages the moment a row is picked and a host's
+                // editor stages when it says so, so the focus leaving is a
+                // dismissal and stages nothing.
+                if grid.editing.is_some() {
+                    grid.close_edit(None, false, cx);
+                }
+            })
+        };
 
         self.editing = Some(Editing {
             row,
             column,
-            input,
+            editor,
             seeded,
             was_null,
             settled: false,
@@ -1213,10 +1361,15 @@ impl<S: GridSource> GridView<S> {
     /// close commits. Raises nothing when the field holds what the cell already
     /// held.
     pub fn commit_edit(&mut self, cx: &mut Context<Self>) {
-        let Some(typed) = self.typed(cx) else {
+        if self.editing.is_none() {
             return;
-        };
-        self.close_edit(Some(&typed), true, cx);
+        }
+        // A dropdown and a host's editor have nothing to hand over here: both
+        // stage at the moment of the gesture, so everything that merely *closes*
+        // one — a scroll, a sort, a column dragged out from under it — takes it
+        // down with nothing staged.
+        let typed = self.typed(cx).map(EditValue::Text);
+        self.close_edit(typed, true, cx);
     }
 
     /// Closes the editor and throws away what was typed.
@@ -1232,9 +1385,10 @@ impl<S: GridSource> GridView<S> {
     /// field itself is being updated — which is why the submit callback is
     /// handed its content instead of asking for it.
     fn typed(&self, cx: &App) -> Option<String> {
-        self.editing
-            .as_ref()
-            .map(|editing| editing.input.read(cx).content().to_string())
+        match &self.editing.as_ref()?.editor {
+            OpenEditor::Field { input } => Some(input.read(cx).content().to_string()),
+            OpenEditor::Choice { .. } | OpenEditor::Custom { .. } => None,
+        }
     }
 
     /// Takes the editor down, raising [`GridEvent::EditCommitted`] when `typed`
@@ -1243,21 +1397,74 @@ impl<S: GridSource> GridView<S> {
     /// `refocus` is false for exactly one caller — the focus having left of its
     /// own accord — because taking the focus back from wherever the user just
     /// put it would be worse than the edit ending quietly.
-    fn close_edit(&mut self, typed: Option<&str>, refocus: bool, cx: &mut Context<Self>) {
+    fn close_edit(&mut self, value: Option<EditValue>, refocus: bool, cx: &mut Context<Self>) {
         let Some(editing) = self.editing.take() else {
             return;
         };
         self.refocus = refocus;
-        if let Some(typed) = typed
-            && editing.modified(typed)
+        if let Some(value) = value
+            && editing.changed(&value)
         {
             cx.emit(GridEvent::EditCommitted {
                 row: editing.row,
                 column: editing.column,
-                value: EditValue::Text(typed.to_string()),
+                value,
             });
         }
         cx.notify();
+    }
+
+    /// Moves the dropdown's highlight by `delta`, and says whether there was a
+    /// dropdown to move.
+    ///
+    /// The arrows have to be caught here rather than left to [`Select`]'s own
+    /// key handling: the focus is on the box the list hangs from and not on the
+    /// trigger inside it, so the trigger never sees the keystroke — and the
+    /// grid's own `MoveUp`/`MoveDown` would otherwise walk the selection out
+    /// from under an open list. Moving the highlight rather than picking as it
+    /// goes is the deliberate difference from the bare control: an arrow that
+    /// staged every row it passed over would write three values on the way to
+    /// the fourth.
+    fn step_choice(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        let Some(Editing {
+            editor: OpenEditor::Choice {
+                rows, highlight, ..
+            },
+            ..
+        }) = self.editing.as_mut()
+        else {
+            return false;
+        };
+        let Some(last) = rows.len().checked_sub(1) else {
+            return true;
+        };
+        *highlight = (*highlight as isize + delta).clamp(0, last as isize) as usize;
+        cx.notify();
+        true
+    }
+
+    /// Stages the dropdown's highlighted row, and says whether there was one.
+    ///
+    /// What `Enter` does over an open list, and the one keystroke that ends a
+    /// choice: the pointer has no need of it, since clicking a row is already
+    /// unambiguous.
+    fn commit_choice(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(Editing {
+            editor:
+                OpenEditor::Choice {
+                    rows,
+                    nullable,
+                    highlight,
+                    ..
+                },
+            ..
+        }) = self.editing.as_ref()
+        else {
+            return false;
+        };
+        let value = choice_value(rows, *nullable, *highlight);
+        self.close_edit(value, true, cx);
+        true
     }
 
     /// Commits the editor and opens the next — or previous — cell of the row
@@ -1731,10 +1938,17 @@ impl<S: GridSource> GridView<S> {
     }
 
     fn move_up(&mut self, _: &MoveUp, _: &mut Window, cx: &mut Context<Self>) {
+        // An open dropdown eats the vertical arrows; see `step_choice`.
+        if self.step_choice(-1, cx) {
+            return;
+        }
         self.step(-1, 0, false, cx);
     }
 
     fn move_down(&mut self, _: &MoveDown, _: &mut Window, cx: &mut Context<Self>) {
+        if self.step_choice(1, cx) {
+            return;
+        }
         self.step(1, 0, false, cx);
     }
 
@@ -1812,6 +2026,12 @@ impl<S: GridSource> GridView<S> {
     }
 
     fn activate(&mut self, _: &Activate, _: &mut Window, cx: &mut Context<Self>) {
+        // `Enter` over an open list picks the highlighted row, the way it does
+        // in the field it stands in for. The grid's own `Activate` is what
+        // reaches here because a `Select` has no submit action of its own.
+        if self.commit_choice(cx) {
+            return;
+        }
         let Some(cursor) = self.selection.cursor() else {
             return;
         };
@@ -2272,7 +2492,13 @@ impl<S: GridSource> GridView<S> {
 
     /// Draws one body row: the number in the gutter, and the strip of cells the
     /// content area can see.
-    fn render_row(&self, row: usize, theme: &Theme) -> AnyElement {
+    fn render_row(
+        &self,
+        row: usize,
+        theme: &Theme,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
         let visible = self.visible_columns();
         let start = self
             .laid_out
@@ -2283,9 +2509,13 @@ impl<S: GridSource> GridView<S> {
         // being struck through.
         let status = self.source.row_status(row);
         let marker = status_color(status, theme);
-        let cells: Vec<AnyElement> = visible
-            .map(|display| self.render_cell(row, display, status, theme))
-            .collect();
+        // A loop rather than a `map`, because the source may want the window
+        // and the app to draw a cell of its own and a closure cannot hand both
+        // round.
+        let mut cells: Vec<AnyElement> = Vec::with_capacity(visible.len());
+        for display in visible {
+            cells.push(self.render_cell(row, display, status, theme, window, cx));
+        }
 
         div()
             .flex()
@@ -2361,37 +2591,77 @@ impl<S: GridSource> GridView<S> {
     /// Draws one cell.
     ///
     /// Plain divs with no id and no listeners: the whole of the pointer
-    /// behaviour is [`GridView::hit`], so a cell is only a box with text in it.
+    /// behaviour is [`GridView::hit`], so a cell is only a box with something in
+    /// it.
+    ///
+    /// The source gets first refusal through [`GridSource::render_cell`]; what
+    /// it draws goes into the same box the grid's own text would have gone
+    /// into, minus the padding and the alignment, which belong to text and not
+    /// to a badge or a bar. Everything *around* the content — the selection
+    /// background, the dirty tint, the cursor outline — is painted here either
+    /// way, so a cell the host drew is picked and marked exactly as a plain one
+    /// is.
     fn render_cell(
         &self,
         row: usize,
         display: usize,
         status: RowStatus,
         theme: &Theme,
+        window: &mut Window,
+        cx: &mut App,
     ) -> AnyElement {
         let placed = self.laid_out[display];
         let column = self.source.column(placed.column);
-        let label = cell_label(&self.source.cell(row, placed.column));
+        let align = column.align;
+        let width = self.column_width(placed.column);
         let dirty = self.source.cell_dirty(row, placed.column);
         let selected = self.selection.contains(row, display);
         let cursor = self.selection.cursor() == Some(CellAddress::new(row, display));
 
+        let info = CellInfo {
+            kind: column.kind,
+            selected,
+            dirty,
+            editing: self
+                .editing
+                .as_ref()
+                .is_some_and(|editing| editing.row == row && editing.column == placed.column),
+            width: px(width),
+            height: px(ROW_HEIGHT),
+            theme,
+        };
+        let custom = self
+            .source
+            .render_cell(row, placed.column, &info, window, cx);
+        // Only asked for when the host did not draw the cell itself: the label
+        // allocates a `SharedString` per cell, and a cell nobody is going to
+        // draw text into has no use for one.
+        let label = custom
+            .is_none()
+            .then(|| cell_label(&self.source.cell(row, placed.column)));
+
         div()
             .relative()
             .flex_none()
-            .w(px(self.column_width(placed.column)))
+            .w(px(width))
             .h_full()
             .flex()
             .items_center()
-            .when(column.align == GridColumnAlign::Right, |cell| {
-                cell.justify_end()
+            // A custom element is given the bare box: it is handed the same two
+            // numbers in `CellInfo` and lines its own content up, which is what
+            // lets a bar run from edge to edge.
+            .when(custom.is_none(), |cell| {
+                cell.px(px(CELL_PADDING))
+                    .when(align == GridColumnAlign::Right, |cell| cell.justify_end())
             })
-            .px(px(CELL_PADDING))
+            .when(custom.is_some(), |cell| cell.overflow_hidden())
             .border_r_1()
             .border_b_1()
             .border_color(theme.border)
             .when(selected, |cell| cell.bg(theme.grid_selection))
-            .when(label.muted, |cell| cell.text_color(theme.grid_null))
+            .when(label.as_ref().is_some_and(|label| label.muted), |cell| {
+                cell.text_color(theme.grid_null)
+            })
             // A child rather than a background, for the same reason the cursor
             // outline is one: the background is the selection's, and a dirty
             // cell that stopped looking dirty the moment it was picked would
@@ -2408,7 +2678,8 @@ impl<S: GridSource> GridView<S> {
                         .bg(theme.accent.opacity(DIRTY_TINT)),
                 )
             })
-            .child(
+            .children(custom)
+            .children(label.map(|label| {
                 div()
                     .truncate()
                     // A deleted row is still shown in its place — see
@@ -2416,8 +2687,8 @@ impl<S: GridSource> GridView<S> {
                     // they are on their way out rather than merely that
                     // something happened to the row.
                     .when(status == RowStatus::Deleted, |text| text.line_through())
-                    .child(label.text),
-            )
+                    .child(label.text)
+            }))
             // The cursor outline is a child rather than a border, so that the
             // cell it is on stays exactly as wide as the others and the text
             // under it does not shift by a pixel as the cursor arrives.
@@ -2449,11 +2720,12 @@ impl<S: GridSource> GridView<S> {
     /// Everything is recomputed per frame rather than remembered, so a resize, a
     /// scroll or a column dragged out from under the field moves the field with
     /// it instead of stranding it.
-    fn render_editor(&self) -> Option<AnyElement> {
+    fn render_editor(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let editing = self.editing.as_ref()?;
         let display = self.display_of(editing.column)?;
         let placed = self.laid_out[display];
         let scrolled_by = f32::from(self.base_handle().offset().y);
+        let width = px(self.column_width(editing.column));
 
         let field = div()
             .key_context(EDITOR_KEY_CONTEXT)
@@ -2464,12 +2736,87 @@ impl<S: GridSource> GridView<S> {
             .top(px(
                 editing.row as f32 * ROW_HEIGHT + scrolled_by - (EDITOR_HEIGHT - ROW_HEIGHT) / 2.
             ))
-            .w(px(self.column_width(editing.column)))
+            .w(width)
             // Without this the grid's own arithmetic hit test would see every
             // press meant for the field, move the selection and — since moving
             // the selection commits — close the field the user was aiming at.
-            .occlude()
-            .child(editing.input.clone());
+            .occlude();
+
+        let field = match &editing.editor {
+            OpenEditor::Field { input } => field.child(input.clone()),
+            OpenEditor::Choice {
+                focus,
+                rows,
+                nullable,
+                highlight,
+            } => {
+                let grid = cx.entity().downgrade();
+                let nullable = *nullable;
+                let picked = rows.get(*highlight).cloned();
+                let rows = rows.clone();
+                field
+                    // Focused rather than left to the trigger, so that `Escape`
+                    // lands in `EDITOR_KEY_CONTEXT` and the arrows reach
+                    // `step_choice` instead of walking the selection.
+                    .track_focus(focus)
+                    .child(
+                        Select::new("grid-cell-choice")
+                            .options(rows.clone())
+                            .selected(picked)
+                            // Open from the first frame: the dropdown *is* the
+                            // editor, so a trigger the user had to click again
+                            // would be one gesture too many.
+                            .open(true)
+                            .width(width)
+                            .on_select({
+                                let grid = grid.clone();
+                                move |index, _label, _window, cx| {
+                                    let value = choice_value(&rows, nullable, index);
+                                    grid.update(cx, |grid, cx| grid.close_edit(value, true, cx))
+                                        .ok();
+                                }
+                            })
+                            .on_open_change(move |open, _window, cx| {
+                                // The only way this arrives with `false` and an
+                                // editor still open is a press outside the
+                                // list, which is a dismissal.
+                                if !open {
+                                    grid.update(cx, |grid, cx| grid.close_edit(None, true, cx))
+                                        .ok();
+                                }
+                            }),
+                    )
+            }
+            OpenEditor::Custom { focus, build } => {
+                let grid = cx.entity().downgrade();
+                let context = CellEditorContext {
+                    row: editing.row,
+                    column: editing.column,
+                    seeded: editing.seeded.clone(),
+                    was_null: editing.was_null,
+                    width,
+                    height: px(EDITOR_HEIGHT),
+                    commit: {
+                        let grid = grid.clone();
+                        Rc::new(move |value, _window: &mut Window, cx: &mut App| {
+                            grid.update(cx, |grid, cx| grid.close_edit(Some(value), true, cx))
+                                .ok();
+                        })
+                    },
+                    cancel: Rc::new(move |_window: &mut Window, cx: &mut App| {
+                        grid.update(cx, |grid, cx| grid.close_edit(None, true, cx))
+                            .ok();
+                    }),
+                };
+                let build = build.clone();
+                // Focused here too, so that a host element which takes no focus
+                // of its own is still dismissible with `Escape`; one that takes
+                // the focus takes it *inside* this box, which keeps the handle
+                // in the focus path and the subscription quiet.
+                let element = build(&context, window, cx);
+                field.track_focus(focus).child(element)
+            }
+        };
 
         Some(
             // Clipped to the content area, so a field on a column half off the
@@ -2486,6 +2833,22 @@ impl<S: GridSource> GridView<S> {
                 .into_any_element(),
         )
     }
+}
+
+/// What the row at `index` of an open dropdown stages, or `None` when the list
+/// is empty.
+///
+/// The one place the `NULL` row is told from a value row, and it is told by
+/// *position* rather than by text: a column whose values include the string
+/// `NULL` would otherwise clear itself when the user picked the value they
+/// meant.
+fn choice_value(rows: &[SharedString], nullable: bool, index: usize) -> Option<EditValue> {
+    let label = rows.get(index)?;
+    Some(if nullable && index == 0 {
+        EditValue::Null
+    } else {
+        EditValue::Text(label.to_string())
+    })
 }
 
 /// The colour a row's marker is drawn in, or `None` for a row nothing has been
@@ -2588,6 +2951,11 @@ impl<S: GridSource> Render for GridView<S> {
             self.focus_handle.focus(window, cx);
         }
 
+        // Built before the tree it hangs off, because a custom editor is the
+        // host's element and building it wants both the window and the app —
+        // neither of which can be handed round inside the builder chain below.
+        let editor = self.render_editor(window, cx);
+
         let palette = theme(cx);
         let rows = self.source.row_count();
         let grid = cx.entity();
@@ -2617,13 +2985,15 @@ impl<S: GridSource> Render for GridView<S> {
             .size_full()
         };
 
-        let mut list = uniform_list("grid-rows", rows, move |range, _window, cx| {
+        let mut list = uniform_list("grid-rows", rows, move |range, window, cx| {
             grid.update(cx, |grid, cx| {
                 grid.note_visible(range.clone(), cx);
                 let palette = theme(cx);
-                range
-                    .map(|row| grid.render_row(row, &palette))
-                    .collect::<Vec<_>>()
+                let mut built = Vec::with_capacity(range.len());
+                for row in range {
+                    built.push(grid.render_row(row, &palette, window, cx));
+                }
+                built
             })
         })
         .track_scroll(&self.scroll)
@@ -2743,7 +3113,7 @@ impl<S: GridSource> Render for GridView<S> {
             )
             // Last, and absolutely positioned, so it is painted over the rows
             // rather than between them.
-            .children(self.render_editor())
+            .children(editor)
     }
 }
 
@@ -2757,7 +3127,7 @@ mod tests {
         Entity, Modifiers, MouseDownEvent, MouseUpEvent, TestAppContext, VisualTestContext,
     };
 
-    use crate::source::{GridColumn, GridColumnKind};
+    use crate::source::{CellCancel, CellCommit, GridColumn, GridColumnKind};
 
     use super::*;
 
@@ -2984,6 +3354,147 @@ mod tests {
         }
     }
 
+    /// A source that draws one of its three columns itself, and remembers every
+    /// cell it was asked to draw.
+    ///
+    /// The rows are recorded rather than merely counted, because the claim
+    /// being tested is not "the hook is cheap" but "the hook is only asked
+    /// about what is on screen" — which is a claim about *which* rows, and a
+    /// count alone cannot tell a hundred calls on the visible rows from a
+    /// hundred calls halfway down a million.
+    struct Drawn {
+        rows: usize,
+        drawn: Rc<RefCell<Vec<usize>>>,
+    }
+
+    /// The column [`Drawn`] draws for itself.
+    const DRAWN_COLUMN: usize = 1;
+
+    impl GridSource for Drawn {
+        fn column_count(&self) -> usize {
+            3
+        }
+
+        fn column(&self, index: usize) -> GridColumn<'_> {
+            GridColumn::new(["id", "badge", "note"][index], GridColumnKind::Text)
+        }
+
+        fn row_count(&self) -> usize {
+            self.rows
+        }
+
+        fn cell(&self, _row: usize, _column: usize) -> GridCell<'_> {
+            GridCell::Text("value")
+        }
+
+        fn render_cell(
+            &self,
+            row: usize,
+            column: usize,
+            info: &CellInfo<'_>,
+            _window: &mut Window,
+            _cx: &mut App,
+        ) -> Option<AnyElement> {
+            if column != DRAWN_COLUMN {
+                return None;
+            }
+            self.drawn.borrow_mut().push(row);
+            Some(
+                div()
+                    .w(info.width)
+                    .h(info.height)
+                    .bg(info.theme.accent)
+                    .into_any_element(),
+            )
+        }
+    }
+
+    /// A source whose second column is edited with a dropdown rather than a
+    /// field.
+    struct Chooser {
+        nullable: bool,
+        value: Option<&'static str>,
+    }
+
+    /// The column [`Chooser`] opens a dropdown over.
+    const CHOICE_COLUMN: usize = 1;
+
+    /// What that dropdown offers, before the `NULL` row is put in front of it.
+    const CHOICES: [&str; 3] = ["web", "store", "phone"];
+
+    impl GridSource for Chooser {
+        fn column_count(&self) -> usize {
+            2
+        }
+
+        fn column(&self, index: usize) -> GridColumn<'_> {
+            GridColumn::new(["id", "channel"][index], GridColumnKind::Text)
+        }
+
+        fn row_count(&self) -> usize {
+            3
+        }
+
+        fn cell(&self, row: usize, column: usize) -> GridCell<'_> {
+            if column != CHOICE_COLUMN {
+                return GridCell::Text(["1", "2", "3"][row]);
+            }
+            match self.value {
+                Some(value) => GridCell::Text(value),
+                None => GridCell::Null,
+            }
+        }
+
+        fn cell_editable(&self, _row: usize, column: usize) -> bool {
+            column == CHOICE_COLUMN
+        }
+
+        fn cell_editor(&self, _row: usize, _column: usize) -> CellEditor {
+            CellEditor::Choice {
+                options: CHOICES.iter().map(|value| (*value).into()).collect(),
+                nullable: self.nullable,
+            }
+        }
+    }
+
+    /// A source whose second column is edited by an element of the host's own,
+    /// which hands the two ways out back to the test.
+    struct Own {
+        ways_out: Rc<RefCell<Option<(CellCommit, CellCancel)>>>,
+    }
+
+    impl GridSource for Own {
+        fn column_count(&self) -> usize {
+            2
+        }
+
+        fn column(&self, index: usize) -> GridColumn<'_> {
+            GridColumn::new(["id", "when"][index], GridColumnKind::Text)
+        }
+
+        fn row_count(&self) -> usize {
+            2
+        }
+
+        fn cell(&self, _row: usize, _column: usize) -> GridCell<'_> {
+            GridCell::Text("2026-02-03")
+        }
+
+        fn cell_editable(&self, _row: usize, column: usize) -> bool {
+            column == 1
+        }
+
+        fn cell_editor(&self, _row: usize, _column: usize) -> CellEditor {
+            let ways_out = self.ways_out.clone();
+            CellEditor::Custom(Rc::new(move |context, _window, _cx| {
+                // A real host would build a date picker here and let it call
+                // these two; the test keeps them and calls them itself.
+                *ways_out.borrow_mut() = Some((context.commit.clone(), context.cancel.clone()));
+                div().w(context.width).h(context.height).into_any_element()
+            }))
+        }
+    }
+
     /// Three columns, two rows, and both of the values that too many tools
     /// cannot tell apart.
     fn null_and_empty() -> Small {
@@ -3118,7 +3629,7 @@ mod tests {
     /// reads the sample, which is exactly the budget those tests are policing.
     /// The tests that are *about* fitting use [`open_fitted`].
     fn open<S: GridSource>(source: S, cx: &mut TestAppContext) -> (Handles<S>, VisualTestContext) {
-        open_with(source, true, cx)
+        open_with(source, true, false, cx)
     }
 
     /// The same, with the column fitting a host gets by default left switched
@@ -3127,12 +3638,26 @@ mod tests {
         source: S,
         cx: &mut TestAppContext,
     ) -> (Handles<S>, VisualTestContext) {
-        open_with(source, false, cx)
+        open_with(source, false, false, cx)
+    }
+
+    /// The same again, wired the way a host wires it: an activated cell opens
+    /// whatever [`GridSource::cell_editor`] asks for over it.
+    ///
+    /// Only for the tests about that round trip — a double click reaching a
+    /// dropdown — since everywhere else the extra subscription would open an
+    /// editor the test did not ask for.
+    fn open_activating<S: GridSource>(
+        source: S,
+        cx: &mut TestAppContext,
+    ) -> (Handles<S>, VisualTestContext) {
+        open_with(source, true, true, cx)
     }
 
     fn open_with<S: GridSource>(
         source: S,
         fixed: bool,
+        activating: bool,
         cx: &mut TestAppContext,
     ) -> (Handles<S>, VisualTestContext) {
         cx.update(rugpui::init);
@@ -3141,17 +3666,31 @@ mod tests {
         let events: Rc<RefCell<Vec<GridEvent>>> = Rc::new(RefCell::new(Vec::new()));
         let window = cx.add_window({
             let events = events.clone();
-            move |_, cx| {
+            move |window, cx| {
                 let grid = cx.new(|cx| {
                     let grid = GridView::new(source, cx);
                     if fixed { grid.fixed_widths() } else { grid }
                 });
                 // Cloned rather than copied: `GridEvent::EditCommitted` carries
-                // the text that was typed.
+                // the value that was staged.
                 cx.subscribe(&grid, move |_: &mut Harness<S>, _, event: &GridEvent, _| {
                     events.borrow_mut().push(event.clone());
                 })
                 .detach();
+                if activating {
+                    cx.subscribe_in(
+                        &grid,
+                        window,
+                        |_: &mut Harness<S>, grid, event: &GridEvent, window, cx| {
+                            if let GridEvent::CellActivated { row, column } = event {
+                                grid.update(cx, |grid, cx| {
+                                    grid.begin_edit(*row, *column, window, cx)
+                                });
+                            }
+                        },
+                    )
+                    .detach();
+                }
                 Harness { grid }
             }
         });
@@ -3191,6 +3730,43 @@ mod tests {
     /// A plain click on the cell at `row` and display column `column`.
     fn click_cell(cx: &mut VisualTestContext, row: usize, column: usize) {
         click_at(cx, column_x(column), row_y(row), Modifiers::none(), 1);
+    }
+
+    /// Height of one row of an open [`Select`], from `select.rs`.
+    const SELECT_ROW_HEIGHT: f32 = 26.;
+
+    /// How far below the top of the editor's box a [`Select`] hangs its list,
+    /// which is its trigger height plus the gap it keeps — `DROP_OFFSET` in
+    /// `select.rs`.
+    const SELECT_DROP: f32 = 32. + 4.;
+
+    /// The padding above the first row of an open list, `py(4.)` in
+    /// `select.rs`.
+    const SELECT_LIST_PADDING: f32 = 4.;
+
+    /// The middle of row `index` of the list an open dropdown drew over the
+    /// cell at `row` and display column `column`, in window coordinates.
+    ///
+    /// Worked out rather than looked up, because the list is a `deferred`
+    /// element of another crate and there is nothing to look it up in: the
+    /// editor's box is where `render_editor` puts it, and the list hangs off
+    /// that box by the offsets `select.rs` writes down.
+    fn option_at(row: usize, column: usize, index: usize) -> (f32, f32) {
+        let left = GUTTER_WIDTH + column as f32 * DEFAULT_COLUMN_WIDTH;
+        let top = HEADER_HEIGHT + row as f32 * ROW_HEIGHT - (EDITOR_HEIGHT - ROW_HEIGHT) / 2.;
+        (
+            left + DEFAULT_COLUMN_WIDTH / 2.,
+            top + SELECT_DROP
+                + SELECT_LIST_PADDING
+                + index as f32 * SELECT_ROW_HEIGHT
+                + SELECT_ROW_HEIGHT / 2.,
+        )
+    }
+
+    /// Clicks row `index` of the list an open dropdown drew over that cell.
+    fn click_option(cx: &mut VisualTestContext, row: usize, column: usize, index: usize) {
+        let (x, y) = option_at(row, column, index);
+        click_at(cx, x, y, Modifiers::none(), 1);
     }
 
     /// Presses and releases the right button over a point, and hands back where
@@ -4073,6 +4649,335 @@ mod tests {
         grid.update(&mut cx, |grid, cx| grid.reset(cx));
         assert!(grid.read(&mut cx, |grid| grid.selection().is_empty()));
         assert_eq!(grid.read(&mut cx, |grid| grid.sort()), None);
+    }
+
+    /// A source may draw a cell itself, and is asked to do so only for the
+    /// cells somebody can see.
+    ///
+    /// The second half is the whole point: a hook called once per visible cell
+    /// per frame is affordable, and one called per *row* would undo the
+    /// virtualisation the crate exists for. A hundred thousand rows are
+    /// offered; the hook must never hear of the ones off screen, before or
+    /// after a scroll to the middle of them.
+    #[gpui::test]
+    fn a_source_can_draw_its_own_cells(cx: &mut TestAppContext) {
+        let drawn = Rc::new(RefCell::new(Vec::new()));
+        let (grid, mut cx) = open(
+            Drawn {
+                rows: 100_000,
+                drawn: drawn.clone(),
+            },
+            cx,
+        );
+
+        let asked_about = |drawn: &Rc<RefCell<Vec<usize>>>| {
+            let mut rows = drawn.borrow().clone();
+            rows.sort_unstable();
+            rows.dedup();
+            rows
+        };
+
+        let visible = grid.read(&mut cx, |grid| grid.visible_rows());
+        let rows = asked_about(&drawn);
+        assert!(!rows.is_empty(), "the hook was never called at all");
+        assert!(
+            rows.iter().all(|row| visible.contains(row)),
+            "the hook was asked about rows nobody can see: {rows:?} against {visible:?}"
+        );
+        assert!(
+            drawn.borrow().len() <= visible.len() * 8,
+            "one screenful cost {} calls",
+            drawn.borrow().len()
+        );
+
+        drawn.borrow_mut().clear();
+        let before = visible;
+        grid.update(&mut cx, |grid, cx| grid.scroll_to_row(50_000, cx));
+
+        let visible = grid.read(&mut cx, |grid| grid.visible_rows());
+        assert!(visible.start >= 49_000, "the scroll did not happen");
+        let rows = asked_about(&drawn);
+        assert!(!rows.is_empty(), "the hook stopped being called");
+        // Two viewports and not one: a scroll is drawn twice, once where the
+        // list was and once where it lands, and both are screenfuls. What is
+        // being ruled out is the fifty thousand rows between them.
+        assert!(
+            rows.iter()
+                .all(|row| visible.contains(row) || before.contains(row)),
+            "the hook was asked about rows nobody can see: {rows:?} against {visible:?}"
+        );
+    }
+
+    /// A cell whose source asked for a dropdown gets one, opened over the cell,
+    /// and picking a row stages it there and then — no `Enter`, because there is
+    /// nothing half-typed to confirm.
+    #[gpui::test]
+    fn picking_a_row_of_a_dropdown_stages_it(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(
+            Chooser {
+                nullable: true,
+                value: Some("store"),
+            },
+            cx,
+        );
+
+        assert!(grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(0, CHOICE_COLUMN, window, cx)
+        }));
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.editing()),
+            Some((0, CHOICE_COLUMN))
+        );
+        assert_eq!(
+            grid.typed(&mut cx),
+            None,
+            "a dropdown offered a half-typed value"
+        );
+
+        // Row 0 is the `NULL` row, so row 1 is the first of the three values.
+        click_option(&mut cx, 0, CHOICE_COLUMN, 1);
+
+        assert_eq!(
+            grid.drain(),
+            vec![GridEvent::EditCommitted {
+                row: 0,
+                column: CHOICE_COLUMN,
+                value: EditValue::Text("web".to_owned()),
+            }]
+        );
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.editing()),
+            None,
+            "the list outlived the pick"
+        );
+    }
+
+    /// The whole gesture, end to end: a double click on a cell whose source
+    /// asked for a dropdown opens one, and the row picked out of it is staged.
+    ///
+    /// Worth its own test because the activation and the editor are two
+    /// separate round trips through the host — the grid raises
+    /// `CellActivated`, the host answers with `begin_edit` — and because the
+    /// press that opened the list must not be the press that dismisses it.
+    #[gpui::test]
+    fn a_double_click_opens_the_dropdown_a_source_asked_for(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open_activating(
+            Chooser {
+                nullable: true,
+                value: Some("store"),
+            },
+            cx,
+        );
+
+        click_at(
+            &mut cx,
+            column_x(CHOICE_COLUMN),
+            row_y(0),
+            Modifiers::none(),
+            2,
+        );
+
+        assert_eq!(
+            grid.read(&mut cx, |grid| grid.editing()),
+            Some((0, CHOICE_COLUMN)),
+            "the double click did not reach an editor"
+        );
+
+        click_option(&mut cx, 0, CHOICE_COLUMN, 3);
+
+        assert_eq!(
+            grid.drain(),
+            vec![
+                GridEvent::CellActivated {
+                    row: 0,
+                    column: CHOICE_COLUMN,
+                },
+                GridEvent::EditCommitted {
+                    row: 0,
+                    column: CHOICE_COLUMN,
+                    value: EditValue::Text("phone".to_owned()),
+                }
+            ]
+        );
+    }
+
+    /// The `NULL` row of a nullable dropdown stages `EditValue::Null`, which is
+    /// the gesture that clears a cell rather than emptying it — the distinction
+    /// the crate is built around, now with a way for a user to reach it.
+    #[gpui::test]
+    fn the_null_row_stages_a_null(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(
+            Chooser {
+                nullable: true,
+                value: Some("store"),
+            },
+            cx,
+        );
+
+        grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(1, CHOICE_COLUMN, window, cx)
+        });
+        click_option(&mut cx, 1, CHOICE_COLUMN, 0);
+
+        assert_eq!(
+            grid.drain(),
+            vec![GridEvent::EditCommitted {
+                row: 1,
+                column: CHOICE_COLUMN,
+                value: EditValue::Null,
+            }]
+        );
+    }
+
+    /// Without `nullable` there is no `NULL` row at all, so the first row of
+    /// the list is the first value — and clearing the cell is simply not on
+    /// offer, which is right for a column that cannot hold a null.
+    #[gpui::test]
+    fn a_dropdown_that_is_not_nullable_offers_only_its_values(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(
+            Chooser {
+                nullable: false,
+                value: Some("phone"),
+            },
+            cx,
+        );
+
+        grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(0, CHOICE_COLUMN, window, cx)
+        });
+        click_option(&mut cx, 0, CHOICE_COLUMN, 0);
+
+        assert_eq!(
+            grid.drain(),
+            vec![GridEvent::EditCommitted {
+                row: 0,
+                column: CHOICE_COLUMN,
+                value: EditValue::Text("web".to_owned()),
+            }]
+        );
+    }
+
+    /// `Escape` closes a dropdown with nothing staged, exactly as it throws a
+    /// field's typing away.
+    #[gpui::test]
+    fn escape_closes_a_dropdown_without_staging(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(
+            Chooser {
+                nullable: true,
+                value: Some("store"),
+            },
+            cx,
+        );
+
+        grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(0, CHOICE_COLUMN, window, cx)
+        });
+        cx.simulate_keystrokes("escape");
+
+        assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+        assert_eq!(
+            grid.drain(),
+            vec![],
+            "escaping a list staged something anyway"
+        );
+    }
+
+    /// The arrows walk the open list rather than the selection under it, and
+    /// `Enter` stages where they stopped.
+    ///
+    /// The one place the grid does not simply hand the keys to the control: the
+    /// focus is on the box the list hangs from, not on the trigger inside it,
+    /// so `Select`'s own arrow handling never sees the keystroke — and the
+    /// grid's `MoveDown` would otherwise walk the cursor out from under the
+    /// list the user is reading.
+    #[gpui::test]
+    fn the_arrows_walk_an_open_list_and_enter_picks(cx: &mut TestAppContext) {
+        let (grid, mut cx) = open(
+            Chooser {
+                nullable: true,
+                value: Some("store"),
+            },
+            cx,
+        );
+
+        grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(0, CHOICE_COLUMN, window, cx)
+        });
+        // The list opened on "store", which is row 2 of `NULL`/web/store/phone.
+        cx.simulate_keystrokes("down");
+        cx.simulate_keystrokes("enter");
+
+        assert_eq!(
+            grid.drain(),
+            vec![GridEvent::EditCommitted {
+                row: 0,
+                column: CHOICE_COLUMN,
+                value: EditValue::Text("phone".to_owned()),
+            }]
+        );
+        // And the cursor stayed where the edit was, rather than following the
+        // arrow down a row.
+        assert_eq!(grid.selected(&mut cx, 3, 2), vec![(0, CHOICE_COLUMN)]);
+    }
+
+    /// A host's own editor stages through the `commit` it is handed, and the
+    /// grid raises exactly what a field would have raised.
+    #[gpui::test]
+    fn a_custom_editor_commits_through_its_context(cx: &mut TestAppContext) {
+        let ways_out: Rc<RefCell<Option<(CellCommit, CellCancel)>>> = Rc::new(RefCell::new(None));
+        let (grid, mut cx) = open(
+            Own {
+                ways_out: ways_out.clone(),
+            },
+            cx,
+        );
+
+        assert!(grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(1, 1, window, cx)
+        }));
+        let (commit, _cancel) = ways_out
+            .borrow()
+            .clone()
+            .expect("the host's editor was never built");
+
+        cx.update(|window, cx| commit(EditValue::Text("2026-03-01".to_owned()), window, cx));
+        cx.run_until_parked();
+
+        assert_eq!(
+            grid.drain(),
+            vec![GridEvent::EditCommitted {
+                row: 1,
+                column: 1,
+                value: EditValue::Text("2026-03-01".to_owned()),
+            }]
+        );
+        assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+    }
+
+    /// And `cancel` is the other half: the editor goes and nothing is staged.
+    #[gpui::test]
+    fn a_custom_editor_cancels_through_its_context(cx: &mut TestAppContext) {
+        let ways_out: Rc<RefCell<Option<(CellCommit, CellCancel)>>> = Rc::new(RefCell::new(None));
+        let (grid, mut cx) = open(
+            Own {
+                ways_out: ways_out.clone(),
+            },
+            cx,
+        );
+
+        grid.update_in(&mut cx, |grid, window, cx| {
+            grid.begin_edit(0, 1, window, cx)
+        });
+        let (_commit, cancel) = ways_out
+            .borrow()
+            .clone()
+            .expect("the host's editor was never built");
+
+        cx.update(|window, cx| cancel(window, cx));
+        cx.run_until_parked();
+
+        assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+        assert_eq!(grid.drain(), vec![], "a cancelled editor staged something");
     }
 
     /// A source that never opted in cannot be typed into, however the host

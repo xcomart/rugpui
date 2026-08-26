@@ -6,19 +6,20 @@ The rows arrive through a trait the host implements, [`GridSource`](../crates/ru
 
 ## What it holds to
 
-Four things, from the [crate header](../crates/rugpui-grid/src/lib.rs):
+Five things, from the [crate header](../crates/rugpui-grid/src/lib.rs):
 
 * **A million rows scroll without a stutter.** Neither axis lays out more than the viewport can show, and no per-frame work is proportional to the size of the result.
 * **Null is not the empty string.** `GridCell::Null` draws the marker `NULL` in a muted colour; `GridCell::Text("")` draws an empty cell. They are different values and they look different. Two of the four copy formats can carry the difference; two cannot, and [`copy.rs`](../crates/rugpui-grid/src/copy.rs) says which.
 * **The grid does not sort.** It holds the first *n* rows of an answer the server holds all of, so sorting what is here would put the wrong rows at the top. A header click raises `GridEvent::SortRequested` and nothing moves until the host comes back with new rows.
-* **The grid does not stage an edit either.** It draws which rows and cells have been changed and it hosts the field the user types into — because only it knows where a cell is on screen. What a typed value *becomes* is the host's, and reaches it as `GridEvent::EditCommitted`.
+* **The grid does not stage an edit either.** It draws which rows and cells have been changed and it hosts the editor — because only it knows where a cell is on screen. What a staged value *becomes* is the host's, and reaches it as `GridEvent::EditCommitted`.
+* **What a cell shows, and what opens over it, are the source's.** `render_cell` lets the source draw a cell itself; `cell_editor` lets it say whether that cell is edited with a field, a dropdown or something the host built. Both default to the grid's own behaviour.
 
 ## The shape of it
 
 ```mermaid
 flowchart LR
     H["Host view<br/>(owns the result)"]
-    S["GridSource<br/>column_count / column<br/>row_count / cell<br/>state / row_status<br/>cell_dirty / cell_editable"]
+    S["GridSource<br/>column_count / column<br/>row_count / cell<br/>state / row_status<br/>cell_dirty / cell_editable<br/>render_cell / cell_editor"]
     G["GridView&lt;S&gt;<br/>selection, widths,<br/>hidden columns, sort marker,<br/>inline editor"]
     E["GridEvent"]
 
@@ -47,8 +48,10 @@ Implement it on whatever the host already keeps the result in, so there is one c
 | `row_status(&self, row)` | no | `RowStatus` | Defaults to `Unchanged`. Asked once per *visible* row per frame — must be a lookup. |
 | `cell_dirty(&self, row, column)` | no | `bool` | Defaults to `false`. Asked once per visible cell per frame. |
 | `cell_editable(&self, row, column)` | no | `bool` | Defaults to `false`, so a source that has not thought about editing cannot be edited by accident. Asked per gesture, not per frame. |
+| `render_cell(&self, row, column, info, window, cx)` | no | `Option<AnyElement>` | Defaults to `None`, which is the grid drawing its own text. Asked once per visible cell per frame. See [drawing a cell yourself](#drawing-a-cell-yourself). |
+| `cell_editor(&self, row, column)` | no | `CellEditor` | Defaults to `CellEditor::Text`, the field the grid has always opened. Asked per gesture, right after `cell_editable`. See [choosing the editor](#choosing-the-editor). |
 
-The three defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
+The five defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
 
 Here is the gallery's source, trimmed. See [`rugpui-gallery/src/data.rs`](../crates/rugpui-gallery/src/data.rs) for the whole of it:
 
@@ -60,14 +63,15 @@ const COLUMNS: &[(&str, GridColumnKind)] = &[
     ("customer", GridColumnKind::Text),
     ("placed_at", GridColumnKind::Temporal),
     ("total", GridColumnKind::Number),
+    ("channel", GridColumnKind::Text),
     ("note", GridColumnKind::Text),
 ];
 
 // `None` is a null; `Some("")` is the empty string. They are not the same cell.
-const ROWS: &[[Option<&str>; 5]] = &[
-    [Some("10241"), Some("Northwind Traders"), Some("2026-02-03 09:14:22"), Some("1284.50"), Some("expedited")],
-    [Some("10242"), Some("Blue Ridge Supply"), Some("2026-02-03 11:02:07"), Some("312.00"), None],
-    [Some("10244"), Some("Meridian Foods"),    Some("2026-02-04 15:20:11"), Some("2940.00"), Some("")],
+const ROWS: &[[Option<&str>; 6]] = &[
+    [Some("10241"), Some("Northwind Traders"), Some("2026-02-03 09:14:22"), Some("1284.50"), Some("web"),   Some("expedited")],
+    [Some("10242"), Some("Blue Ridge Supply"), Some("2026-02-03 11:02:07"), Some("312.00"),  Some("store"), None],
+    [Some("10244"), Some("Meridian Foods"),    Some("2026-02-04 15:20:11"), Some("2940.00"), Some("web"),   Some("")],
 ];
 
 pub struct Orders;
@@ -134,6 +138,99 @@ While the source says `HasMore`, the grid raises `GridEvent::NearEnd` once the v
 `row_status(row)` says how a whole row is marked — `Unchanged`, `Modified`, `Inserted` or `Deleted`. The four do not overlap: a row that was inserted and then changed again is still `Inserted`, because that is the statement it will become. A `Deleted` row is still drawn, in its place, with its values struck through; making it vanish would renumber everything under it and leave the user nothing to change their mind about.
 
 `cell_dirty(row, column)` is the per-cell half of `Modified` — the row marker says the row was touched, this says where. A dirty cell is tinted with the accent colour behind its text. Note that `cell()` returns the *staged* value for a dirty cell: the grid draws what it is given and knows nothing of what was there before.
+
+
+### Drawing a cell yourself
+
+`render_cell` is offered every visible cell before the grid draws its text. Return `None` — the default — and the grid draws `cell_label(cell())` as it always has; return an element and that element goes into the cell's box instead.
+
+```rust
+fn render_cell(
+    &self,
+    row: usize,
+    column: usize,
+    info: &CellInfo<'_>,
+    _window: &mut Window,
+    _cx: &mut App,
+) -> Option<AnyElement> { … }
+```
+
+`CellInfo` is everything the grid had already worked out to draw the cell at all, handed over so the host does not keep a second copy of it:
+
+| field | is |
+| --- | --- |
+| `kind: GridColumnKind` | The column's kind — the whole of what the grid knows about its type. |
+| `selected: bool` | Whether the cell is inside the selection. The grid has already painted it. |
+| `dirty: bool` | What `cell_dirty` said. The grid has already painted the tint. |
+| `editing: bool` | Whether the inline editor is open over this very cell. |
+| `width: Pixels` | The column's current width, borders included — fitted, dragged or defaulted. |
+| `height: Pixels` | The row height, the same for every cell. |
+| `theme: &Theme` | The palette this frame is drawn with. Borrowed, because a screenful is several hundred cells. |
+
+The contract, which is short on purpose:
+
+* **The element is laid out in a box of `info.width` by `info.height`, and clipped to it.** Unlike the grid's own text that box carries **no padding and no alignment** — the whole cell is yours, which is what lets a bar reach the edges. An element that wants to look like the cells either side of it supplies both itself. The cell's box is `relative`, so an absolutely positioned child escapes any padding you added.
+* **The grid still paints everything around it.** Row stripe, selection background, dirty tint, cursor outline: all four are the wrapper's, drawn under and over your element, so a custom cell is picked and marked exactly as a plain one is. Do not paint them again.
+* **It is called once per visible cell per frame.** Several hundred calls between one frame and the next. Allocate little, compute nothing, and never scan the result — a bar that looked up the largest value in the column would be work proportional to the result, per cell, per frame.
+* **It must not re-enter the grid.** The widget is mid-render while this runs. Reading the palette out of `cx` is fine; updating the grid's entity is not.
+* **`cell()` still has to answer.** Copying, column fitting and the inline editor all read a cell's *text*, and none of them can read an element. A cell drawn as a swatch is still copied as `#3b82f6`.
+
+The gallery draws two of its six columns ([`data.rs`](../crates/rugpui-gallery/src/data.rs)). `channel` is one of three words, which reads better as a badge:
+
+```rust
+CHANNEL => Some(
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        // A custom cell is handed the bare box, so the padding that lines it
+        // up with the columns either side is its own.
+        .px(px(CELL_PADDING))
+        .child(
+            div()
+                .flex_none()
+                .px(px(6.))
+                .rounded_full()
+                .bg(info.theme.surface_active)
+                .text_color(info.theme.text)
+                .text_size(px(10.5))
+                .child(SharedString::from(text.to_owned())),
+        )
+        .into_any_element(),
+),
+```
+
+and `total` is a number whose size carries as much as its digits do, so it gets a thin bar along the bottom of the cell — absolutely positioned, and therefore outside the padding, because a measure of the whole cell reads as one only if it starts at the edge:
+
+```rust
+TOTAL => {
+    let share = (text.parse::<f32>().unwrap_or_default() / MAX_TOTAL).clamp(0., 1.);
+    Some(
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .items_center()
+            // Right-aligned by hand: the grid does not align a cell it did not draw.
+            .justify_end()
+            .px(px(CELL_PADDING))
+            .child(SharedString::from(text.to_owned()))
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .bottom_0()
+                    .h(px(3.))
+                    .w(info.width * share)
+                    .bg(info.theme.accent.opacity(0.35)),
+            )
+            .into_any_element(),
+    )
+}
+_ => None,
+```
+
+Note what the gallery does *not* do. There is no selection background, no dirty tint and no cursor outline in either arm. And the one row whose `channel` is null returns `None` too, so that cell falls back to the grid's own `NULL` marker rather than a badge reading "NULL".
 
 ## Building the view
 
@@ -226,13 +323,15 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
         grid.update(cx, |grid, cx| grid.begin_edit(*row, *column, window, cx));
     }
 
-    // The user finished typing and the value really changed. Nothing has been
-    // staged by the grid: the cell goes on drawing whatever `GridSource::cell`
-    // returns until your staging layer says otherwise.
-    GridEvent::EditCommitted { row, column, value } => {
-        let EditValue::Text(text) = value;
-        view.stage(*row, *column, text, cx)
-    }
+    // The user staged something and it really is different from what the cell
+    // held. Nothing has been staged by the grid: the cell goes on drawing
+    // whatever `GridSource::cell` returns until your staging layer says
+    // otherwise. `EditValue::Null` is the clearing gesture, not an empty
+    // string — see below.
+    GridEvent::EditCommitted { row, column, value } => match value {
+        EditValue::Text(text) => view.stage(*row, *column, text, cx),
+        EditValue::Null => view.stage_null(*row, *column, cx),
+    },
 
     // A right click. The grid has already taken the focus and moved the
     // selection if it had to; the items, their strings and what they do are
@@ -244,7 +343,7 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
 .detach();
 ```
 
-`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` carries the text; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
+`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` carries a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
 
 ## Selection
 
@@ -292,15 +391,77 @@ With nothing picked yet, the first keystroke lands on the first cell rather than
 
 ## Editing
 
-The grid draws edit state and hosts the field; it stages nothing and sends nothing. The field has to live here for one reason: it is placed over a cell, and nothing else knows where a cell is.
+The grid draws edit state and hosts the editor; it stages nothing and sends nothing. The editor has to live here for one reason: it is placed over a cell, and nothing else knows where a cell is.
 
-`begin_edit(row, column, window, cx) -> bool` refuses when the cell is not there, its column is hidden, `cell_editable` says no (the default), or the cell holds a `GridCell::Lob` whose body is not in the grid. The field is seeded with the cell's text; a `Null` or `Default` cell seeds an empty one, but the grid remembers that the cell held no value — so leaving that field empty commits nothing rather than quietly turning `NULL` into `''`.
+`begin_edit(row, column, window, cx) -> bool` refuses when the cell is not there, its column is hidden, `cell_editable` says no (the default), or the cell holds a `GridCell::Lob` whose body is not in the grid. Then it asks [`cell_editor`](#choosing-the-editor) which of the three to open. The field — the default, and what every source got before there was a choice — is seeded with the cell's text; a `Null` or `Default` cell seeds an empty one, but the grid remembers that the cell held no value, so leaving that field empty commits nothing rather than quietly turning `NULL` into `''`.
 
-**A close commits.** `Enter`, `Tab`, the focus going elsewhere, a sort, a refresh, a scroll that takes the row off screen, a column dragged — all of them raise `GridEvent::EditCommitted`. Only `Escape` throws the typing away. The asymmetry is deliberate: what is committed is *staged*, not sent, so the cost of committing something the user did not mean is one undo in the pending changes, while the cost of discarding is the typing. Committing an unchanged field raises nothing at all, so opening a cell, looking at it and moving on is silent either way.
+**A close commits.** `Enter`, `Tab`, the focus going elsewhere, a sort, a refresh, a scroll that takes the row off screen, a column dragged — all of them raise `GridEvent::EditCommitted`. Only `Escape` throws the typing away. This is about the *field*: a dropdown and a custom editor have nothing half-finished in them, because both stage the moment the user picks, so the same gestures simply take them down with nothing staged. The asymmetry is deliberate: what is committed is *staged*, not sent, so the cost of committing something the user did not mean is one undo in the pending changes, while the cost of discarding is the typing. Committing an unchanged field raises nothing at all, so opening a cell, looking at it and moving on is silent either way.
 
-While the editor is open a second key context, `GridCellEditor`, exists — `Escape` cancels, `Tab` and `Shift-Tab` commit and open the next or previous editable cell of the same row (stopping at the ends rather than wrapping onto another row). Those three keys mean nothing to a merely focused grid, and binding them on the grid's own context would take `Escape` away from the app for as long as a grid had the focus. The stack while typing reads `GridView > GridCellEditor > TextInput`, so the field's own bindings win: `Enter` is the field's `Submit`, and left and right walk the caret. Up and down are not the field's, so an arrow out of a field commits it and walks on, the way a spreadsheet does.
+While the editor is open a second key context, `GridCellEditor`, exists — `Escape` cancels, `Tab` and `Shift-Tab` commit and open the next or previous editable cell of the same row (stopping at the ends rather than wrapping onto another row). Those three keys mean nothing to a merely focused grid, and binding them on the grid's own context would take `Escape` away from the app for as long as a grid had the focus. The stack while typing reads `GridView > GridCellEditor > TextInput`, so the field's own bindings win: `Enter` is the field's `Submit`, and left and right walk the caret. Up and down are not the field's, so an arrow out of a field commits it and walks on, the way a spreadsheet does. The context is on the box the editor sits in whichever editor that is, which is what gives a dropdown and a host's own element the same `Escape`.
 
-`EditValue` has one variant today, `EditValue::Text(String)` — verbatim, neither parsed nor trimmed, because the grid has no idea what the column's type will make of it. It is an enum rather than a bare `String` because the next ones are visible already: a `Null` for the gesture that clears a cell rather than emptying it, and a `Lob` for a body that arrives from a file. Matching on it now costs a host nothing and saves it a signature change later.
+`EditValue` has two variants. `EditValue::Text(String)` is what was typed or picked — verbatim, neither parsed nor trimmed, because the grid has no idea what the column's type will make of it. `EditValue::Null` is the *clearing* gesture: `SET x = NULL`, not `SET x = ''`. Nothing about emptying a field raises it, because emptying a field is how the empty string is typed; it comes from the `NULL` row of a nullable dropdown, or from a custom editor that commits it. A cell that already held no value stages nothing when it arrives, exactly as an unchanged field does. A `Lob` for a body that arrives from a file is the one still to come.
+
+### Choosing the editor
+
+`cell_editor(row, column)` is asked once the cell has agreed to take an edit at all, so it runs per gesture and never per frame — a source may build its option list here rather than keeping one for every cell of the result.
+
+```rust
+pub enum CellEditor {
+    Text,
+    Choice { options: Vec<SharedString>, nullable: bool },
+    Custom(Rc<dyn Fn(&CellEditorContext, &mut Window, &mut App) -> AnyElement>),
+}
+```
+
+All three land in the same box over the cell, for the same reason: only the grid knows where a cell is. What differs is **when they stage**. A field stages on the close; a dropdown and a custom editor stage the moment the user picks, so everything that merely *closes* one of those — a scroll, a sort, a column dragged out from under it — takes it down with nothing staged.
+
+**`Text`** is the default and the field described above.
+
+**`Choice`** is a [`Select`](./widgets/select.md) opened over the cell, already open on the value the cell holds — a trigger the user had to click again would be one gesture too many. Clicking a row stages it there and then, with no `Enter` to press. With `nullable: true` the list gains a leading `NULL` row that stages `EditValue::Null`, which is how a user reaches the null a nullable column can hold; the row is told from a value row by *position*, so a column whose values include the string `NULL` does not clear itself when the user picks the value they meant. `Escape`, or a press anywhere outside the list, dismisses it with nothing staged.
+
+The arrows walk the list without picking as they go, and `Enter` stages where they stopped. That is the one place the grid does not simply hand the keys to the control: the focus is on the box the list hangs from rather than on the trigger inside it, so `Select`'s own arrow handling never sees the keystroke — and an arrow that staged every row it passed over would write three values on the way to the fourth.
+
+There is deliberately **no `Boolean` variant**. A truth column is
+
+```rust
+CellEditor::Choice {
+    options: vec!["true".into(), "false".into()],
+    nullable: true,
+}
+```
+
+which spells the two values the way the server will read them back, and lets a dialect that says `t`/`f` say so. A checkbox could not.
+
+The gallery's `channel` column is the worked example:
+
+```rust
+fn cell_editable(&self, _row: usize, column: usize) -> bool {
+    matches!(column, CHANNEL | NOTE)
+}
+
+fn cell_editor(&self, _row: usize, column: usize) -> CellEditor {
+    match column {
+        CHANNEL => CellEditor::Choice {
+            options: CHANNELS.iter().map(|value| (*value).into()).collect(),
+            nullable: true,
+        },
+        _ => CellEditor::Text,
+    }
+}
+```
+
+**`Custom`** hands the host a `CellEditorContext` and takes back an element — a date picker, a colour swatch, a lookup against another table.
+
+| field | is |
+| --- | --- |
+| `row`, `column` | Which cell, `column` being a source column as everywhere else. |
+| `seeded: String` | The cell's text, empty for a cell that holds no value. |
+| `was_null: bool` | Whether the cell held no value — which `seeded` being empty does not say, since a cell holding the empty string seeds the same empty editor. |
+| `width`, `height` | The box the editor is laid out in. |
+| `commit: Rc<dyn Fn(EditValue, &mut Window, &mut App)>` | Stages a value and closes. Raises `EditCommitted` unless the value is what the cell already held. |
+| `cancel: Rc<dyn Fn(&mut Window, &mut App)>` | Closes with nothing staged. |
+
+The element **should take the focus itself**: the grid's rules about closing are written in terms of the focus leaving, and an editor nobody can type into is a strange thing to open. It is put inside a box the grid focuses, so the focus staying inside that box keeps the editor open and `Escape` reaches the grid either way. An editor that never calls `commit` or `cancel` is not stuck — it is simply dismissed by `Escape` or by a click elsewhere, with nothing staged.
 
 ## Copying
 
@@ -422,7 +583,7 @@ From the [`grid.rs`](../crates/rugpui-grid/src/grid.rs) header. Nothing per fram
 * **The viewport is measured during prepaint** by a `canvas` in the body, which asks for a repaint when the width changed. A resize — and the very first frame — costs one extra frame and nothing after that.
 * **Fitting a column shapes a handful of strings, not five hundred.** One pass over the 500-row sample — no allocation, nothing shaped — keeps every value within three characters of the longest, capped at sixteen; only those and the heading go to the text system. The character count narrows the field and deliberately does not pick the winner, because on a proportional face two values of the same length are not the same width. That is what makes an *exact* fit affordable, and exactness is the point: a width guessed from character counts is short by however far the font disagrees with the guess, and short is an ellipsis. Capped at 480 px, so one `TEXT` column cannot push the rest off the screen. This is the one piece of work here that scales with the result rather than with the window, and it is the reason it is bounded at 500 rows and done once per batch rather than once per frame.
 
-The budget this buys is what `row_status` and `cell_dirty` must respect: a source that answered either by walking a million rows would undo the virtualisation on its own. Keep staged changes in a map keyed by row so the answer is a lookup.
+The budget this buys is what `row_status`, `cell_dirty` and `render_cell` must respect: a source that answered any of them by walking a million rows would undo the virtualisation on its own. Keep staged changes in a map keyed by row so the answer is a lookup, and keep whatever a custom cell needs — the largest value in the column, a lookup table — beside the result rather than recomputing it per cell.
 
 ## Testing without a window
 
