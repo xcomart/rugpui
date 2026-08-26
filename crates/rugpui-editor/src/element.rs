@@ -9,14 +9,24 @@
 //! underline is not a row, and every one of them has to be positioned against
 //! the *shaped* text — which means the code that shapes a line and the code
 //! that places a quad on it have to be the same code, holding the same
-//! [`ShapedLine`]. An element gets that; a list of independently rendered rows
+//! [`WrappedLine`]. An element gets that; a list of independently rendered rows
 //! does not.
 //!
 //! The virtualisation is the same trick nonetheless, and it is the load-bearing
-//! one: [`EditorElement::prepaint`] works out which lines the viewport covers
-//! from the scroll offset and the line height, and shapes **those lines and no
-//! others**. A hundred thousand lines cost what forty cost. `SyntaxCache`'s
+//! one: `prepaint` works out which rows the viewport covers from the scroll
+//! offset and the line height, and shapes **the lines those rows belong to and
+//! no others**. A hundred thousand lines cost what forty cost. `SyntaxCache`'s
 //! call counter is what the tests read to hold that down.
+//!
+//! # Lines and rows
+//!
+//! With word wrap off they are the same thing and everything below reads as it
+//! always did: one row per line, `wrap_width` of [`None`], an empty list of
+//! breaks. With it on a line is drawn as several rows — by one call, since a
+//! [`WrappedLine`] paints every row it holds — and every quad under it is cut
+//! on the row boundaries first. The one thing `prepaint` does that is *not*
+//! bounded by the viewport is measuring where the unseen lines break, which is
+//! what [`crate::wrap`] exists to do once per line rather than once per frame.
 //!
 //! # Painting order
 //!
@@ -40,13 +50,11 @@
 //! it is. Covering had to be right about both, and had to be redrawn whenever
 //! either changed.
 
-use std::ops::Range;
-
 use gpui::{
     App, Bounds, ContentMask, CursorStyle, Element, ElementId, ElementInputHandler, Entity, Font,
     GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, LayoutId, PaintQuad, Pixels,
-    Point, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window, fill,
-    point, prelude::*, px, relative, size,
+    Point, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window,
+    WindowTextSystem, WrappedLine, black, fill, point, prelude::*, px, relative, size,
 };
 use rugpui::EditorTheme;
 
@@ -75,6 +83,20 @@ const MARK_WASH: f32 = 0.12;
 /// at either edge is drawn rather than clipped away.
 const OVERSCAN: usize = 1;
 
+/// How much of the text area a wrapped row leaves clear on the right.
+///
+/// A caret at the end of a full row is drawn *past* the last glyph, and the
+/// vertical scrollbar rides that edge; without the margin both would sit on top
+/// of the text.
+const WRAP_MARGIN: f32 = 10.;
+
+/// The narrowest a wrapped row is ever broken at.
+///
+/// A pane dragged shut, or a frame taken before anything has been laid out, has
+/// no width to speak of, and breaking a line every other character there is a
+/// great deal of work to draw nothing.
+const MIN_WRAP_WIDTH: f32 = 48.;
+
 /// The element that draws one [`EditorView`].
 pub struct EditorElement {
     /// The view it draws.
@@ -90,25 +112,30 @@ impl EditorElement {
 
 /// Everything [`EditorElement::prepaint`] hands over to `paint`.
 pub struct PrepaintState {
-    /// The shaped visible lines, as `(line index, shaped line)`.
-    lines: Vec<(usize, ShapedLine)>,
-    /// The line numbers, shaped, in the same order.
-    numbers: Vec<ShapedLine>,
+    /// The shaped visible lines, as `(line index, top of its first row, shaped
+    /// line)`. A line holds every row it was broken into and paints all of them
+    /// itself, a row apart.
+    lines: Vec<(usize, Pixels, WrappedLine)>,
+    /// The line numbers, shaped, as `(top of the line's first row, number)`.
+    numbers: Vec<(Pixels, ShapedLine)>,
     /// Quads painted under the text.
     below: Vec<PaintQuad>,
     /// The caret, when it is visible.
     caret: Option<PaintQuad>,
     /// The bars of the gutter marks, which are painted outside the text mask.
     marks: Vec<PaintQuad>,
+    /// Lines whose breaks came out of the shaper differently from what the wrap
+    /// map holds, so that the map can be put right in `paint`. Empty in every
+    /// ordinary frame; see [`EditorElement::prepaint`].
+    corrections: Vec<(usize, Vec<u32>)>,
     /// Width of the gutter.
     gutter: Pixels,
-    /// Height of one line.
+    /// Height of one row.
     line_height: Pixels,
     /// The scroll offset the frame was built at.
     scroll: Point<Pixels>,
-    /// The first line drawn.
-    first_line: usize,
-    /// The widest shaped line, for the horizontal scroll extent.
+    /// The widest shaped line, for the horizontal scroll extent. Zero while
+    /// lines are wrapped, since then nothing is off to the right.
     content_width: Pixels,
     /// The text area — the body minus the gutter — registered so that the
     /// pointer over it is an I-beam. The gutter is left out: nothing there is
@@ -158,29 +185,41 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let editor = self.editor.read(cx);
-        let buffer = editor.buffer();
-        let palette = editor.palette(cx);
         // The font is the window's text style unless the host has pushed one
         // in. Both halves have to come from the same place: a caret placed
         // against text shaped in one font and drawn beside another is exactly
         // the bug an `EditorView::set_font` that reached only half of this
         // would produce.
-        let (font, font_size, line_height) = match editor.font_override() {
-            Some(pushed) => (pushed.font.clone(), pushed.size, pushed.line_height),
-            None => {
-                let style = window.text_style();
-                (
-                    style.font(),
-                    style.font_size.to_pixels(window.rem_size()),
-                    window.line_height(),
-                )
-            }
+        //
+        // Read first and on its own, because the wrap width is measured in this
+        // font and the measuring has to happen before anything asks which row a
+        // line begins on.
+        let (font, font_size, line_height, palette, digits, wrapping) = {
+            let editor = self.editor.read(cx);
+            let palette = editor.palette(cx);
+            let (font, font_size, line_height) = match editor.font_override() {
+                Some(pushed) => (pushed.font.clone(), pushed.size, pushed.line_height),
+                None => {
+                    let style = window.text_style();
+                    (
+                        style.font(),
+                        style.font_size.to_pixels(window.rem_size()),
+                        window.line_height(),
+                    )
+                }
+            };
+            (
+                font,
+                font_size,
+                line_height,
+                palette,
+                digit_count(editor.buffer().line_count()),
+                editor.is_word_wrap(),
+            )
         };
 
         // The gutter is as wide as the largest line number, so it does not
         // twitch as the view scrolls past a power of ten.
-        let digits = digit_count(buffer.line_count());
         let digit_width = window
             .text_system()
             .shape_line(
@@ -192,18 +231,43 @@ impl Element for EditorElement {
             .width;
         let gutter = digit_width + px(GUTTER_PADDING + GUTTER_LEAD);
 
+        // The width a row is broken at, and the one thing that says whether a
+        // line is one row or five. `None` is the unwrapped shape: one row per
+        // line, however far it runs off to the right.
+        let wrap_width = wrapping
+            .then(|| (bounds.size.width - gutter - px(WRAP_MARGIN)).max(px(MIN_WRAP_WIDTH)));
+
+        // Every line that has changed since it was last measured, measured. The
+        // one pass over the whole buffer in this file, and it happens when word
+        // wrap is switched on, when the width or the font changes, and for the
+        // handful of lines an edit touched. See `crate::wrap`.
+        if let Some(width) = wrap_width {
+            let text_system = window.text_system().clone();
+            self.editor.update(cx, |editor, _cx| {
+                measure_wrap(editor, &text_system, width, &font, font_size);
+            });
+        }
+
+        let editor = self.editor.read(cx);
+        let buffer = editor.buffer();
+
         let scroll = editor.scroll_offset();
         // *The* virtualisation. Everything below shapes exactly these lines.
-        let first_line = ((f32::from(scroll.y) / f32::from(line_height)) as usize)
+        // Counted in rows, because that is what the viewport is divided into;
+        // the lines they belong to are what gets shaped.
+        let total_rows = editor.wrap.total_rows(buffer.line_count());
+        let first_row = ((f32::from(scroll.y) / f32::from(line_height)) as usize)
             .saturating_sub(OVERSCAN)
-            .min(buffer.line_count().saturating_sub(1));
+            .min(total_rows.saturating_sub(1));
         let rows = (f32::from(bounds.size.height) / f32::from(line_height)).ceil() as usize;
-        let last_line = (first_line + rows + 2 * OVERSCAN).min(buffer.line_count() - 1);
+        let last_row = (first_row + rows + 2 * OVERSCAN).min(total_rows - 1);
+        let last_of = |line: usize| line.min(buffer.line_count() - 1);
+        let first_line = last_of(editor.wrap.row_at(first_row).0);
+        let last_line = last_of(editor.wrap.row_at(last_row).0);
 
         let text_left = bounds.left() + gutter - scroll.x;
         let top_of = |line: usize| {
-            bounds.top()
-                + line_height * ((line as f32) - f32::from(scroll.y) / f32::from(line_height))
+            bounds.top() + line_height * (editor.wrap.first_row(line) as f32) - scroll.y
         };
 
         let selection = editor.selection();
@@ -220,6 +284,7 @@ impl Element for EditorElement {
         let mut numbers = Vec::with_capacity(last_line - first_line + 1);
         let mut below = Vec::new();
         let mut marks = Vec::new();
+        let mut corrections = Vec::new();
         let mut caret = None;
         let mut content_width = px(0.);
 
@@ -228,33 +293,60 @@ impl Element for EditorElement {
             let text = buffer.line_text(line).into_owned();
             let end = start + text.len();
             let top = top_of(line);
-            let row = Bounds::from_corners(
+
+            let runs = runs_for(editor, line, &text, &palette, &font);
+            let shaped = shape_wrapped(
+                window.text_system(),
+                SharedString::from(text.clone()),
+                font_size,
+                &runs,
+                wrap_width,
+            );
+            content_width = content_width.max(shaped.width());
+
+            // Where this line broke, according to the shaper that is about to
+            // draw it. It is what the wrap map was measured with and so what
+            // the map already holds; when the two disagree — a line edited and
+            // drawn inside the same frame, before a measuring pass reached it —
+            // what is drawn wins, and the map is put right in `paint`.
+            let breaks = breaks_of(&shaped);
+            if wrapping && editor.wrap.breaks(line) != breaks.as_slice() {
+                corrections.push((line, breaks.clone()));
+            }
+            let row_count = breaks.len() + 1;
+            let row_start = |row: usize| match row.checked_sub(1) {
+                None => 0,
+                Some(before) => breaks[before] as usize,
+            };
+            let row_end = |row: usize| breaks.get(row).map_or(text.len(), |at| *at as usize);
+            let row_of = |column: usize| breaks.partition_point(|at| (*at as usize) <= column);
+            // `column` is a byte offset into the line, `row` the row it is to
+            // be measured on: a line drawn in rows is drawn shifted left by
+            // where each row began.
+            let x_at = |column: usize, row: usize| {
+                text_left
+                    + shaped
+                        .unwrapped_layout
+                        .x_for_index(column.min(shaped.len()))
+                    - row_x_offset(&shaped, row_start(row))
+            };
+            // Every row the line takes, gutter to right edge, which is what a
+            // wash across a line covers.
+            let whole_line = Bounds::from_corners(
                 point(bounds.left() + gutter, top),
-                point(bounds.right(), top + line_height),
+                point(bounds.right(), top + line_height * (row_count as f32)),
             );
 
             // 1. the statement the caret is in, and 2. the caret's own line.
             if statement.start <= end && statement.end >= start && statement.end > statement.start {
-                below.push(fill(row, palette.line_highlight.opacity(0.5)));
+                below.push(fill(whole_line, palette.line_highlight.opacity(0.5)));
             }
             if line == caret_line && selection.is_empty() {
-                below.push(fill(row, palette.line_highlight));
+                below.push(fill(whole_line, palette.line_highlight));
             }
 
-            let runs = runs_for(editor, line, &text, &palette, &font);
-            let shaped = window.text_system().shape_line(
-                SharedString::from(text.clone()),
-                font_size,
-                &runs,
-                None,
-            );
-            content_width = content_width.max(shaped.width);
-
-            let x_at = |offset: usize| {
-                text_left + shaped.x_for_index(offset.saturating_sub(start).min(shaped.len()))
-            };
-
-            // 3. find matches.
+            // 3. find matches, 4. the selection: both are byte ranges cut on
+            // the row boundaries, one quad per row they touch.
             for found in editor.find_matches() {
                 if found.end < start || found.start > end {
                     continue;
@@ -264,21 +356,46 @@ impl Element for EditorElement {
                 } else {
                     palette.warning.opacity(0.2)
                 };
-                below.push(fill(
-                    span_bounds(&found.clone(), start, end, x_at, top, line_height),
-                    color,
-                ));
+                for row in 0..row_count {
+                    let from = found.start.saturating_sub(start).max(row_start(row));
+                    let to = (found.end - start).min(row_end(row));
+                    if to <= from {
+                        continue;
+                    }
+                    below.push(fill(
+                        Bounds::from_corners(
+                            point(x_at(from, row), top + line_height * (row as f32)),
+                            point(x_at(to, row), top + line_height * ((row + 1) as f32)),
+                        ),
+                        color,
+                    ));
+                }
             }
 
-            // 4. the selection.
             if !selection.is_empty() && selection.end >= start && selection.start <= end {
-                let mut quad = span_bounds(&selection, start, end, x_at, top, line_height);
-                // A selection that runs past the end of this line covers the
-                // line break too, so a multi-line selection reads as a block.
-                if selection.end > end {
-                    quad.size.width = bounds.right() - quad.origin.x;
+                for row in 0..row_count {
+                    let from = selection.start.saturating_sub(start).max(row_start(row));
+                    let to = (selection.end - start).min(row_end(row));
+                    if to < from || (to == from && selection.end <= start + row_end(row)) {
+                        continue;
+                    }
+                    let left = x_at(from, row);
+                    // A selection that runs past the end of this row covers the
+                    // break — or the line break — too, so a selection over more
+                    // than one row reads as a block.
+                    let right = if selection.end > start + row_end(row) {
+                        bounds.right()
+                    } else {
+                        x_at(to, row)
+                    };
+                    below.push(fill(
+                        Bounds::from_corners(
+                            point(left, top + line_height * (row as f32)),
+                            point(right, top + line_height * ((row + 1) as f32)),
+                        ),
+                        palette.selection,
+                    ));
                 }
-                below.push(fill(quad, palette.selection));
             }
 
             // 5. the bracket pair.
@@ -288,10 +405,14 @@ impl Element for EditorElement {
                         continue;
                     }
                     let to = buffer.next_grapheme(at);
+                    let row = row_of(at - start);
                     below.push(fill(
                         Bounds::from_corners(
-                            point(x_at(at), top),
-                            point(x_at(to), top + line_height),
+                            point(x_at(at - start, row), top + line_height * (row as f32)),
+                            point(
+                                x_at(to - start, row),
+                                top + line_height * ((row + 1) as f32),
+                            ),
                         ),
                         palette.bracket_match.opacity(0.35),
                     ));
@@ -300,9 +421,11 @@ impl Element for EditorElement {
 
             // 7. the caret, once the line it is on has been shaped.
             if line == caret_line && selection.is_empty() {
+                let column = caret_offset - start;
+                let row = row_of(column);
                 caret = Some(fill(
                     Bounds::new(
-                        point(x_at(caret_offset), top),
+                        point(x_at(column, row), top + line_height * (row as f32)),
                         size(px(CARET_WIDTH), line_height),
                     ),
                     palette.cursor,
@@ -318,7 +441,7 @@ impl Element for EditorElement {
                     crate::editor::MarkKind::Error => palette.error,
                     crate::editor::MarkKind::Warning => palette.warning,
                 };
-                below.push(fill(row, color.opacity(MARK_WASH)));
+                below.push(fill(whole_line, color.opacity(MARK_WASH)));
                 let inset = line_height * ((1. - MARK_HEIGHT) / 2.);
                 marks.push(fill(
                     Bounds::from_corners(
@@ -329,21 +452,25 @@ impl Element for EditorElement {
                 ));
             }
 
-            // 8. the line number.
+            // 8. the line number, against the first row of the line: the rows
+            // under it are the same line and are not numbered again.
             let number = format!("{}", line + 1);
             let color = if line == caret_line {
                 palette.gutter_active
             } else {
                 palette.gutter
             };
-            numbers.push(window.text_system().shape_line(
-                SharedString::from(number.clone()),
-                font_size,
-                &[plain_run(number.len(), color, &font)],
-                None,
+            numbers.push((
+                top,
+                window.text_system().shape_line(
+                    SharedString::from(number.clone()),
+                    font_size,
+                    &[plain_run(number.len(), color, &font)],
+                    None,
+                ),
             ));
 
-            lines.push((line, shaped));
+            lines.push((line, top, shaped));
         }
 
         let text_hitbox = window.insert_hitbox(
@@ -359,12 +486,12 @@ impl Element for EditorElement {
             numbers,
             below,
             marks,
+            corrections,
             caret,
             gutter,
             line_height,
             scroll,
-            first_line,
-            content_width,
+            content_width: if wrapping { px(0.) } else { content_width },
             text_hitbox,
         }
     }
@@ -417,13 +544,13 @@ impl Element for EditorElement {
                 }
 
                 let text_left = bounds.left() + gutter - scroll.x;
-                for (line, shaped) in &prepaint.lines {
-                    let top = bounds.top()
-                        + line_height
-                            * ((*line as f32) - f32::from(scroll.y) / f32::from(line_height));
+                for (_, top, shaped) in &prepaint.lines {
+                    // One call draws every row the line was broken into, a row
+                    // apart, which is the whole reason the shaped line rather
+                    // than the row is what this element holds.
                     shaped
                         .paint(
-                            point(text_left, top),
+                            point(text_left, *top),
                             line_height,
                             TextAlign::Left,
                             None,
@@ -451,14 +578,11 @@ impl Element for EditorElement {
             // only thing outside the mask above. Nothing here fills the gutter
             // behind them — the editor's own surface has already done that — which
             // is the whole economy of clipping instead of covering.
-            for (index, number) in prepaint.numbers.iter().enumerate() {
-                let line = prepaint.first_line + index;
-                let top = bounds.top()
-                    + line_height * ((line as f32) - f32::from(scroll.y) / f32::from(line_height));
+            for (top, number) in &prepaint.numbers {
                 let left = bounds.left() + gutter - px(GUTTER_PADDING) - number.width;
                 number
                     .paint(
-                        point(left, top),
+                        point(left, *top),
                         line_height,
                         TextAlign::Left,
                         None,
@@ -470,32 +594,105 @@ impl Element for EditorElement {
         });
 
         let lines = std::mem::take(&mut prepaint.lines);
+        let corrections = std::mem::take(&mut prepaint.corrections);
         let content_width = prepaint.content_width;
         self.editor.update(cx, |editor, _cx| {
             editor.layout.bounds = Some(bounds);
             editor.layout.gutter = gutter;
             editor.layout.line_height = line_height;
             editor.layout.content_width = editor.layout.content_width.max(content_width);
-            editor.layout.lines = lines;
+            editor.layout.lines = lines
+                .into_iter()
+                .map(|(line, _, shaped)| (line, shaped))
+                .collect();
+            for (line, breaks) in corrections {
+                editor.wrap.measured(line, breaks);
+            }
         });
     }
 }
 
-/// The quad covering the part of `span` that falls on one line.
-fn span_bounds(
-    span: &Range<usize>,
-    line_start: usize,
-    line_end: usize,
-    x_at: impl Fn(usize) -> Pixels,
-    top: Pixels,
-    line_height: Pixels,
-) -> Bounds<Pixels> {
-    let from = span.start.max(line_start);
-    let to = span.end.min(line_end);
-    Bounds::from_corners(
-        point(x_at(from), top),
-        point(x_at(to.max(from)), top + line_height),
-    )
+/// Measures every line whose breaks are not known, and no others.
+///
+/// Called from `prepaint` before anything reads a row, and the only writer of
+/// [`crate::wrap::WrapMap`]'s measurements apart from the corrections `paint`
+/// applies. The runs are plain rather than the highlighter's: a colour moves no
+/// glyph, so the breaks are the same either way, and lexing a whole buffer to
+/// find out where it wraps would be work for nothing.
+fn measure_wrap(
+    editor: &mut EditorView,
+    text_system: &WindowTextSystem,
+    width: Pixels,
+    font: &Font,
+    font_size: Pixels,
+) {
+    let line_count = editor.buffer().line_count();
+    if !editor.wrap.begin(width, font_size, font, line_count) {
+        return;
+    }
+    for line in 0..line_count {
+        if !editor.wrap.unmeasured(line) {
+            continue;
+        }
+        let text = editor.buffer().line_text(line).into_owned();
+        let breaks = if text.is_empty() {
+            Vec::new()
+        } else {
+            let runs = [plain_run(text.len(), black(), font)];
+            let shaped = shape_wrapped(
+                text_system,
+                SharedString::from(text),
+                font_size,
+                &runs,
+                Some(width),
+            );
+            breaks_of(&shaped)
+        };
+        editor.wrap.measured(line, breaks);
+    }
+    editor.wrap.finish();
+}
+
+/// One line, shaped, broken at `wrap_width` when there is one.
+///
+/// `shape_text` splits on newlines and answers with a line per piece; the text
+/// handed to it here never has one, so the answer is always the single line
+/// asked for.
+fn shape_wrapped(
+    text_system: &WindowTextSystem,
+    text: SharedString,
+    font_size: Pixels,
+    runs: &[TextRun],
+    wrap_width: Option<Pixels>,
+) -> WrappedLine {
+    text_system
+        .shape_text(text, font_size, runs, wrap_width, None)
+        .ok()
+        .and_then(|lines| lines.into_iter().next())
+        .unwrap_or_default()
+}
+
+/// The byte offsets, relative to the start of the line, at which each row after
+/// the first begins.
+pub(crate) fn breaks_of(shaped: &WrappedLine) -> Vec<u32> {
+    shaped
+        .wrap_boundaries()
+        .iter()
+        .filter_map(|boundary| {
+            let run = shaped.unwrapped_layout.runs.get(boundary.run_ix)?;
+            Some(run.glyphs.get(boundary.glyph_ix)?.index as u32)
+        })
+        .collect()
+}
+
+/// How far left a row is drawn from where its glyphs sit in the unwrapped
+/// layout, given the byte offset the row begins at.
+///
+/// Every x inside a wrapped row is an x in the one long shaped line minus this.
+pub(crate) fn row_x_offset(shaped: &WrappedLine, row_start: usize) -> Pixels {
+    shaped
+        .unwrapped_layout
+        .x_for_index(row_start.min(shaped.len()))
 }
 
 /// The colored runs of one line: the highlighter's spans, plus the composing

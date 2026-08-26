@@ -27,6 +27,13 @@
 //!   from the scroll offset and the line height, and shapes those and no
 //!   others. [`mod@element`].
 //!
+//! Word wrap adds a fourth: **where each line breaks is measured once per
+//! line**, not once per frame, so a line the viewport has never reached costs a
+//! shaping pass when wrapping is switched on and nothing afterwards until it is
+//! edited. [`mod@wrap`] holds the breaks and the row arithmetic built on them;
+//! with wrapping off — the default — every function in it is the identity and a
+//! row is a line.
+//!
 //! The things a whole-buffer `&str` would be needed for — "which statement is
 //! the caret in", "which bracket matches this one" — are answered over a window
 //! of the rope cut at statement boundaries, so they cost the length of a
@@ -69,9 +76,10 @@
 //!
 //! Multiple cursors would change the shape of every command in [`mod@editor`],
 //! so they go in as a list of selections in one piece or not at all. Code
-//! folding needs a row-to-line map between the buffer and the renderer, which
-//! nothing else wants yet. A minimap needs a second, coarser shaping pass, and
-//! is the least valuable of the three.
+//! folding wanted a row-to-line map between the buffer and the renderer, and
+//! word wrap has since built one ([`mod@wrap`]); what is still missing is the
+//! fold model itself, which nothing here wants yet. A minimap needs a second,
+//! coarser shaping pass, and is the least valuable of the three.
 //!
 //! The completion popup is the host's, not this crate's: what to offer comes
 //! from a model this crate has never heard of. What is here is what the popup
@@ -102,6 +110,7 @@ pub mod lang;
 pub mod snippet;
 pub mod sql_syntax;
 pub mod syntax;
+pub mod wrap;
 
 pub use buffer::Buffer;
 pub use composite::{CompositeHighlighter, Overlaid, Overlay};

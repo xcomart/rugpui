@@ -136,6 +136,7 @@ host's to choose.
 | `EditorView::new` | `&mut Context<Self>` | `Self` | An empty plain-text editor. |
 | `highlighter` | `Arc<dyn Highlighter>` | `Self` | Builder form; sets the lexer. |
 | `read_only` | `bool` | `Self` | Builder form; refuses every change. |
+| `word_wrap` | `bool` | `Self` | Builder form; breaks long lines at the width of the text area. Off by default. |
 | `text` | — | `String` | The whole buffer. O(n); for saving, not for drawing. |
 | `set_text` | `&str`, `cx` | | Replaces the buffer, clears the history and the dirty flag, scrolls home. "A file was opened", not "something was pasted". |
 | `text_in` | `Range<usize>` | `String` | The text of a byte range, clamped to the buffer. |
@@ -144,6 +145,7 @@ host's to choose.
 | `line_count` | — | `usize` | Lines, counting the empty one after a trailing newline. |
 | `is_dirty` / `mark_clean` | — / `cx` | `bool` / | Changed since it was set or last marked clean. |
 | `set_read_only` / `is_read_only` | `bool`, `cx` / — | / `bool` | Refuse changes, or stop refusing. |
+| `set_word_wrap` / `is_word_wrap` | `bool`, `cx` / — | / `bool` | Break long lines at the width of the text area, or stop breaking them. See [Word wrap](#word-wrap). |
 | **selection and caret** | | | |
 | `selection` | — | `Range<usize>` | The selected byte range; empty when there is only a caret. |
 | `has_selection` | — | `bool` | Whether anything is selected. Greys out "copy" in a host menu. |
@@ -792,6 +794,59 @@ rather than dropped — a diagnostic arrives from a background task, and the
 buffer it was computed against may already have been shortened — and simply
 never drawn. `marks()` hands the list back, sorted by line.
 
+## Word wrap
+
+Off by default, and off is what a SQL pane wants: a statement is read against
+its own indentation, and a line that moves every time the pane is resized is
+harder to follow, not easier. On is for a pane showing somebody else's log, or a
+document with no line structure to lose.
+
+```rust
+let editor = cx.new(|cx| EditorView::new(cx).word_wrap(true));
+// or, from a menu item or a switch:
+editor.update(cx, |editor, cx| editor.set_word_wrap(true, cx));
+```
+
+![A long SELECT list broken across two rows under one line number](./screenshots/editor/word-wrap.png)
+
+*One statement on one long line, broken at the width of the text area. The
+number in the gutter belongs to the line, so the second row does not get one;
+the current-line band covers both rows, because both rows are the line the caret
+is on.*
+
+A wrapped line is broken at word boundaries into as many **rows** as it needs,
+and rows are then what the editor counts in:
+
+* `Up` and `Down` step one row, so they walk *through* a long line rather than
+  over it, keeping their goal column from the head of the row.
+* `Home` and `End` go to the ends of the row the caret is on. `End` stops after
+  the last character *on* the row rather than on the space the break was taken
+  at, which would be drawn at the head of the row below.
+* `PageUp` and `PageDown` move a screenful of rows.
+* A click lands on the row it was aimed at, and past the right edge of a row it
+  lands at the end of that row.
+* The horizontal scrollbar goes away, and `scroll_offset().x` stays at zero:
+  with nothing off to the right there is nothing to scroll to.
+
+Everything else is unchanged. A wrapped line is still one line: `line_count()`,
+`caret_position()`, the gutter number, `set_marks` and every byte offset in the
+API mean lines, not rows. Nothing here has a public row API, deliberately —
+rows exist between an edit and the pixels, and a host that had to reason about
+them would be reasoning about a font metric.
+
+**What it costs.** Where a line breaks is a property of the shaped text, so it
+has to be measured, and the measuring happens in the element's prepaint —
+where there is a text system. Switching wrapping on measures every line once,
+as does a change of width, font or size; after that an edit re-measures the
+lines it touched and no others, on the same terms as
+[`SyntaxCache`](#what-the-cache-re-lexes). Typing a character into a ten
+thousand line buffer re-breaks one line.
+
+Unlike most things measured in pixels, this survives the headless platform:
+gpui's test text system gives every glyph a real advance and the wrapping itself
+is gpui's, so a headless test can turn wrapping on, draw a frame and assert on
+where the rows fell. The crate's own tests do exactly that.
+
 ## Find, history, statements
 
 **Find** is plain substring search, not a regular expression: what people look
@@ -864,9 +919,10 @@ The find bar is built out of `rugpui`'s own widgets and draws with the chrome
 
 Multiple cursors would change the shape of every command in the editor module,
 so they go in as a list of selections in one piece or not at all. Code folding
-needs a row-to-line map between the buffer and the renderer, which nothing else
-wants yet. A minimap needs a second, coarser shaping pass, and is the least
-valuable of the three. And the completion popup is the host's: what to offer
+wanted a row-to-line map between the buffer and the renderer, and [word
+wrap](#word-wrap) has since built one; what is still missing is the fold model
+itself, which nothing here wants yet. A minimap needs a second, coarser shaping
+pass, and is the least valuable of the three. And the completion popup is the host's: what to offer
 comes from a model this crate has never heard of.
 
 ## Testing on the headless platform
@@ -921,6 +977,7 @@ Source: [lib.rs](../crates/rugpui-editor/src/lib.rs), and beside it
 [editor.rs](../crates/rugpui-editor/src/editor.rs),
 [element.rs](../crates/rugpui-editor/src/element.rs),
 [buffer.rs](../crates/rugpui-editor/src/buffer.rs),
+[wrap.rs](../crates/rugpui-editor/src/wrap.rs),
 [highlight.rs](../crates/rugpui-editor/src/highlight.rs),
 [composite.rs](../crates/rugpui-editor/src/composite.rs),
 [syntax.rs](../crates/rugpui-editor/src/syntax.rs),

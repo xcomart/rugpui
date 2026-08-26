@@ -63,8 +63,8 @@ use std::rc::Rc;
 use gpui::{
     App, Bounds, ClipboardItem, Context, DragMoveEvent, Entity, EntityInputHandler, EventEmitter,
     FocusHandle, Focusable, Font, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, ScrollWheelEvent, ShapedLine, SharedString, UTF16Selection,
-    Window, actions, div, point, prelude::*, px,
+    MouseUpEvent, Pixels, Point, ScrollWheelEvent, SharedString, UTF16Selection, Window,
+    WrappedLine, actions, div, point, prelude::*, px,
 };
 use rugpui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now,
@@ -77,6 +77,7 @@ use crate::find::FindState;
 use crate::highlight::{Highlighter, SyntaxCache};
 use crate::history::{Edit, EditKind, History, SelectionState};
 use crate::syntax::{self, StatementSpan};
+use crate::wrap::WrapMap;
 
 actions!(
     rugpui_editor,
@@ -307,20 +308,25 @@ pub(crate) struct Layout {
     /// Height of one line.
     pub line_height: Pixels,
     /// The lines drawn last frame, as `(line index, shaped line)`.
-    pub lines: Vec<(usize, ShapedLine)>,
+    ///
+    /// A [`WrappedLine`] whether or not anything is wrapped: with word wrap off
+    /// the element shapes with no wrap width and every line comes back as one
+    /// row, which is the same object with an empty list of breaks in it. Two
+    /// types here would be two code paths everywhere a caret is placed.
+    pub lines: Vec<(usize, WrappedLine)>,
     /// The widest line seen so far, for the horizontal scroll extent.
     pub content_width: Pixels,
 }
 
 impl Layout {
     /// The shaped line for `line`, if it was on screen last frame.
-    fn shaped(&self, line: usize) -> Option<&ShapedLine> {
+    pub(crate) fn shaped(&self, line: usize) -> Option<&WrappedLine> {
         self.lines
             .iter()
             .find_map(|(at, shaped)| (*at == line).then_some(shaped))
     }
 
-    /// How many whole lines fit in the text area.
+    /// How many whole rows fit in the text area.
     fn visible_lines(&self) -> usize {
         let Some(bounds) = self.bounds else {
             return 1;
@@ -369,6 +375,10 @@ pub struct EditorView {
     /// Scroll offset in pixels: `x` right, `y` down, both non-negative.
     scroll: Point<Pixels>,
     pub(crate) layout: Layout,
+    /// Where each line breaks, when word wrap is on. Written by the element,
+    /// which is the only thing here that can shape a line, and read by
+    /// everything that counts in rows.
+    pub(crate) wrap: WrapMap,
     find: FindState,
     find_query: Entity<TextInput>,
     find_replacement: Entity<TextInput>,
@@ -519,6 +529,7 @@ impl EditorView {
             drag_anchor: 0..0,
             scroll: point(px(0.), px(0.)),
             layout: Layout::default(),
+            wrap: WrapMap::new(),
             find: FindState::default(),
             find_query: cx.new(TextInput::new),
             find_replacement: cx.new(TextInput::new),
@@ -540,6 +551,19 @@ impl EditorView {
     /// Makes the editor refuse every change.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
+        self
+    }
+
+    /// Breaks long lines at the width of the text area.
+    ///
+    /// Off by default, which is what a SQL pane wants: a statement is read
+    /// against its own indentation and a line that moves as the pane is resized
+    /// is harder to read, not easier. On, nothing scrolls sideways and no line
+    /// ever leaves the viewport to the right — which is what a pane showing
+    /// somebody else's log, or a document with no line structure to lose, wants
+    /// instead. See [`EditorView::set_word_wrap`].
+    pub fn word_wrap(mut self, wrap: bool) -> Self {
+        self.wrap.set_on(wrap);
         self
     }
 
@@ -704,6 +728,40 @@ impl EditorView {
         self.read_only
     }
 
+    /// Breaks long lines at the width of the text area, or stops breaking them.
+    ///
+    /// A wrapped line takes as many *rows* as it needs, and rows are what the
+    /// editor then counts in: `Up` and `Down` step one row rather than one
+    /// line, `Home` and `End` go to the ends of the row the caret is on, a page
+    /// is a screenful of rows, and the horizontal scrollbar goes away because
+    /// there is nothing left to scroll to.
+    ///
+    /// Turning it on measures every line once, at the next frame; after that an
+    /// edit re-measures the lines it touched and no others.
+    pub fn set_word_wrap(&mut self, wrap: bool, cx: &mut Context<Self>) {
+        if self.wrap.is_on() == wrap {
+            return;
+        }
+        self.wrap.set_on(wrap);
+        // Nothing is off to the right any more, and the widest line seen so far
+        // is no longer what the horizontal extent is made of.
+        self.scroll.x = px(0.);
+        self.layout.content_width = px(0.);
+        // The buffer is a different number of rows tall than it was a moment
+        // ago, and a scroll offset from the old one can be past the end of the
+        // new one.
+        self.scroll.y = self.scroll.y.clamp(px(0.), self.scrollable().y);
+        cx.notify();
+    }
+
+    /// Whether long lines are broken at the width of the text area.
+    ///
+    /// Named for the `is_` convention the other flags here follow, because the
+    /// builder form above already has the plain name.
+    pub const fn is_word_wrap(&self) -> bool {
+        self.wrap.is_on()
+    }
+
     /// The whole buffer, as a `String`.
     pub fn text(&self) -> String {
         self.buffer.text()
@@ -716,6 +774,7 @@ impl EditorView {
     pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
         self.buffer = Buffer::new(text);
         self.syntax.reset(&self.buffer);
+        self.wrap.invalidate();
         self.history.clear();
         self.selected_range = 0..0;
         self.selection_reversed = false;
@@ -937,6 +996,7 @@ impl EditorView {
         let added = text.bytes().filter(|byte| *byte == b'\n').count();
         self.buffer.replace(range, text);
         self.syntax.edited(&self.buffer, first, removed, added);
+        self.wrap.edited(first, removed, added);
         self.dirty = true;
     }
 
@@ -1023,12 +1083,17 @@ impl EditorView {
         let Some(bounds) = self.layout.bounds else {
             return point(px(0.), px(0.));
         };
-        let height = self.layout.line_height * (self.buffer.line_count() as f32);
-        let width = self.layout.content_width + self.layout.gutter + px(32.);
-        point(
-            (width - bounds.size.width).max(px(0.)),
-            (height - bounds.size.height).max(px(0.)),
-        )
+        let height = self.layout.line_height * (self.total_rows() as f32);
+        // Nothing is off to the right of a wrapped buffer, by construction, so
+        // there is no horizontal range at all — which is also what takes the
+        // horizontal scrollbar down, since it renders only when there is one.
+        let horizontal = if self.wrap.is_on() {
+            px(0.)
+        } else {
+            (self.layout.content_width + self.layout.gutter + px(32.) - bounds.size.width)
+                .max(px(0.))
+        };
+        point(horizontal, (height - bounds.size.height).max(px(0.)))
     }
 
     /// Sets the scroll offset, clamped to the content.
@@ -1049,8 +1114,7 @@ impl EditorView {
         if line_height <= px(0.) {
             return;
         }
-        let line = self.buffer.line_of(self.caret()) as f32;
-        let top = line_height * line;
+        let top = line_height * (self.row_of(self.caret()) as f32);
         let bottom = top + line_height;
         if top < self.scroll.y {
             self.scroll.y = top;
@@ -1059,11 +1123,16 @@ impl EditorView {
         }
         self.scroll.y = self.scroll.y.clamp(px(0.), self.scrollable().y);
 
+        if self.wrap.is_on() {
+            return;
+        }
         // Horizontally, only when the caret's column is already shaped: at
         // startup nothing is, and guessing would jump the view.
         if let Some(shaped) = self.layout.shaped(self.buffer.line_of(self.caret())) {
             let (_, column) = self.buffer.point_of(self.caret());
-            let x = shaped.x_for_index(column.min(shaped.len()));
+            let x = shaped
+                .unwrapped_layout
+                .x_for_index(column.min(shaped.len()));
             let width = bounds.size.width - self.layout.gutter;
             if x < self.scroll.x {
                 self.scroll.x = x;
@@ -1072,6 +1141,80 @@ impl EditorView {
             }
             self.scroll.x = self.scroll.x.clamp(px(0.), self.scrollable().x);
         }
+    }
+
+    // --- rows ----------------------------------------------------------------
+
+    /// How many rows the whole buffer takes.
+    ///
+    /// The same as the line count with word wrap off, and the scroll extent
+    /// either way.
+    fn total_rows(&self) -> usize {
+        self.wrap.total_rows(self.buffer.line_count())
+    }
+
+    /// The line `offset` is on, and which of that line's rows it is on.
+    fn line_row_of(&self, offset: usize) -> (usize, usize) {
+        let (line, column) = self.buffer.point_of(offset);
+        (line, self.wrap.row_of_column(line, column))
+    }
+
+    /// The row `offset` is on, counting from the top of the buffer.
+    pub(crate) fn row_of(&self, offset: usize) -> usize {
+        let (line, sub) = self.line_row_of(offset);
+        self.wrap.first_row(line) + sub
+    }
+
+    /// The byte range row `sub` of `line` covers.
+    pub(crate) fn row_span(&self, line: usize, sub: usize) -> Range<usize> {
+        let start = self.buffer.line_start(line);
+        let range = self
+            .wrap
+            .row_range(line, sub, self.buffer.line_end(line) - start);
+        start + range.start..start + range.end
+    }
+
+    /// Where a caret goes when it is sent to the end of row `sub` of `line`.
+    ///
+    /// The end of the line for the last row of it. For a row that was broken,
+    /// the last character *on* the row — the space the break was taken at
+    /// belongs to the row above it, and a caret parked past it would be drawn
+    /// at the head of the row below, which is not where `End` was asked to put
+    /// it.
+    fn row_end(&self, line: usize, sub: usize) -> usize {
+        let span = self.row_span(line, sub);
+        if span.end >= self.buffer.line_end(line) {
+            return span.end;
+        }
+        let text = self.buffer.slice(span.clone());
+        span.start + text.trim_end_matches([' ', '\t']).len()
+    }
+
+    /// The number of graphemes between the start of `offset`'s row and
+    /// `offset` — the column a vertical move aims for.
+    fn row_column(&self, offset: usize) -> usize {
+        let (line, sub) = self.line_row_of(offset);
+        let mut at = self.row_span(line, sub).start;
+        let mut column = 0;
+        while at < offset {
+            at = self.buffer.next_grapheme(at);
+            column += 1;
+        }
+        column
+    }
+
+    /// The offset `column` graphemes into row `sub` of `line`, clamped to the
+    /// end of it.
+    fn row_offset_at(&self, line: usize, sub: usize, column: usize) -> usize {
+        let span = self.row_span(line, sub);
+        let mut at = span.start;
+        for _ in 0..column {
+            if at >= span.end {
+                return span.end;
+            }
+            at = self.buffer.next_grapheme(at);
+        }
+        at.min(span.end)
     }
 
     // --- hit testing ---------------------------------------------------------
@@ -1086,18 +1229,28 @@ impl EditorView {
             return 0;
         }
         let relative_y = position.y - bounds.top() + self.scroll.y;
-        let line = if relative_y < px(0.) {
+        let row = if relative_y < px(0.) {
             0
         } else {
-            ((relative_y / line_height) as usize).min(self.buffer.line_count() - 1)
+            ((relative_y / line_height) as usize).min(self.total_rows() - 1)
         };
+        let (line, sub) = self.wrap.row_at(row);
+        let line = line.min(self.buffer.line_count() - 1);
+        let sub = sub.min(self.wrap.rows_in(line) - 1);
+        let span = self.row_span(line, sub);
         let x = position.x - bounds.left() - self.layout.gutter + self.scroll.x;
-        let start = self.buffer.line_start(line);
         match self.layout.shaped(line) {
-            // Off the left edge is the head of the line, never a negative
-            // index into it.
-            Some(shaped) if x > px(0.) => start + shaped.closest_index_for_x(x),
-            Some(_) | None => start,
+            // Off the left edge is the head of the row, never a negative index
+            // into it.
+            Some(shaped) if x > px(0.) => {
+                let start = self.buffer.line_start(line);
+                let index = start
+                    + shaped.unwrapped_layout.closest_index_for_x(
+                        x + crate::element::row_x_offset(shaped, span.start - start),
+                    );
+                index.clamp(span.start, self.row_end(line, sub))
+            }
+            Some(_) | None => span.start,
         }
     }
 
@@ -1193,20 +1346,28 @@ impl EditorView {
         self.move_vertically(page, true, cx);
     }
 
-    /// Moves the caret `lines` rows, keeping the goal column.
+    /// Moves the caret `rows` rows, keeping the goal column.
     ///
-    /// The column is counted in graphemes rather than pixels. In a proportional
-    /// font that is not where the caret looked to be; in the monospaced font a
-    /// code editor is read in, it is exactly where it looked to be, and it is
-    /// the only definition that survives being asked in a headless test.
-    fn move_vertically(&mut self, lines: isize, extend: bool, cx: &mut Context<Self>) {
+    /// A row is a line while nothing is wrapped, and one of the rows a wrapped
+    /// line was broken into once something is: `Down` inside a long line walks
+    /// through it rather than over it.
+    ///
+    /// The column is counted in graphemes from the head of the row rather than
+    /// in pixels. In a proportional font that is not where the caret looked to
+    /// be; in the monospaced font a code editor is read in, it is exactly where
+    /// it looked to be, and it is the only definition that survives being asked
+    /// in a headless test.
+    fn move_vertically(&mut self, rows: isize, extend: bool, cx: &mut Context<Self>) {
         let caret = self.caret();
-        let column = self
-            .goal_column
-            .unwrap_or_else(|| self.buffer.grapheme_column(caret));
-        let line = self.buffer.line_of(caret) as isize;
-        let target = (line + lines).clamp(0, self.buffer.line_count() as isize - 1) as usize;
-        let offset = self.buffer.offset_at_column(target, column);
+        let column = self.goal_column.unwrap_or_else(|| self.row_column(caret));
+        let row = self.row_of(caret) as isize;
+        let target = (row + rows).clamp(0, self.total_rows() as isize - 1) as usize;
+        let (line, sub) = self.wrap.row_at(target);
+        // Clamped, because the map can be a frame behind the buffer: a line
+        // past the end of it, or a row past the end of that line, is the row
+        // nearest to what was asked for.
+        let line = line.min(self.buffer.line_count() - 1);
+        let offset = self.row_offset_at(line, sub.min(self.wrap.rows_in(line) - 1), column);
 
         if extend {
             self.select_to(offset, cx);
@@ -1229,8 +1390,8 @@ impl EditorView {
     }
 
     fn line_end(&mut self, _: &LineEnd, _: &mut Window, cx: &mut Context<Self>) {
-        let line = self.buffer.line_of(self.caret());
-        let to = self.buffer.line_end(line);
+        let (line, sub) = self.line_row_of(self.caret());
+        let to = self.row_end(line, sub);
         self.move_to(to, cx);
     }
 
@@ -1240,15 +1401,21 @@ impl EditorView {
     }
 
     fn select_line_end(&mut self, _: &SelectLineEnd, _: &mut Window, cx: &mut Context<Self>) {
-        let line = self.buffer.line_of(self.caret());
-        let to = self.buffer.line_end(line);
+        let (line, sub) = self.line_row_of(self.caret());
+        let to = self.row_end(line, sub);
         self.select_to(to, cx);
     }
 
     /// The first non-blank of the caret's line, or its head when the caret is
     /// already there.
+    ///
+    /// On a row a wrap put there, the head of that row instead: there is no
+    /// indentation partway down a broken line to be clever about.
     fn smart_line_start(&self) -> usize {
-        let line = self.buffer.line_of(self.caret());
+        let (line, sub) = self.line_row_of(self.caret());
+        if sub > 0 {
+            return self.row_span(line, sub).start;
+        }
         let start = self.buffer.line_start(line);
         let text = self.buffer.line_text(line);
         let indent = text.len() - text.trim_start_matches([' ', '\t']).len();
@@ -1676,11 +1843,18 @@ impl EditorView {
     /// screen — a popup has nothing to point at in either case.
     pub fn caret_bounds(&self) -> Option<Bounds<Pixels>> {
         let bounds = self.layout.bounds?;
-        let (line, column) = self.buffer.point_of(self.caret());
+        let caret = self.caret();
+        let (line, column) = self.buffer.point_of(caret);
         let shaped = self.layout.shaped(line)?;
+        let sub = self.wrap.row_of_column(line, column);
+        let row_start = self.row_span(line, sub).start - self.buffer.line_start(line);
         let x = bounds.left() + self.layout.gutter - self.scroll.x
-            + shaped.x_for_index(column.min(shaped.len()));
-        let top = bounds.top() + self.layout.line_height * (line as f32) - self.scroll.y;
+            + shaped
+                .unwrapped_layout
+                .x_for_index(column.min(shaped.len()))
+            - crate::element::row_x_offset(shaped, row_start);
+        let top =
+            bounds.top() + self.layout.line_height * (self.row_of(caret) as f32) - self.scroll.y;
         Some(Bounds::from_corners(
             point(x, top),
             point(x, top + self.layout.line_height),
@@ -2294,16 +2468,28 @@ impl EntityInputHandler for EditorView {
         let (line, column) = self.buffer.point_of(range.start);
         let shaped = self.layout.shaped(line)?;
         let (end_line, end_column) = self.buffer.point_of(range.end);
+        let row = self.row_of(range.start);
+        let sub = self.wrap.row_of_column(line, column);
+        let row_start = self.row_span(line, sub).start - self.buffer.line_start(line);
+        let head = element_bounds.left() + self.layout.gutter
+            - self.scroll.x
+            - crate::element::row_x_offset(shaped, row_start);
 
-        let left = element_bounds.left() + self.layout.gutter - self.scroll.x
-            + shaped.x_for_index(column.min(shaped.len()));
-        let right = if end_line == line {
-            element_bounds.left() + self.layout.gutter - self.scroll.x
-                + shaped.x_for_index(end_column.min(shaped.len()))
+        let left = head
+            + shaped
+                .unwrapped_layout
+                .x_for_index(column.min(shaped.len()));
+        // Off the end of the row the composition started on, the box the
+        // platform is given stops at the right edge: the candidate window wants
+        // one rectangle, and a composition that wrapped has more than one.
+        let right = if end_line == line && self.row_of(range.end) == row {
+            head + shaped
+                .unwrapped_layout
+                .x_for_index(end_column.min(shaped.len()))
         } else {
             element_bounds.right()
         };
-        let top = element_bounds.top() + self.layout.line_height * (line as f32) - self.scroll.y;
+        let top = element_bounds.top() + self.layout.line_height * (row as f32) - self.scroll.y;
         Some(Bounds::from_corners(
             point(left, top),
             point(right, top + self.layout.line_height),
