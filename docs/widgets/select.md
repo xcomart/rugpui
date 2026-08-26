@@ -81,6 +81,18 @@ struct Gallery {
 
 `on_open_change` fires with `true` when the trigger is activated while closed, and with `false` when it is activated again, when a row is clicked, or when the pointer goes down anywhere outside the list.
 
+![A closed trigger naming the picked option](../screenshots/select/closed.png)
+
+*`selected(Some("PostgreSQL"))` with `open(false)`: the trigger alone, the list not in the tree.*
+
+![The same trigger with its list hanging beneath it](../screenshots/select/open.png)
+
+*`open(true)`: five rows under the trigger, the current one highlighted.*
+
+![A trigger with a drawn chevron instead of the glyph](../screenshots/select/chevron-icon.png)
+
+*`chevron_icon(..)` with a host svg path in place of the `▾` glyph, painted in `theme.text_muted`.*
+
 ### `SelectOption`
 
 | method | argument | effect |
@@ -99,9 +111,17 @@ The trigger repeats the icons of the option it names: leading before the label, 
 
 **Nothing is reserved for an absent icon.** A row without a leading mark starts its label at the left padding, not indented to line up under a row that has one. A list where only some rows are marked will therefore look ragged; whether that reads as sloppy or as meaningful — a warning badge on the two bad entries, say — is yours to decide. Want the column, mark every row.
 
+![An open list where every row carries a leading icon and one carries a trailing one](../screenshots/select/icons.png)
+
+*`SelectOption::leading(..)` on every row and `.trailing(..)` on one of them. The trigger repeats both icons of the option it names, and the current row's marks turn `accent` with its label.*
+
 ## Selection, placeholder and the "no choice" row
 
 A value the option list does not contain still shows on the trigger; it just highlights no row. With nothing selected, the row whose text *equals* the placeholder counts as the current one — so a list that offers an explicit "no choice" entry should spell that row exactly like the placeholder, and the open list will always show where the user stands.
+
+![A trigger showing muted placeholder text](../screenshots/select/placeholder.png)
+
+*`placeholder("Pick a driver")` with `selected(None)`: muted text on the trigger and no icons repeated from any row.*
 
 ## Keyboard and mouse
 

@@ -66,6 +66,16 @@ Collapsible::new("tunnel", "SSH tunnel")
 The body is filled through `ParentElement` — `.child(..)` and `.children(..)` —
 so anything that goes into a `div` goes into a section.
 
+![A closed section, its body not drawn](../screenshots/collapsible/closed.png)
+
+*`open(false)`, the default: the arrow points right and the children are not in
+the tree at all.*
+
+![The same section open over two checkboxes](../screenshots/collapsible/open.png)
+
+*`open(true)`: the arrow turns down and the body appears, indented under the
+title.*
+
 ## Builder options
 
 | method | argument | default | effect |
@@ -80,6 +90,16 @@ so anything that goes into a `div` goes into a section.
 | `disabled` | `bool` | `false` | Greys the header and stops it answering presses. The body still draws if `open` says so. |
 
 `.child(..)` / `.children(..)` come from `gpui::ParentElement` and fill the body.
+
+![The same section with a greyed header](../screenshots/collapsible/disabled.png)
+
+*`disabled(true)`: the title and the arrow drop to `text_muted` and the header
+stops answering presses.*
+
+![Two open sections, one indented and one flush](../screenshots/collapsible/indent.png)
+
+*`indent(true)`, the default, above `indent(false)`: without the indent the
+body sits flush with the arrow instead of lining up with the title.*
 
 ## State the host keeps
 
@@ -135,6 +155,11 @@ As a sibling it takes its own press and the header never sees it.
 The trailing element is the host's, so `disabled(true)` on the section does not
 touch it: disable it yourself if the whole header is meant to be inert.
 
+![A section header with a switch at its far end](../screenshots/collapsible/trailing.png)
+
+*`trailing(Switch::new("advanced-on", "").checked(true))` — the switch sits at
+the far end of the header, outside the clickable disclosure.*
+
 ## Arrow icons
 
 The default disclosure is a pair of text glyphs, U+25B8 closed and U+25BE open,
@@ -153,6 +178,11 @@ its viewBox — and painted in `theme.icon`. These are the same two icons a
 [`TreeView`](./tree.md) is given through `with_arrow_icons`: a form's sections
 and a tree's branches disclose the same way and should not disagree about which
 way the triangle points.
+
+![A section whose disclosure is a drawn chevron](../screenshots/collapsible/arrow-icons.png)
+
+*`arrow_icons(..)` with the gallery's own two paths: a 14 px svg chevron in
+`theme.icon` where the 12 px glyph would be.*
 
 ## Keyboard and mouse
 

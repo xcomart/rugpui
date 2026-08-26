@@ -95,9 +95,21 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 
 `on_select` is never fired for the entry that is already selected — clicking it only puts the list away — which spares the parent an update that changes nothing.
 
+![A closed trigger showing a scheme name and its pill](../screenshots/scheme-select/closed.png)
+
+*`selected(Some("one-dark"))` with the list away: the trigger carries the entry's pill — background, an `Aa` in the foreground colour, and three accent chips.*
+
+![The same trigger with a row per registered scheme](../screenshots/scheme-select/open.png)
+
+*`open(true)`: one row per `ThemeRegistry::all(cx)` entry, each painted with its own `SchemePreview`.*
+
 `.selected` with an id no entry answers to still shows on the trigger, spelled as the id itself since there is no name to show, and highlights no row. A hand-edited `settings.json` naming a scheme that has since been deleted should say so rather than look like nothing was ever chosen.
 
 `.disabled(true)` is for the case where something else has already made the choice — the editor theme while it follows the chrome theme — and the answer is still worth showing because it moves as the other choice does. Everything that answers a pointer or the keyboard hangs off one branch, so a disabled control is inert rather than merely grey, and it stays shut whatever the open flag says.
+
+![The same trigger, muted and inert](../screenshots/scheme-select/disabled.png)
+
+*`disabled(true)`: still reporting the current scheme, but unfocusable and unable to open.*
 
 ## Keyboard and mouse
 

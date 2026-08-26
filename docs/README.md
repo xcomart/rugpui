@@ -8,6 +8,28 @@ pages was taken from `crates/rugpui-gallery`, the runnable example that puts
 every widget below in one window; when a page and the gallery disagree, the
 gallery is right.
 
+The pictures come from the same place. The gallery binary has a second mode —
+`--shot <name>` opens one widget in one state in a window sized to it, and
+`--list-shots` writes out the registry of those states — and
+`scripts/docshots.sh` walks that registry, photographs each window and files it
+under `docs/screenshots/<name>.png`, where `<name>` is `<page>/<option>`: the
+picture of `button/variants` sits beside the `variant` row of
+[button](./widgets/button.md). Two of the shots are taken once per palette
+instead of once, since one palette says nothing about the other five. A picture
+is therefore never hand-cropped and never out of date on purpose: `scripts/docshots.sh`
+takes them all again, and the shots themselves are Rust, in
+[`crates/rugpui-gallery/src/shots/`](../crates/rugpui-gallery/src/shots). What
+it cannot take is a hover or a press — there is no way to hold a pointer still
+while a screenshot is taken — so a page that needs one of those describes it in
+words.
+
+The three widgets that move — the spinner at two of its options, and the
+indeterminate progress bar — are GIFs rather than stills. They are still
+photographs: the window is captured many times over and the frames are put back
+in order by what each one shows, since the capture tool cannot record and the
+moment a frame arrived says nothing about where in the cycle it caught the
+widget.
+
 ## Start here
 
 - [Getting started](./getting-started.md) — from an empty crate to a window

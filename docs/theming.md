@@ -105,6 +105,21 @@ editor stays editable.
 what the defaults went by before the themes had ids — still resolve, to
 `one-dark` and `one-light`.
 
+The same handful of widgets in each of the six, which between them wear most of
+the slots above:
+
+| `one-dark` | `one-light` |
+| --- | --- |
+| ![Widgets in one-dark](./screenshots/theme/dark.png) | ![Widgets in one-light](./screenshots/theme/light.png) |
+
+| `solarized-dark` | `solarized-light` |
+| --- | --- |
+| ![Widgets in solarized-dark](./screenshots/theme/solarized-dark.png) | ![Widgets in solarized-light](./screenshots/theme/solarized-light.png) |
+
+| `gruvbox-dark` | `dracula` |
+| --- | --- |
+| ![Widgets in gruvbox-dark](./screenshots/theme/gruvbox-dark.png) | ![Widgets in dracula](./screenshots/theme/dracula.png) |
+
 ### Reading and setting
 
 ```rust
@@ -232,6 +247,21 @@ always finds the syntax palette drawn by whoever drew the window around it. That
 the two tables agree is a property of the built-ins, not of the design — a
 custom theme can exist on one side and not the other, and the two settings stay
 independently selectable.
+
+One short listing in each, with a range selected so the selection colour is in
+the picture beside the current-line band and the caret:
+
+| `one-dark` | `one-light` |
+| --- | --- |
+| ![A statement in one-dark](./screenshots/editor/theme-dark.png) | ![A statement in one-light](./screenshots/editor/theme-light.png) |
+
+| `solarized-dark` | `solarized-light` |
+| --- | --- |
+| ![A statement in solarized-dark](./screenshots/editor/theme-solarized-dark.png) | ![A statement in solarized-light](./screenshots/editor/theme-solarized-light.png) |
+
+| `gruvbox-dark` | `dracula` |
+| --- | --- |
+| ![A statement in gruvbox-dark](./screenshots/editor/theme-gruvbox-dark.png) | ![A statement in dracula](./screenshots/editor/theme-dracula.png) |
 
 ### Reading, setting, resolving
 

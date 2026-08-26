@@ -74,11 +74,20 @@ Every callback is keyed by the tab's **index in display order**, not by its `Ele
 
 Three of the buttons are opt-in by handler rather than by a flag: a bar whose host has no way to close a tab does not draw a close button that would do nothing.
 
+![A strip of four tabs with status dots, a mark, a dropdown and a plus](../screenshots/tab-bar/tabs.png)
+
+*One tab per `TabStatus` — `Connected`, `Connecting`, `Disconnected`, `Error` — with `.mark(..)` on the second and `active(1)`. The close button, the `▾` and the `+` are all there because `on_close`, `on_menu_open_change` and `on_new` were set.*
+
 ## Overflow, scrolling and the overlay bar
 
 The tab list is an `overflow_x_scroll` row; the dropdown and the "+" stay pinned to the right edge and never scroll away. Once the tabs overflow:
 
 - The dropdown lists every tab as a [`MenuEntry`](./menu.md), with `.checked(true)` on the active one and `on_activate` wired to the same `on_select` a click runs. That is the route to a tab that is scrolled out of sight.
+
+![The same strip with its dropdown open, listing every tab](../screenshots/tab-bar/menu-open.png)
+
+*`menu_open(true)`: every tab as a row, with the active one checked.*
+
 - Scrolling the active tab back into view is the *host's* job, through the handle it passed to `.scroll_handle(…)` — `ScrollHandle::scroll_to_item(index)`, indexed in display order.
 - A wheel over a tab scrolls the strip. Tabs occlude, which would otherwise cut the scrolling row out of the hit test; the bar answers the wheel itself with exactly the arithmetic gpui would have used, and a vertical wheel folds onto the horizontal axis so a plain mouse can drive it.
 - `.scrollbar(bar)` draws a [`Scrollbar`](./scrollbar.md) over the tabs (and only over them — it stops short of the dropdown and "+"). Build it from the same handle, and handle the drag yourself; see the scrollbar page for the full pattern.

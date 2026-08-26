@@ -59,6 +59,12 @@ div().id("save").tooltip(tooltip_label("Save")).child(icon)
 `.tooltip(..)` is gpui's own method on a stateful element, so the element needs
 an `.id(..)` — a tooltip on an id-less `div` will not compile.
 
+![One line of text in a bordered box](../screenshots/tooltip/label.png)
+
+*What `tooltip_label(..)` draws: one line in the standard frame. The pictures on
+this page render the box straight into the window rather than hovering it, since
+a screenshot cannot hold a pointer still.*
+
 ## Options
 
 `tooltip_label` has none — a single argument and no builder:
@@ -162,6 +168,11 @@ because it is first.
 draws at full width. Set it when a part could be arbitrarily wide and the tooltip
 should not follow it across the screen.
 
+![A tooltip holding a thumbnail, a caption and a code snippet](../screenshots/tooltip/rich.png)
+
+*`Tooltip::new().image(PREVIEW, px(96.)).note(..).element(..)`: the parts are
+drawn top to bottom in the order they were added.*
+
 ### Image sources, and why `img` rather than `svg`
 
 `image` takes anything gpui's `img` takes. A `&'static str` or a `SharedString`
@@ -184,6 +195,11 @@ Highlighted, read-only code under the pointer is `rugpui-editor`'s
 `tooltip_code`, and code *beside* an image and a caption is a `Tooltip` with a
 `CodeSnippet` handed in through `.element(..)`. Both are covered in
 [Snippets and code tooltips](../editor.md#snippets-and-code-tooltips).
+
+![A tooltip holding nothing but highlighted SQL](../screenshots/tooltip/code.png)
+
+*`tooltip_code(sql, highlighter, Some(mono))`: nothing but code, in the editor's
+own palette rather than the chrome theme's.*
 
 ## State the host keeps
 

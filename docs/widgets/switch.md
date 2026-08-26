@@ -31,6 +31,11 @@ Switch::new("wifi", "Auto-reconnect")
 A switch with no handler renders fine and simply does nothing when clicked; the
 gallery shows `Switch::new("telemetry", "Send telemetry")` that way.
 
+![A switch off beside a switch on](../screenshots/switch/states.png)
+
+*The two positions: `checked(false)`, the default, and `checked(true)`. The
+knob is moved by flex alignment, not by an offset.*
+
 Because `on_toggle` takes its `bool` by value, `cx.listener` — which produces an
 `Fn(&E, ..)` — does not fit. `cx.processor` is the by-value counterpart:
 

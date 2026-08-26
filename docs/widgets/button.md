@@ -23,6 +23,11 @@ row()
     .child(Button::new("disabled", "Connect").disabled(true))
 ```
 
+![Four button variants and a disabled one](../screenshots/button/variants.png)
+
+*Left to right: `Primary`, `Secondary`, `Ghost`, `Danger`, and a `Primary`
+button under `disabled(true)`.*
+
 (`row()` there is the gallery's own two-line helper for
 `div().flex().flex_row().flex_wrap().items_center().gap(px(8.))`, not part of
 this crate.)
@@ -49,6 +54,15 @@ Button::new("connect", "Connect")
 
 Note that `compact()` takes no argument — it is a switch, not a setter, unlike
 `disabled(bool)` and `full_width(bool)`.
+
+![A default-height button beside a compact one](../screenshots/button/compact.png)
+
+*`compact()` beside the default: 20 px tall with 11 px text instead of 30 px
+and 13 px.*
+
+![A button stretched across its parent](../screenshots/button/full-width.png)
+
+*`full_width(true)` — the button takes its parent's whole width.*
 
 ## Variants
 

@@ -41,6 +41,12 @@ if self.running {
 | `size` | `Pixels` | `px(16.)` | Width and height of the box the arc is drawn inside. |
 | `color` | `Hsla` | the theme's `accent` | Overrides the arc's colour. |
 
+![Three spinners turning, in accent, success and danger](../screenshots/spinner/color.gif)
+
+*The default `accent`, then `color(palette.success)` and
+`color(palette.danger)`. All three share one phase because all three began
+turning on the same frame.*
+
 ## State the host keeps
 
 Nothing at all — not even a phase. The animation runs off the element id, so the
@@ -62,6 +68,11 @@ the path it follows and half of it would otherwise bleed over every edge of the
 element. A box narrower than the stroke gets a radius of zero, which the painter
 takes as nothing to draw — so `Spinner::new("x").size(px(1.))` renders an empty
 box rather than a smear.
+
+![Four spinners turning at 12, 16, 24 and 32 px](../screenshots/spinner/sizes.gif)
+
+*`size(px(12.))`, the default 16 px, `size(px(24.))` and `size(px(32.))`. The
+stroke stays 2 px, so the ring thins as the box grows.*
 
 ## How it is drawn
 

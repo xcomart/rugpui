@@ -12,6 +12,11 @@
 //! ```sh
 //! cargo run -p rugpui-gallery -- --theme light
 //! ```
+//!
+//! It has a second mode, which the documentation's per-option images are taken
+//! in: `--shot <name>` opens one widget in one state in a small window of its
+//! own, and `--list-shots` writes the registry of those out. See
+//! [`shots`] and `scripts/docshots.sh`.
 
 use std::borrow::Cow;
 
@@ -30,8 +35,10 @@ use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension
 use rugpui_grid::{GridEvent, GridView};
 
 mod data;
+mod shots;
 
 use data::{Catalog, Orders};
+use shots::Shot;
 
 // --- assets -----------------------------------------------------------------
 
@@ -44,6 +51,12 @@ const FILE: &str = "icons/file.svg";
 const WARNING: &str = "icons/warning.svg";
 /// A database, for the leading slot of the driver dropdown's rows.
 const DATABASE: &str = "icons/database.svg";
+/// A closed disclosure, for the shot that replaces a `Collapsible`'s own arrow
+/// and for the one that replaces a `Select`'s chevron.
+const CARET_RIGHT: &str = "icons/caret-right.svg";
+/// The open disclosure that goes with [`CARET_RIGHT`].
+const CARET_DOWN: &str = "icons/caret-down.svg";
+
 /// A thumbnail of a table, for the rich tooltip.
 ///
 /// Drawn by [`img`](gpui::img) rather than by [`svg`](gpui::svg), so unlike the
@@ -69,7 +82,24 @@ const ICONS: &[(&str, &[u8])] = &[
     (WARNING, include_bytes!("../assets/icons/warning.svg")),
     (DATABASE, include_bytes!("../assets/icons/database.svg")),
     (PREVIEW, include_bytes!("../assets/icons/preview.svg")),
+    (
+        CARET_RIGHT,
+        include_bytes!("../assets/icons/caret-right.svg"),
+    ),
+    (CARET_DOWN, include_bytes!("../assets/icons/caret-down.svg")),
 ];
+
+/// Every table [`Icons`] answers out of, searched in order.
+///
+/// The shell's four caption glyphs are a table of its own in `rugpui-shell`,
+/// exactly as [`ICONS`] is one here, so the gallery's asset source is the two
+/// slices chained rather than a copy of either.
+const ICON_TABLES: &[&[(&str, &[u8])]] = &[ICONS, rugpui_shell::WINDOW_CONTROL_ICONS];
+
+/// Every `(path, bytes)` pair the gallery can resolve.
+fn icon_table() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    ICON_TABLES.iter().copied().flatten().copied()
+}
 
 /// The asset source the application is built with.
 ///
@@ -79,16 +109,14 @@ struct Icons;
 
 impl AssetSource for Icons {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(ICONS
-            .iter()
+        Ok(icon_table()
             .find(|(name, _)| *name == path)
-            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
+            .map(|(_, bytes)| Cow::Borrowed(bytes)))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        Ok(ICONS
-            .iter()
-            .map(|(name, _)| *name)
+        Ok(icon_table()
+            .map(|(name, _)| name)
             .filter(|name| name.starts_with(path))
             .map(SharedString::from)
             .collect())
@@ -126,39 +154,123 @@ fn palettes(name: &str) -> Option<Palettes> {
 /// Every id [`palettes`] answers to, for the usage line.
 const THEME_IDS: &str = "dark, light, solarized-dark, solarized-light, gruvbox-dark, dracula";
 
-/// Reads `--theme <id>` (or `--theme=<id>`) off the command line.
+/// What the whole command line comes to.
+struct Args {
+    /// The palette pair, already resolved.
+    palettes: Palettes,
+    /// The id that named it. Carried because a doc shot taken once per palette
+    /// is filed under it, and the window itself cannot say which palette it is
+    /// wearing.
+    theme_id: String,
+    /// One named shot in a window of its own, instead of the gallery.
+    shot: Option<&'static Shot>,
+}
+
+/// The one line printed for a command line that does not parse.
+const USAGE: &str =
+    "usage: rugpui-gallery [--theme <id>] [--shot <name>] [--list-shots]\n       ids: ";
+
+/// Stops with `code`, after `message`.
+fn bail(message: &str, code: i32) -> ! {
+    eprintln!("{message}");
+    std::process::exit(code)
+}
+
+/// Reads the command line: `--theme <id>`, `--shot <name>`, `--list-shots`.
 ///
-/// An unknown id is worth stopping for: a screenshot taken in the wrong palette
-/// looks exactly like one taken in the right one.
-fn requested_theme() -> Palettes {
-    let mut args = std::env::args().skip(1);
-    let mut chosen = None;
-    while let Some(arg) = args.next() {
-        let value = match arg.as_str() {
-            "--theme" => args.next(),
-            other => other.strip_prefix("--theme=").map(str::to_owned),
-        };
-        match value {
-            Some(value) => chosen = Some(value),
-            None => {
-                eprintln!("usage: rugpui-gallery [--theme <{THEME_IDS}>]");
-                std::process::exit(2);
-            }
+/// Every value may also be written `--flag=value`. An unknown theme or an
+/// unknown shot is worth stopping for: a screenshot taken in the wrong palette,
+/// or of the wrong widget, looks exactly like one taken of the right one.
+///
+/// `--list-shots` never returns — it writes the registry to standard output and
+/// exits, which is what `scripts/docshots.sh` drives the whole run from. Its
+/// empty columns are written as `-` rather than left empty, because the shell
+/// splitting the line apart treats a run of tabs as one separator and would
+/// otherwise read a later column as an earlier one.
+fn parse_args() -> Args {
+    /// `--flag value` or `--flag=value`, whichever this argument is.
+    fn value(flag: &str, arg: &str, rest: &mut impl Iterator<Item = String>) -> Option<String> {
+        if arg == flag {
+            return rest.next();
         }
+        arg.strip_prefix(flag)
+            .and_then(|tail| tail.strip_prefix('='))
+            .map(str::to_owned)
     }
-    match chosen {
-        None => palettes("dark").expect("dark is a built-in palette"),
-        Some(name) => palettes(&name).unwrap_or_else(|| {
-            eprintln!("unknown theme {name:?}; expected one of: {THEME_IDS}");
-            std::process::exit(2);
-        }),
+
+    let usage = || format!("{USAGE}{THEME_IDS}");
+    let mut args = std::env::args().skip(1);
+    let mut theme_id = None;
+    let mut shot = None;
+
+    while let Some(arg) = args.next() {
+        if arg == "--list-shots" {
+            for shot in shots::all() {
+                /// `-` for a column a shot has nothing to say in.
+                fn column(value: &str) -> &str {
+                    if value.is_empty() { "-" } else { value }
+                }
+                let motion = shot.motion.tag();
+                println!(
+                    "{}\t{}\t{}\t{}\t{}",
+                    shot.name,
+                    shot.width,
+                    shot.height,
+                    column(shot.per_theme),
+                    column(&motion)
+                );
+            }
+            std::process::exit(0);
+        }
+        if arg.starts_with("--theme") {
+            match value("--theme", &arg, &mut args) {
+                Some(id) => theme_id = Some(id),
+                None => bail(&usage(), 2),
+            }
+            continue;
+        }
+        if arg.starts_with("--shot") {
+            match value("--shot", &arg, &mut args) {
+                Some(name) => shot = Some(name),
+                None => bail(&usage(), 2),
+            }
+            continue;
+        }
+        bail(&usage(), 2);
+    }
+
+    let theme_id = theme_id.unwrap_or_else(|| "dark".to_owned());
+    let Some(palettes) = palettes(&theme_id) else {
+        bail(
+            &format!("unknown theme {theme_id:?}; expected one of: {THEME_IDS}"),
+            2,
+        );
+    };
+
+    let shot = shot.map(|name| {
+        shots::find(&name).unwrap_or_else(|| {
+            let names: Vec<&str> = shots::all().map(|shot| shot.name).collect();
+            bail(
+                &format!(
+                    "unknown shot {name:?}; expected one of:\n  {}",
+                    names.join("\n  ")
+                ),
+                1,
+            )
+        })
+    });
+
+    Args {
+        palettes,
+        theme_id,
+        shot,
     }
 }
 
 // --- start-up ---------------------------------------------------------------
 
 fn main() {
-    let palettes = requested_theme();
+    let args = parse_args();
 
     let app = gpui_platform::application().with_assets(Icons);
     app.run(move |cx: &mut App| {
@@ -169,29 +281,39 @@ fn main() {
         rugpui_grid::init(cx);
         rugpui_editor::init(cx);
         // Over the defaults `rugpui::init` just set.
-        set_theme(palettes.ui.clone(), cx);
-        set_editor_theme(palettes.editor.clone(), cx);
+        set_theme(args.palettes.ui.clone(), cx);
+        set_editor_theme(args.palettes.editor.clone(), cx);
 
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1180.), px(1020.)),
-                    cx,
-                ))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("rugpui gallery".into()),
-                    ..Default::default()
-                }),
-                app_id: Some("rugpui-gallery".into()),
-                ..Default::default()
-            },
-            |window, cx| cx.new(|cx| Gallery::new(window, cx)),
-        )
-        .expect("failed to open the gallery window");
+        match args.shot {
+            Some(shot) => shots::open(shot, &args.theme_id, cx),
+            None => open_gallery(cx),
+        }
 
+        // A shot is captured with `spectacle -a`, which photographs the window
+        // that has the focus, so the new window has to take it.
         cx.activate(true);
     });
+}
+
+/// Opens the gallery window: every widget in the repository at once.
+fn open_gallery(cx: &mut App) {
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(1180.), px(1020.)),
+                cx,
+            ))),
+            titlebar: Some(TitlebarOptions {
+                title: Some("rugpui gallery".into()),
+                ..Default::default()
+            }),
+            app_id: Some("rugpui-gallery".into()),
+            ..Default::default()
+        },
+        |window, cx| cx.new(|cx| Gallery::new(window, cx)),
+    )
+    .expect("failed to open the gallery window");
 }
 
 // --- the view ---------------------------------------------------------------

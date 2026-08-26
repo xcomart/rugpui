@@ -27,6 +27,11 @@ Typically the fraction is computed from whatever the host is counting:
 ProgressBar::new("upload").fraction(self.uploaded / self.total)
 ```
 
+![Three bars at 0.0, 0.35 and 1.0](../screenshots/progress/values.png)
+
+*`fraction(0.0)`, `fraction(0.35)` and `fraction(1.0)`: the fill is a `div`
+sized `relative(fraction)` inside the track.*
+
 ## Builder options
 
 | method | argument | default | effect |
@@ -72,6 +77,11 @@ entirely to the left of the track and ends entirely to its right, so the sweep i
 never seen appearing or disappearing mid-track; `overflow_hidden` on the track
 clips it at both ends. The animation's element id is `(bar_id, "sweep")`, which
 is why the bar's own id has to be unique.
+
+![A short segment sweeping across a progress track](../screenshots/progress/indeterminate.gif)
+
+*`indeterminate()`. The segment covers 30% of the track, starts entirely to its
+left and ends entirely to its right, and is eased at both ends of the pass.*
 
 ## Theme slots
 

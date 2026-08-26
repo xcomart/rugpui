@@ -50,6 +50,11 @@ Slider::new("volume")
 `on_change` takes its `f32` by value, so `cx.listener` — which produces an
 `Fn(&E, ..)` — does not fit; `cx.processor` is the by-value counterpart.
 
+![Three sliders at 0.0, 0.4 and 1.0](../screenshots/slider/values.png)
+
+*The whole of a slider's state is where the knob sits: `value(0.0)`,
+`value(0.4)` and `value(1.0)`.*
+
 ## Builder options
 
 | method | argument | default | effect |

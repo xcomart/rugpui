@@ -49,6 +49,10 @@ EditorThemePicker::new("editor-theme")
 
 The picker is stateless: the parent owns the selected id, passes it in on every render, and stores what `on_select` hands back. There is no open flag here — the grid is always shown.
 
+![A two-column grid of theme cards, each rendering the same statement](../screenshots/editor-theme-picker/cards.png)
+
+*`columns(2)` over a leading placeholder entry and three palettes. Every card renders the same hardcoded statement in the theme it offers — gutter, current-line band, selection and caret — and the leading card, having no `.preview(..)`, draws its `placeholder_label` on an outlined box instead.*
+
 ## EditorThemeSwatch
 
 | method | argument | effect |

@@ -60,6 +60,10 @@ let trailing = strip("window-controls-trailing", trailing);
 ...then rendered at the two ends of the title bar row, `leading` before whatever
 the row starts with and `trailing` after whatever it ends with.
 
+![Minimise, maximise and close buttons in a strip](../screenshots/window-controls/strip.png)
+
+*One strip of `[Minimize, Maximize, Close]` with `rugpui_shell::window_control_icons()`. It paints its own surface and its own hairline, which is why the picture sits on the window's background rather than on a title bar.*
+
 The four icon paths have to name assets the host's asset source can answer for.
 `rugpui-shell` ships them: `rugpui_shell::WINDOW_CONTROL_ICONS` is the table of
 `(path, bytes)` pairs to concatenate into the application's own `IconSet`, and

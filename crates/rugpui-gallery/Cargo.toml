@@ -18,6 +18,10 @@ path = "src/main.rs"
 rugpui.workspace = true
 rugpui-grid.workspace = true
 rugpui-editor.workspace = true
+# Only the doc-shot mode reaches into this one: the shell's dialogs and its
+# title bar are documented in `docs/shell.md`, and a page with no pictures on it
+# is the reason the gallery links a crate the gallery window itself never draws.
+rugpui-shell.workspace = true
 
 gpui.workspace = true
 # The façade that picks a backend at compile time and starts it. Only an

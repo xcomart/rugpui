@@ -127,6 +127,10 @@ A source that cannot tell says `GridColumnKind::Text`, which is the safe answer 
 
 The whole of "how a cell draws" is the free function `cell_label(&GridCell<'_>) -> CellLabel`, which returns `{ text: SharedString, muted: bool }`. It lives outside the widget so the null-versus-empty distinction can be asserted without a window.
 
+![A grid with one column per kind and a row per cell variant](./screenshots/grid/kinds.png)
+
+*One column per `GridColumnKind` and one row per `GridCell`: only `Number` is right-aligned, `Null` and `Default` are drawn muted and spelled out, `Lob` shows its size, and the empty string on row 3 is a value rather than a null — which is the distinction the whole enum exists for.*
+
 ### Paging: `GridSourceState` and `NearEnd`
 
 `state()` returns `Complete` (nothing more is coming), `HasMore` (the server has rows the source does not) or `Loading` (a batch is on its way).
@@ -139,6 +143,9 @@ While the source says `HasMore`, the grid raises `GridEvent::NearEnd` once the v
 
 `cell_dirty(row, column)` is the per-cell half of `Modified` — the row marker says the row was touched, this says where. A dirty cell is tinted with the accent colour behind its text. Note that `cell()` returns the *staged* value for a dirty cell: the grid draws what it is given and knows nothing of what was there before.
 
+![A grid with modified, inserted and deleted rows marked](./screenshots/grid/staged.png)
+
+*A `Modified` row, an `Inserted` one and a `Deleted` one, each with its own marker down the row-number gutter, and the tint on the individual cells `cell_dirty` named. The deleted row keeps its place with its values struck through.*
 
 ### Drawing a cell yourself
 
@@ -232,6 +239,10 @@ _ => None,
 
 Note what the gallery does *not* do. There is no selection background, no dirty tint and no cursor outline in either arm. And the one row whose `channel` is null returns `None` too, so that cell falls back to the grid's own `NULL` marker rather than a badge reading "NULL".
 
+![A grid whose channel column is drawn as badges](./screenshots/grid/custom-cells.png)
+
+*Both arms at work: a badge on every `channel` except the null one, and a bar along the bottom of each `total`. The selected cell shows that the grid still paints the selection over a cell it did not draw.*
+
 ## Building the view
 
 `GridView<S>` is an entity, created with `cx.new` and rendered as a child element, exactly like the tree:
@@ -246,6 +257,10 @@ let grid = cx.new(|cx| {
 ```
 
 Give it a bounded box to live in — the gallery puts it in a bordered `div().h(px(256.))` — and render it with `self.grid.clone()`.
+
+![A result grid with fitted columns and a coloured key column](./screenshots/grid/default.png)
+
+*The default drawing: every column fitted to its content, the primary key in its own colour, row numbers down the left, and nulls spelled `NULL` rather than left blank.*
 
 ### Column widths
 
@@ -353,6 +368,10 @@ A `CellAddress` is `{ row, column }`, and its `column` is the column's **display
 
 `selection.bounds()` is the smallest `CellRange` covering everything picked, and it is what a copy runs over.
 
+![A rectangle of cells picked inside a grid](./screenshots/grid/selection.png)
+
+*`select_cell(2, 1, cx)` followed by `extend_selection(4, 3, cx)`: one rectangle, with the cursor outline still on the cell the gesture started from.*
+
 ### Mouse
 
 | gesture | effect |
@@ -417,9 +436,17 @@ All three land in the same box over the cell, for the same reason: only the grid
 
 **`Text`** is the default and the field described above.
 
+![A text field open over one cell of a grid](./screenshots/grid/text-editor.png)
+
+*`CellEditor::Text` after `begin_edit(..)`: a field in the cell's own box, seeded with what the cell held.*
+
 **`Choice`** is a [`Select`](./widgets/select.md) opened over the cell, already open on the value the cell holds — a trigger the user had to click again would be one gesture too many. Clicking a row stages it there and then, with no `Enter` to press. With `nullable: true` the list gains a leading `NULL` row that stages `EditValue::Null`, which is how a user reaches the null a nullable column can hold; the row is told from a value row by *position*, so a column whose values include the string `NULL` does not clear itself when the user picks the value they meant. `Escape`, or a press anywhere outside the list, dismisses it with nothing staged.
 
 The arrows walk the list without picking as they go, and `Enter` stages where they stopped. That is the one place the grid does not simply hand the keys to the control: the focus is on the box the list hangs from rather than on the trigger inside it, so `Select`'s own arrow handling never sees the keystroke — and an arrow that staged every row it passed over would write three values on the way to the fourth.
+
+![A dropdown open over one cell of a grid, with a NULL row at its head](./screenshots/grid/choice-editor.png)
+
+*`CellEditor::Choice { nullable: true }`: the list is already down over the cell, the leading row is the `NULL` that stages `EditValue::Null`, and the highlighted row is the value the cell already holds.*
 
 There is deliberately **no `Boolean` variant**. A truth column is
 
