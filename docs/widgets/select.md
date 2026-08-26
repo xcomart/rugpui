@@ -2,9 +2,9 @@
 
 A dropdown that picks one string out of a list: a trigger the height of a [`TextInput`](./text-input.md), and a deferred list that hangs beneath it. Reach for it for a one-of-many choice whose options are plain text — a driver name, a font family, an export format.
 
-Source: [select.rs](../../crates/rugpui/src/select.rs). Re-exported as `rugpui::Select`.
+Source: [select.rs](../../crates/rugpui/src/select.rs). Re-exported as `rugpui::Select` and `rugpui::SelectOption`.
 
-Options are plain strings, and the text of an option is also its identity. That is what keeps the widget usable for lists the caller discovers at runtime — installed fonts, for one — without inventing ids for them. When the options carry colours instead, reach for [`SchemeSelect`](./scheme-select.md), which is the same control keyed by id.
+Options are plain strings, and the text of an option is also its identity. That is what keeps the widget usable for lists the caller discovers at runtime — installed fonts, for one — without inventing ids for them. An option may also carry an icon on either side of its label — see [Icons](#icons) — but that is decoration: the label stays the identity. When the options carry colours instead, reach for [`SchemeSelect`](./scheme-select.md), which is the same control keyed by id.
 
 ## The state the host keeps
 
@@ -12,13 +12,19 @@ Three things, all owned by the parent view and passed back in on every render: t
 
 ```rust
 use gpui::SharedString;
-use rugpui::Select;
+use rugpui::{Select, SelectOption};
 
 Select::new("driver")
-    .options(
-        ["PostgreSQL", "MySQL", "Oracle", "SQLite", "SQL Server"]
-            .map(SharedString::new_static),
-    )
+    // Only the first row is marked here; drop the `SelectOption` and pass
+    // the bare strings — `.options(["PostgreSQL", "MySQL", …])` — for a list
+    // with no icons at all.
+    .options([
+        SelectOption::new("PostgreSQL").leading("icons/database.svg"),
+        SelectOption::new("MySQL"),
+        SelectOption::new("Oracle"),
+        SelectOption::new("SQLite"),
+        SelectOption::new("SQL Server"),
+    ])
     .selected(Some(self.choice.clone()))
     .placeholder("Pick a driver")
     .open(self.select_open)
@@ -59,7 +65,7 @@ struct Gallery {
 | method | argument | default | effect |
 | --- | --- | --- | --- |
 | `Select::new` | `impl Into<ElementId>` | — | empty, closed, nothing selected |
-| `.options` | `impl IntoIterator<Item = SharedString>` | empty | the options, in display order |
+| `.options` | `impl IntoIterator<Item = impl Into<SelectOption>>` | empty | the options, in display order |
 | `.selected` | `Option<impl Into<SharedString>>` | `None` | the picked value |
 | `.placeholder` | `impl Into<SharedString>` | empty | muted text on the trigger while nothing is selected |
 | `.open` | `bool` | `false` | whether the list is showing |
@@ -74,6 +80,24 @@ struct Gallery {
 `on_select` hands over **both** the zero-based index and the text. Key off the index when the list has a fixed shape — a leading "no choice" row, say — because the text is translated and comparing against it would break in every language but one. Key off the text for a list discovered at runtime.
 
 `on_open_change` fires with `true` when the trigger is activated while closed, and with `false` when it is activated again, when a row is clicked, or when the pointer goes down anywhere outside the list.
+
+### `SelectOption`
+
+| method | argument | effect |
+| --- | --- | --- |
+| `SelectOption::new` | `impl Into<SharedString>` | the label, which is also the option's identity |
+| `.leading` | `impl Into<SharedString>` | asset path of the icon drawn before the label |
+| `.trailing` | `impl Into<SharedString>` | asset path of the icon drawn after the label, at the row's right edge |
+
+`From<&'static str>`, `From<String>` and `From<SharedString>` all build a bare option — a label and two empty slots. That is what lets `.options(…)` keep taking the string lists it always took: a caller that wants no icons never has to name this type.
+
+## Icons
+
+Both slots take an asset path, resolved by the application's `AssetSource` exactly like [`.chevron_icon`](#builder-options) or a [tree](./tree.md) icon — so an app with no asset source registered draws them as nothing at all. They are painted at 14 px in `theme.icon`, and on the current row in `theme.accent`, so a mark follows its label into the highlight instead of staying grey beside accented text.
+
+The trigger repeats the icons of the option it names: leading before the label, trailing between the label and the chevron. While nothing is selected it shows none — the placeholder row may itself be one of the options, and repeating its mark would make an empty dropdown look like a made choice.
+
+**Nothing is reserved for an absent icon.** A row without a leading mark starts its label at the left padding, not indented to line up under a row that has one. A list where only some rows are marked will therefore look ragged; whether that reads as sloppy or as meaningful — a warning badge on the two bad entries, say — is yours to decide. Want the column, mark every row.
 
 ## Selection, placeholder and the "no choice" row
 
@@ -112,6 +136,7 @@ The trigger is 32 px tall, matching `TextInput`, so a form that mixes the two li
 | `accent` | trigger border while focused, and the text of the current row |
 | `background` | the list panel's fill |
 | `text` | selected value, and a normal row |
+| `icon` | an option's leading and trailing icon, on the rows and on the trigger |
 | `text_muted` | the placeholder, and the `▾` chevron or its `.chevron_icon` replacement |
 
 `.chevron_icon` swaps the glyph for a host svg, painted in `theme.text_muted` whether the list is open or closed — a select's chevron always points down, so unlike [`TreeView::with_arrow_icons`](./tree.md) or [`Collapsible::arrow_icons`](./collapsible.md) there is only the one path to hand over; give it the same asset those two take so a tree, a collapsible section and a dropdown all disclose with the one mark.
@@ -122,4 +147,5 @@ The trigger is 32 px tall, matching `TextInput`, so a form that mixes the two li
 - **Set a width if the trigger is not full-width.** Otherwise the list is 320 px whatever the trigger is.
 - **Arrow keys fire `on_select` as they move.** If your handler is expensive, debounce it — the widget will not.
 - **`Escape` is yours to handle.**
+- **Icons do not affect matching.** `.selected` and `on_select` see the label alone; two options with the same label and different icons are the same option as far as this widget is concerned.
 - **`.selected` is a value, not an index.** Passing a string no option matches is legal and shows on the trigger; that is how a stale setting stays visible instead of looking like nothing was chosen.
