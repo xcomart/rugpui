@@ -26,10 +26,10 @@ use gpui::{
     prelude::*, px, size,
 };
 use rugpui::{
-    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, EditorTheme, MenuButton, MenuEntry,
-    ProgressBar, Scrollbar, ScrollbarAxis, Segmented, Select, SelectOption, Slider, Spinner,
-    Splitter, Switch, TabBar, TabItem, TabStatus, TextInput, Theme, Tooltip, TreeView, scroll_to,
-    set_editor_theme, set_theme, theme, tooltip_label,
+    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, EditorTheme, ListEvent, ListView,
+    MenuButton, MenuEntry, ProgressBar, RangeSlider, Scrollbar, ScrollbarAxis, Segmented, Select,
+    SelectOption, Slider, Spinner, Splitter, Switch, TabBar, TabItem, TabStatus, TextInput, Theme,
+    Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::{GridEvent, GridView};
@@ -37,7 +37,7 @@ use rugpui_grid::{GridEvent, GridView};
 mod data;
 mod shots;
 
-use data::{Catalog, Orders};
+use data::{Catalog, Contacts, Orders};
 use shots::Shot;
 
 // --- assets -----------------------------------------------------------------
@@ -99,12 +99,12 @@ const ICONS: &[(&str, &[u8])] = &[
 
 /// Every table [`Icons`] answers out of, searched in order.
 ///
-/// The widget layer's two disclosure marks and the shell's four caption glyphs
-/// are each a table of their own in their own crate, exactly as [`ICONS`] is
-/// one here, so the gallery's asset source is the three slices chained rather
-/// than a copy of any of them. `rugpui::ICONS` is not optional: without it
-/// every tree, collapsible section and dropdown here would draw its arrow as
-/// nothing at all.
+/// The widget layer's disclosure marks and menu trigger, and the shell's four
+/// caption glyphs, are each a table of their own in their own crate, exactly
+/// as [`ICONS`] is one here, so the gallery's asset source is the three
+/// slices chained rather than a copy of any of them. `rugpui::ICONS` is not
+/// optional: without it every tree, collapsible section and dropdown here
+/// would draw its arrow as nothing at all.
 const ICON_TABLES: &[&[(&str, &[u8])]] =
     &[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, ICONS];
 
@@ -342,6 +342,8 @@ struct Gallery {
     switch_on: bool,
     /// The slider's value, also what the progress bar beside it shows.
     amount: f32,
+    /// The two ends of the range slider's interval.
+    range: (f32, f32),
     /// The dropdown's choice, and whether its list is showing.
     choice: SharedString,
     select_open: bool,
@@ -363,8 +365,9 @@ struct Gallery {
     tunnel_host: Entity<TextInput>,
     /// The surface the "Scrollbar" list scrolls on.
     list: ScrollHandle,
-    /// The three larger widgets.
+    /// The three larger widgets, plus the flat list beside the tree.
     tree: Entity<TreeView<Catalog>>,
+    contacts: Entity<ListView<Contacts>>,
     grid: Entity<GridView<Orders>>,
     sql: Entity<EditorView>,
     json: Entity<EditorView>,
@@ -406,6 +409,26 @@ impl Gallery {
             tree.set_selected(Some("warehouse/public/orders"), cx);
             tree
         });
+
+        // Two lines to a row, so the list is asked for a taller row than its
+        // 24 px default — one height for every row is the condition
+        // `uniform_list` virtualises under.
+        let contacts = cx.new(|cx| {
+            let mut list = ListView::new(Contacts, cx).row_height(px(44.));
+            list.set_selected(Some("grace"), cx);
+            list
+        });
+        // The host's half of a list: what activating a row *means* is the only
+        // thing the widget cannot know.
+        cx.subscribe(
+            &contacts,
+            |_gallery, _list, event: &ListEvent<&str>, _cx| {
+                if let ListEvent::Activated(id) = event {
+                    eprintln!("contact activated: {id}");
+                }
+            },
+        )
+        .detach();
 
         let grid = cx.new(|cx| {
             let mut grid = GridView::new(Orders, cx).insert_table("public.orders");
@@ -461,6 +484,7 @@ impl Gallery {
             segment: 1,
             switch_on: true,
             amount: 0.4,
+            range: (0.25, 0.75),
             choice: "PostgreSQL".into(),
             select_open: false,
             menu_open: false,
@@ -473,6 +497,7 @@ impl Gallery {
             tunnel_host,
             list: ScrollHandle::new(),
             tree,
+            contacts,
             grid,
             sql,
             json,
@@ -624,6 +649,7 @@ impl Gallery {
         );
 
         let amount = self.amount;
+        let (low, high) = self.range;
         let slider = section("Slider and progress", &palette)
             .child(Slider::new("amount").value(amount).step(0.05).on_change({
                 let this = this.clone();
@@ -634,6 +660,21 @@ impl Gallery {
                     });
                 }
             }))
+            .child(
+                RangeSlider::new("band")
+                    .low(low)
+                    .high(high)
+                    .step(0.05)
+                    .on_change({
+                        let this = this.clone();
+                        move |low, high, _window, cx| {
+                            this.update(cx, |gallery, cx| {
+                                gallery.range = (low, high);
+                                cx.notify();
+                            });
+                        }
+                    }),
+            )
             .child(ProgressBar::new("amount-progress").fraction(amount))
             .child(ProgressBar::new("loading").indeterminate());
 
@@ -784,10 +825,10 @@ impl Gallery {
         )
     }
 
-    /// The middle column: the tree, and under it the small stateless
-    /// indicators and pickers — spinner, segmented control, select and
-    /// scrollbar — for which a form field's two-column layout would waste
-    /// width. The right-hand column holds the grid and the two editors.
+    /// The middle column: the tree, the flat list under it, and under those
+    /// the small stateless indicators and pickers — spinner, segmented
+    /// control, select and scrollbar — for which a form field's two-column
+    /// layout would waste width. The right-hand column holds the grid and the two editors.
     /// Divided from the left by one [`Splitter`], and the grid from the
     /// editors by a second.
     ///
@@ -812,6 +853,15 @@ impl Gallery {
             .min_h_0()
             .min_h(px(200.))
             .child(framed(&palette).flex_1().child(self.tree.clone()));
+
+        // Fixed rather than flexible: the tree above already takes whatever is
+        // left in the column, and two greedy sections would fight over it.
+        let contacts = section("List", &palette).child(
+            framed(&palette)
+                .flex_none()
+                .h(px(180.))
+                .child(self.contacts.clone()),
+        );
 
         let spinners = section("Spinner", &palette).child(
             row()
@@ -965,6 +1015,7 @@ impl Gallery {
                         .gap(px(16.))
                         .pr(px(7.))
                         .child(tree)
+                        .child(contacts)
                         .child(spinners)
                         .child(segmented)
                         .child(select)

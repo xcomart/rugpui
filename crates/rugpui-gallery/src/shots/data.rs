@@ -1,5 +1,5 @@
-//! The three widgets over data the host supplies: `TreeView`, `GridView` and
-//! `EditorView`.
+//! The widgets over data the host supplies: `TreeView`, `ListView`,
+//! `GridView` and `EditorView`.
 //!
 //! Two of the sources here are the gallery's own, wrapped rather than copied:
 //! [`Staged`] is [`Orders`](crate::data::Orders) with a staging layer's answers
@@ -8,14 +8,16 @@
 //! a picture of a loaded branch says nothing about the two states the widgets
 //! draw differently.
 
-use gpui::{AnyElement, AnyView, App, Entity, Focusable, Window, prelude::*, px};
-use rugpui::{ChildState, TreeRowInfo, TreeSource, TreeView};
+use gpui::{AnyElement, AnyView, App, Entity, Focusable, Window, div, prelude::*, px};
+use rugpui::{
+    ChildState, ListRowInfo, ListSource, ListView, TreeRowInfo, TreeSource, TreeView, theme,
+};
 use rugpui_editor::{EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::{GridCell, GridColumn, GridColumnKind, GridSource, GridView, RowStatus};
 
 use super::{Motion, Shot, framed, panel};
 use crate::{
-    data::{Catalog, Orders},
+    data::{Catalog, Contacts, Orders},
     monospace,
 };
 
@@ -36,6 +38,22 @@ pub const SHOTS: &[Shot] = &[
         per_theme: "",
         motion: Motion::Still,
         build: tree_loading,
+    },
+    Shot {
+        name: "list/rows",
+        width: 300.,
+        height: 220.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: list_rows,
+    },
+    Shot {
+        name: "list/empty",
+        width: 300.,
+        height: 120.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: list_empty,
     },
     Shot {
         name: "grid/default",
@@ -185,6 +203,75 @@ impl TreeSource for Fetching {
         cx: &mut App,
     ) -> AnyElement {
         Catalog.render_row(id, info, window, cx)
+    }
+}
+
+// --- list -------------------------------------------------------------------
+
+/// What an empty list draws when the source has nothing to say either.
+///
+/// A glyph rather than a sentence, for the reason the widget layer ships no
+/// default at all: a shot is a picture of the mechanism, and the mechanism is
+/// that the *host* decides what an empty list looks like.
+const EMPTY_GLYPH: &str = "\u{2014}";
+
+/// The gallery's contacts at 44 px a row, one of them selected, in a box too
+/// short to hold all seven — the row cut off at the bottom is what says the
+/// list scrolls.
+fn list_rows(_window: &mut Window, cx: &mut App) -> AnyView {
+    let list = cx.new(|cx| {
+        let mut list = ListView::new(Contacts, cx).row_height(px(44.));
+        list.set_selected(Some("grace"), cx);
+        list
+    });
+    panel(cx, move |_window, cx| {
+        framed(cx).flex_1().child(list.clone()).into_any_element()
+    })
+}
+
+/// The same widget over a source that holds nothing: every row is the host's,
+/// and so is the empty state.
+fn list_empty(_window: &mut Window, cx: &mut App) -> AnyView {
+    let list = cx.new(|cx| ListView::new(Nobody, cx).row_height(px(44.)));
+    panel(cx, move |_window, cx| {
+        framed(cx).flex_1().child(list.clone()).into_any_element()
+    })
+}
+
+/// A directory with nobody in it, which is the only way to see
+/// [`ListSource::render_empty`].
+struct Nobody;
+
+impl ListSource for Nobody {
+    type Id = &'static str;
+
+    fn len(&self) -> usize {
+        0
+    }
+
+    fn id(&self, _index: usize) -> Self::Id {
+        unreachable!("a list of no rows asks for no ids")
+    }
+
+    fn render_item(
+        &self,
+        _id: &Self::Id,
+        _info: ListRowInfo,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> AnyElement {
+        unreachable!("a list of no rows draws no rows")
+    }
+
+    fn render_empty(&self, _window: &mut Window, cx: &mut App) -> AnyElement {
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(theme(cx).text_muted)
+            .child(EMPTY_GLYPH)
+            .into_any_element()
     }
 }
 

@@ -47,6 +47,7 @@ widget.
 | [collapsible](./widgets/collapsible.md) | `Collapsible` | A titled section that folds its body away, and does not render it while folded. |
 | [segmented](./widgets/segmented.md) | `Segmented` | A horizontal one-of-many strip, used where a group of radio buttons would otherwise go. |
 | [slider](./widgets/slider.md) | `Slider` | A horizontal slider over a fraction from `0.0` to `1.0`. |
+| [range-slider](./widgets/range-slider.md) | `RangeSlider` | A horizontal slider over an interval, with a knob at each end. |
 | [progress](./widgets/progress.md) | `ProgressBar` | A thin horizontal bar showing how far along a piece of work is. |
 | [spinner](./widgets/spinner.md) | `Spinner` | A rotating arc that says work is under way without saying how much is left. |
 | [text-input](./widgets/text-input.md) | `TextInput` | A focusable text field: one line by default, several rows on request. |
@@ -58,6 +59,7 @@ widget.
 | [scrollbar](./widgets/scrollbar.md) | `Scrollbar` | An overlay scroll indicator: a thumb with no track behind it, drawn over the content rather than beside it. |
 | [splitter](./widgets/splitter.md) | `Splitter` | Two panes side by side, or one above the other, with a divider the pointer can move. |
 | [tree](./widgets/tree.md) | `TreeView` | A virtualised tree whose branches arrive one round trip at a time. |
+| [list](./widgets/list.md) | `ListView` | A virtualised flat list whose rows the host draws itself. |
 | [scheme-select](./widgets/scheme-select.md) | `SchemeSelect` | A dropdown that picks one colour scheme out of a list. |
 | [editor-theme-picker](./widgets/editor-theme-picker.md) | `EditorThemePicker` | A grid of selectable cards, each previewing one editor theme. |
 | [window-controls](./widgets/window-controls.md) | `WindowControls` | The minimise / maximise / close buttons of a window that draws its own caption. |
