@@ -559,7 +559,7 @@ impl RenderOnce for ContextMenu {
 #[derive(IntoElement)]
 pub struct MenuButton {
     id: ElementId,
-    glyph: SharedString,
+    glyph: Option<SharedString>,
     icon: Option<SharedString>,
     tooltip: Option<SharedString>,
     open: bool,
@@ -568,13 +568,13 @@ pub struct MenuButton {
 }
 
 impl MenuButton {
-    /// Creates a closed menu button showing the default hamburger glyph.
+    /// Creates a closed menu button showing the default hamburger icon.
     ///
     /// `id` must be unique among the siblings of the button.
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            glyph: SharedString::new_static("\u{2630}"),
+            glyph: None,
             icon: None,
             tooltip: None,
             open: false,
@@ -583,20 +583,27 @@ impl MenuButton {
         }
     }
 
-    /// Replaces the glyph drawn on the trigger button.
+    /// Draws `glyph` as text on the trigger instead of the default hamburger.
+    ///
+    /// For a caller that already owns a character suited to the button — the
+    /// tab strip's overflow menu wears the same `▾` its dropdowns do — rather
+    /// than reaching for an asset path. Overridden by
+    /// [`MenuButton::icon`] if that is also called.
     pub fn glyph(mut self, glyph: impl Into<SharedString>) -> Self {
-        self.glyph = glyph.into();
+        self.glyph = Some(glyph.into());
         self
     }
 
-    /// Draws the asset at `path` on the trigger instead of the glyph.
+    /// Draws the asset at `path` on the trigger instead of the glyph or the
+    /// default hamburger.
     ///
     /// A second way to dress the same button rather than a replacement for
     /// [`MenuButton::glyph`], because the two triggers in the application want
-    /// different things: the application menu's `☰` is a character every font
-    /// has and needs no asset, while a chevron drawn as text lands at whatever
-    /// size and baseline the font feels like. Callers hand over the path rather
-    /// than an element, so this module keeps knowing nothing about the icon set.
+    /// different things: a chevron drawn as text lands at whatever size and
+    /// baseline the font feels like, which is exactly the wobble an icon
+    /// exists to avoid. Callers hand over the path rather than an element, so
+    /// this module keeps knowing nothing about the icon set beyond its own
+    /// default.
     pub fn icon(mut self, path: impl Into<SharedString>) -> Self {
         self.icon = Some(path.into());
         self
@@ -650,23 +657,31 @@ impl RenderOnce for MenuButton {
                 as DismissHandler
         });
 
-        // A trigger only ever wears a mark — an icon, or the hamburger glyph
-        // standing in for one — never a word, so its resting colour is the
-        // theme's icon tint rather than the muted text a label would take.
+        // A trigger only ever wears a mark — an icon, or a glyph standing in
+        // for one — never a word, so its resting colour is the theme's icon
+        // tint rather than the muted text a label would take.
         let tint = if open { theme.text } else { theme.icon };
         let hover_tint = theme.text;
         // An SVG takes its colour from its own `text_color`, which — unlike a
         // glyph's — does not inherit from the button, so the open and hover
-        // shades have to be handed to it directly.
-        let face = match self.icon.clone() {
-            Some(path) => svg()
+        // shades have to be handed to it directly. `icon` wins over `glyph` if
+        // a caller sets both, and a caller who sets neither gets the default
+        // hamburger icon rather than the bare glyph [`MenuButton::new`] used
+        // to draw: see [`crate::icons::MENU`] for why that default is an
+        // asset and not the `☰` character it used to be.
+        let svg_face = |path: SharedString| {
+            svg()
                 .size(px(TRIGGER_ICON))
                 .flex_none()
                 .path(path)
                 .text_color(tint)
                 .group_hover(TRIGGER_GROUP, move |style| style.text_color(hover_tint))
-                .into_any_element(),
-            None => self.glyph.clone().into_any_element(),
+                .into_any_element()
+        };
+        let face = match (self.icon.clone(), self.glyph.clone()) {
+            (Some(path), _) => svg_face(path),
+            (None, Some(glyph)) => glyph.into_any_element(),
+            (None, None) => svg_face(SharedString::new_static(crate::icons::MENU)),
         };
 
         let trigger = div()
