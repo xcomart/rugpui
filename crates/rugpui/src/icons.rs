@@ -1,4 +1,5 @@
-//! The two disclosure marks the widgets here draw, embedded in the binary.
+//! The disclosure marks and the menu trigger the widgets here draw, embedded
+//! in the binary.
 //!
 //! gpui's [`svg`](gpui::svg) element resolves its `path` through the
 //! [`AssetSource`](gpui::AssetSource) the application was built with, and this
@@ -42,10 +43,21 @@ pub const CARET_RIGHT: &str = "icons/rugpui/caret-right.svg";
 /// chevron always points down.
 pub const CARET_DOWN: &str = "icons/rugpui/caret-down.svg";
 
-/// The two disclosure marks, paired with the bytes an asset source hands back
-/// for them.
+/// The trigger [`crate::menu::MenuButton`] draws when it is given neither an
+/// [`crate::menu::MenuButton::icon`] nor a
+/// [`crate::menu::MenuButton::glyph`]: three horizontal bars, evenly spaced.
 ///
-/// A host concatenates this into its own table rather than copying the two
+/// Drawn as a vector for the same reason the carets above are: the text glyph
+/// it replaces, `U+2630`, is not spaced the same way in every font, and at the
+/// small size a toolbar button draws it at, pixel rounding throws the three
+/// bars' gaps out of alignment with each other. An icon drawn on an even grid
+/// has no font to disagree with.
+pub const MENU: &str = "icons/rugpui/menu.svg";
+
+/// The disclosure marks and the menu trigger, paired with the bytes an asset
+/// source hands back for them.
+///
+/// A host concatenates this into its own table rather than copying these
 /// files: see the module docs.
 pub const ICONS: &[(&str, &[u8])] = &[
     (
@@ -53,6 +65,7 @@ pub const ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/caret-right.svg"),
     ),
     (CARET_DOWN, include_bytes!("../assets/icons/caret-down.svg")),
+    (MENU, include_bytes!("../assets/icons/menu.svg")),
 ];
 
 #[cfg(test)]

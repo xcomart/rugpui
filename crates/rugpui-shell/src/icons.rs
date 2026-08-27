@@ -24,9 +24,9 @@
 //! bar needs, which are the same four files in every application that draws
 //! one. Everything else an application draws — its own mark, its toolbar, the
 //! glyphs of whatever it shows in a tree — belongs to that application, whose
-//! table concatenates this one. So does [`rugpui::ICONS`], the two disclosure
-//! marks the widget layer draws with; a set that leaves it out has trees with
-//! blank arrow columns and dropdowns with no chevron:
+//! table concatenates this one. So does [`rugpui::ICONS`], the disclosure
+//! marks and menu trigger the widget layer draws with; a set that leaves it
+//! out has trees with blank arrow columns and dropdowns with no chevron:
 //!
 //! ```ignore
 //! const ICONS: &[(&str, &[u8])] = &[ /* the application's own */ ];

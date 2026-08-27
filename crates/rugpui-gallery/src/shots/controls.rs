@@ -1,11 +1,11 @@
 //! The small widgets a form is built out of: one picture per option of
 //! `Button`, `Checkbox`, `Switch`, `Collapsible`, `Segmented`, `Slider`,
-//! `ProgressBar`, `Spinner` and `TextInput`.
+//! `RangeSlider`, `ProgressBar`, `Spinner` and `TextInput`.
 
 use gpui::{AnyView, App, Entity, Focusable, Window, div, prelude::*, px};
 use rugpui::{
-    Button, ButtonVariant, Checkbox, Collapsible, ProgressBar, Segmented, Slider, Spinner, Switch,
-    TextInput, theme,
+    Button, ButtonVariant, Checkbox, Collapsible, ProgressBar, RangeSlider, Segmented, Slider,
+    Spinner, Switch, TextInput, theme,
 };
 
 use super::{Motion, Shot, caption, column, panel, row};
@@ -116,6 +116,14 @@ pub const SHOTS: &[Shot] = &[
         per_theme: "",
         motion: Motion::Still,
         build: sliders,
+    },
+    Shot {
+        name: "range-slider/values",
+        width: 320.,
+        height: 180.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: range_sliders,
     },
     Shot {
         name: "progress/values",
@@ -366,6 +374,21 @@ fn sliders(_window: &mut Window, cx: &mut App) -> AnyView {
             .child(Slider::new("part").value(0.4))
             .child(caption("value(1.0)", cx))
             .child(Slider::new("full").value(1.))
+            .into_any_element()
+    })
+}
+
+/// The whole range, a band inside it, and the two knobs met — the three shapes
+/// an interval can have, since its state is only where its two ends are.
+fn range_sliders(_window: &mut Window, cx: &mut App) -> AnyView {
+    panel(cx, |_window, cx| {
+        column()
+            .child(caption("low(0.0).high(1.0)", cx))
+            .child(RangeSlider::new("whole").low(0.).high(1.))
+            .child(caption("low(0.25).high(0.75)", cx))
+            .child(RangeSlider::new("band").low(0.25).high(0.75))
+            .child(caption("low(0.5).high(0.5)", cx))
+            .child(RangeSlider::new("empty").low(0.5).high(0.5))
             .into_any_element()
     })
 }

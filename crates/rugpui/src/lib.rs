@@ -5,18 +5,19 @@
 //! sessions — and only about colors ([`theme`], [`editor_theme`]), text entry
 //! ([`text_input`]), buttons ([`button`]), checkboxes ([`checkbox`]) and
 //! switches ([`switch`]), one-of-many strips ([`segmented`]), sliders
-//! ([`slider`]), progress bars ([`progress`]) and busy spinners ([`spinner`]),
+//! ([`slider`]) and two-knob range sliders ([`range_slider`]), progress bars
+//! ([`progress`]) and busy spinners ([`spinner`]),
 //! tabs ([`tab_bar`]), fold-away sections ([`collapsible`]), dropdown menus
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
 //! palettes ([`scheme_select`]), hover tooltips of a line, a column of parts
 //! or content the host draws itself ([`tooltip`]), dialogs
 //! ([`modal`]), overlay scroll indicators ([`scrollbar`]), split panes
-//! ([`splitter`]), lazily filled trees
-//! ([`tree`]) and the caption buttons of a self-drawn title bar
+//! ([`splitter`]), lazily filled trees ([`tree`]), flat lists of host-drawn
+//! rows ([`list`]) and the caption buttons of a self-drawn title bar
 //! ([`window_controls`]). A widget that would need to understand the host's
-//! data to draw itself belongs in the host, not here — the tree included: it
-//! knows about ids the host invents and rows the host draws, and nothing about
-//! what they mean.
+//! data to draw itself belongs in the host, not here — the tree and the list
+//! included: they know about ids the host invents and rows the host draws, and
+//! nothing about what they mean.
 //!
 //! For the same reason no widget here holds a user-facing string of its own:
 //! labels arrive from the host, which is what keeps a localized application
@@ -32,9 +33,10 @@
 //! bindings get them.
 //!
 //! One thing here is not self-contained: the disclosure marks a tree, a
-//! collapsible section and a dropdown draw are svg files, and gpui resolves an
-//! svg path through the host's `AssetSource`. Chain [`ICONS`] into yours — see
-//! [`icons`] — or those marks paint as nothing at all.
+//! collapsible section and a dropdown draw, and a [`menu`] trigger's default
+//! hamburger, are svg files, and gpui resolves an svg path through the host's
+//! `AssetSource`. Chain [`ICONS`] into yours — see [`icons`] — or those marks
+//! paint as nothing at all.
 
 #![warn(missing_docs)]
 
@@ -44,9 +46,11 @@ pub mod collapsible;
 pub mod editor_theme;
 pub mod editor_theme_picker;
 pub mod icons;
+pub mod list;
 pub mod menu;
 pub mod modal;
 pub mod progress;
+pub mod range_slider;
 pub mod scheme_select;
 pub mod scrollbar;
 pub mod segmented;
@@ -72,9 +76,11 @@ pub use editor_theme::{
 };
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
 pub use icons::{CARET_DOWN, CARET_RIGHT, ICONS};
+pub use list::{ListEvent, ListRowInfo, ListSource, ListView};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
 pub use progress::ProgressBar;
+pub use range_slider::{Knob, RangeSlider};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
@@ -113,6 +119,7 @@ pub fn init(cx: &mut App) {
     set_editor_theme(EditorTheme::default(), cx);
     set_window_tint(1.0, cx);
     TextInput::init(cx);
+    list::init(cx);
     tree::init(cx);
     warn_about_missing_icons(cx);
 }

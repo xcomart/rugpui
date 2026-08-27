@@ -1,14 +1,16 @@
-//! The sample data the three larger widgets are pointed at.
+//! The sample data the larger widgets are pointed at.
 //!
-//! Both traits are the whole of what a host has to write: the tree asks a
-//! [`TreeSource`] for children and for a row, and the grid asks a
-//! [`GridSource`] for columns and cells. Neither widget fetches anything, which
-//! is why a fixture like this is twenty lines rather than a database.
+//! The traits are the whole of what a host has to write: the tree asks a
+//! [`TreeSource`] for children and for a row, the list asks a [`ListSource`]
+//! for a count, an id and a row, and the grid asks a [`GridSource`] for columns
+//! and cells. None of the three fetches anything, which is why a fixture like
+//! this is twenty lines rather than a database.
 
 use gpui::{
-    AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window, div, px, svg,
+    AnyElement, App, FontWeight, IntoElement, ParentElement, SharedString, Styled, Window, div, px,
+    svg,
 };
-use rugpui::{ChildState, TreeRowInfo, TreeSource, theme};
+use rugpui::{ChildState, ListRowInfo, ListSource, TreeRowInfo, TreeSource, theme};
 use rugpui_grid::{CellEditor, CellInfo, GridCell, GridColumn, GridColumnKind, GridSource};
 
 use crate::{FILE, FOLDER, icon_tint};
@@ -102,6 +104,114 @@ impl TreeSource for Catalog {
                     .text_color(icon_tint(info.selected, &palette)),
             )
             .child(label)
+            .into_any_element()
+    }
+}
+
+// --- the list ---------------------------------------------------------------
+
+/// One row of the sample list: its id, the name on the first line, the note on
+/// the second, and the word in the pill at the end of that line.
+type Contact = (&'static str, &'static str, &'static str, &'static str);
+
+/// Seven people, which is more than fits in the gallery's 180 px box — the
+/// list has to be scrollable to be worth a picture.
+const CONTACTS: &[Contact] = &[
+    ("ada", "Ada Lovelace", "Analytics · London", "owner"),
+    ("grace", "Grace Hopper", "Platform · Arlington", "admin"),
+    ("alan", "Alan Turing", "Research · Wilmslow", "admin"),
+    (
+        "katherine",
+        "Katherine Johnson",
+        "Reporting · Hampton",
+        "write",
+    ),
+    (
+        "edsger",
+        "Edsger Dijkstra",
+        "Query planner · Austin",
+        "read",
+    ),
+    ("barbara", "Barbara Liskov", "Storage · Cambridge", "read"),
+    ("radia", "Radia Perlman", "Networking · Seattle", "read"),
+];
+
+/// A directory of people, drawn as two-line cards.
+///
+/// Everything the list knows how to draw is the row's height, its padding and
+/// its background; the two lines, the weights, the pill and the way the second
+/// line justifies against the row's width are all here, which is the whole
+/// point of [`ListSource::render_item`]. The rows are 44 px tall because the
+/// gallery asks for that height — the list virtualises on one height for every
+/// row, so a card row is a taller *list*, not a taller row.
+pub struct Contacts;
+
+impl Contacts {
+    /// The row of [`CONTACTS`] for `id`.
+    fn contact(id: &str) -> Option<&'static Contact> {
+        CONTACTS.iter().find(|(contact, _, _, _)| *contact == id)
+    }
+}
+
+impl ListSource for Contacts {
+    type Id = &'static str;
+
+    fn len(&self) -> usize {
+        CONTACTS.len()
+    }
+
+    fn id(&self, index: usize) -> Self::Id {
+        CONTACTS[index].0
+    }
+
+    fn render_item(
+        &self,
+        id: &Self::Id,
+        _info: ListRowInfo,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let palette = theme(cx);
+        let Some((_, name, note, badge)) = Self::contact(id) else {
+            return div().into_any_element();
+        };
+        div()
+            .flex()
+            .flex_col()
+            .justify_center()
+            .size_full()
+            .gap(px(1.))
+            .child(
+                div()
+                    .truncate()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(*name),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(6.))
+                    .text_size(px(10.5))
+                    .text_color(palette.text_muted)
+                    .child(div().truncate().child(*note))
+                    .child(
+                        // Outlined rather than filled: the row's own background
+                        // changes under it when it is selected or hovered, and
+                        // a pill painted in `surface_active` would disappear
+                        // into the first of those.
+                        div()
+                            .flex_none()
+                            .px(px(5.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(palette.border)
+                            .text_size(px(9.5))
+                            .child(*badge),
+                    ),
+            )
             .into_any_element()
     }
 }

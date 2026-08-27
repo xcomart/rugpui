@@ -61,35 +61,35 @@ use crate::theme::theme;
 /// Also the height of the whole control, since the knob is the tallest thing in
 /// it, and the length of track the knob covers — which is why the value `0.`
 /// leaves the knob at the very start of the track rather than hanging off it.
-const KNOB: f32 = 14.;
+pub(crate) const KNOB: f32 = 14.;
 
 /// Half the knob, in pixels.
 ///
 /// The distance from the knob's leading edge to its centre, which is where a
 /// press on the bare track wants the knob to end up and where the filled part
 /// of the track stops.
-const HALF_KNOB: f32 = KNOB / 2.;
+pub(crate) const HALF_KNOB: f32 = KNOB / 2.;
 
 /// Thickness of the track, in pixels.
-const TRACK: f32 = 4.;
+pub(crate) const TRACK: f32 = 4.;
 
 /// Distance from the top of the control to the top of the track, in pixels.
 ///
 /// Centres the thin track against the knob that rides it.
-const TRACK_TOP: f32 = (KNOB - TRACK) / 2.;
+pub(crate) const TRACK_TOP: f32 = (KNOB - TRACK) / 2.;
 
 /// How far an arrow key moves a slider that has not said otherwise.
 ///
 /// Twenty steps from end to end: coarse enough to cross the range without
 /// holding a key down, fine enough that a host measuring something in percent
 /// lands on round numbers.
-const DEFAULT_STEP: f32 = 0.05;
+pub(crate) const DEFAULT_STEP: f32 = 0.05;
 
 /// Gap [`Slider`] keeps between its own edge and the track it draws.
 ///
 /// Room for the focus ring to be seen as a ring rather than as a border the
 /// knob is pressed up against.
-const RING_PAD: f32 = 3.;
+pub(crate) const RING_PAD: f32 = 3.;
 
 /// How near a multiple of the step counts as sitting on it.
 ///
@@ -107,7 +107,7 @@ type ChangeHandler = Rc<dyn Fn(f32, &mut Window, &mut App)>;
 /// A host is free to hand over anything — a fraction it has not clamped yet, a
 /// division that came out as `NaN` — and gets a slider that is drawable rather
 /// than an argument.
-fn fraction(value: f32) -> f32 {
+pub(crate) fn fraction(value: f32) -> f32 {
     if value.is_nan() {
         return 0.;
     }
@@ -122,7 +122,7 @@ fn fraction(value: f32) -> f32 {
 /// diameter as the thumb's length is the whole of the adaptation. `None` when
 /// the track is too narrow to hold the knob, where there is nowhere to move it
 /// and nothing to report.
-fn value_at(track: Bounds<Pixels>, x: Pixels, grab: Pixels) -> Option<f32> {
+pub(crate) fn value_at(track: Bounds<Pixels>, x: Pixels, grab: Pixels) -> Option<f32> {
     dragged_to(track.size.width, px(KNOB), x - track.origin.x, grab)
 }
 
@@ -169,21 +169,25 @@ pub fn stepped(value: f32, step: f32, up: bool) -> f32 {
 /// read off the event.
 pub struct DraggedKnob {
     /// The slider being dragged, so a view with several tells them apart.
-    id: ElementId,
+    ///
+    /// [`crate::RangeSlider`] puts a knob's own sub-id here rather than the
+    /// control's, which is how one payload type serves both a knob that is the
+    /// whole slider and a knob that is half of one.
+    pub(crate) id: ElementId,
     /// The track in window coordinates.
     ///
     /// Shared with the [`canvas`] that measures it, which fills it during the
     /// prepaint of the frame this payload was built in and never touches it
     /// again — so by the time a drag can read it, it is the track as it stood
     /// when the drag began.
-    track: Rc<Cell<Bounds<Pixels>>>,
+    pub(crate) track: Rc<Cell<Bounds<Pixels>>>,
     /// How far into the knob the press landed.
     ///
     /// gpui only offers this number to the closure that builds the drag
     /// preview, so that closure parks it here on the way past. A [`Cell`] rather
     /// than a plain field because the payload is only ever seen through a shared
     /// reference after that.
-    grab: Cell<Pixels>,
+    pub(crate) grab: Cell<Pixels>,
 }
 
 impl DraggedKnob {
