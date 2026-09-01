@@ -26,7 +26,9 @@
 //!
 //! Dragging a divider belongs to the view, which is what owns the pixels a
 //! ratio is computed from; the tree offers [`PaneTree::set_ratio`] and nothing
-//! else about it.
+//! else about it. [`PaneTree::equalize`] is the one ratio change the tree makes
+//! on its own, and it needs no pixels either: evening the columns out is a
+//! question about how many panes each side of a divider holds.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -365,6 +367,36 @@ impl<T> PaneTree<T> {
         true
     }
 
+    /// Evens the panes out along `axis`: every column ends up the same width on
+    /// [`Axis::Horizontal`], every row the same height on [`Axis::Vertical`].
+    ///
+    /// Only the dividers *along* `axis` move. The ones across it keep whatever
+    /// the user dragged them to, so evening the widths of a window whose right
+    /// column is split into a tall pane and a short one leaves that pair alone
+    /// and only squares the columns up.
+    ///
+    /// Each divider is given the share its first child has a claim to, which is
+    /// how many panes that child lays out along `axis` — see [`span`]. That is a
+    /// sum for a split along `axis` and the larger of the two for a split across
+    /// it, because two panes stacked on each other still occupy one column. The
+    /// result is that every pane of a row of three ends up a third wide,
+    /// whichever order the splits were made in.
+    ///
+    /// Returns whether any divider moved; `false` on a tree that has no split
+    /// along `axis`, and on one already even.
+    pub fn equalize(&mut self, axis: Axis) -> bool {
+        even(self.root.as_mut().expect(ROOT_INVARIANT), axis)
+    }
+
+    /// How many of the tree's splits lie along `axis`.
+    ///
+    /// What a caller greys its "even out" command by: with no split along the
+    /// axis there is nothing for [`PaneTree::equalize`] to move, and a command
+    /// that would do nothing is better shown as unavailable than offered.
+    pub fn splits_along(&self, axis: Axis) -> usize {
+        splits(self.root(), axis)
+    }
+
     /// What the pane `id` shows, if it is in this tree.
     pub fn get(&self, id: PaneId) -> Option<&T> {
         find(self.root(), id)
@@ -600,6 +632,77 @@ fn find_split_mut<T>(node: &mut PaneNode<T>, target: SplitId) -> Option<&mut f32
     }
 }
 
+/// How many panes `node` puts side by side along `axis`.
+///
+/// A split along `axis` adds its children up, since they divide that axis
+/// between them; one across it takes the larger of the two, since they each
+/// span the whole of it. A leaf is one pane wide however it is looked at.
+fn span<T>(node: &PaneNode<T>, axis: Axis) -> usize {
+    match node {
+        PaneNode::Leaf { .. } => 1,
+        PaneNode::Split {
+            axis: split,
+            first,
+            second,
+            ..
+        } => {
+            let (first, second) = (span(first, axis), span(second, axis));
+            if *split == axis {
+                first + second
+            } else {
+                first.max(second)
+            }
+        }
+    }
+}
+
+/// Gives every split of `node` along `axis` the share its first child spans,
+/// returning whether any ratio changed.
+///
+/// Both children are walked before the answers are combined, rather than with
+/// `||`, which would stop at the first divider that moved and leave the rest of
+/// the subtree where it was.
+fn even<T>(node: &mut PaneNode<T>, axis: Axis) -> bool {
+    let PaneNode::Split {
+        axis: split,
+        ratio,
+        first,
+        second,
+        ..
+    } = node
+    else {
+        return false;
+    };
+
+    let mut moved = false;
+    if *split == axis {
+        let head = span(first, axis) as f32;
+        // Never zero: every subtree spans at least the one pane it is.
+        let share = head / (head + span(second, axis) as f32);
+        if *ratio != share {
+            *ratio = share;
+            moved = true;
+        }
+    }
+
+    let first = even(first, axis);
+    let second = even(second, axis);
+    moved || first || second
+}
+
+/// How many splits of `node` lie along `axis`.
+fn splits<T>(node: &PaneNode<T>, axis: Axis) -> usize {
+    match node {
+        PaneNode::Leaf { .. } => 0,
+        PaneNode::Split {
+            axis: split,
+            first,
+            second,
+            ..
+        } => usize::from(*split == axis) + splits(first, axis) + splits(second, axis),
+    }
+}
+
 /// How many leaves `node` holds.
 fn count<T>(node: &PaneNode<T>) -> usize {
     match node {
@@ -630,6 +733,14 @@ mod tests {
         match node {
             PaneNode::Leaf { .. } => None,
             PaneNode::Split { id, .. } => Some(*id),
+        }
+    }
+
+    /// The second child of a split node, or `None` when it is a leaf.
+    fn second_of<T>(node: &PaneNode<T>) -> Option<&PaneNode<T>> {
+        match node {
+            PaneNode::Leaf { .. } => None,
+            PaneNode::Split { second, .. } => Some(second),
         }
     }
 
@@ -998,6 +1109,71 @@ mod tests {
 
         assert_eq!(payloads(&tree), vec![1, 20]);
         assert_eq!(tree.get_mut(PaneTree::single(9u32).first_leaf().0), None);
+    }
+
+    /// Three panes in a row, however the splits were ordered, come out a third
+    /// each — which is the whole point of the command, since splitting twice
+    /// from the same pane leaves the first half twice the width of the other
+    /// two.
+    #[test]
+    fn evening_the_widths_gives_every_column_the_same_share() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        let two = tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        tree.split(two, Axis::Horizontal, 3).expect("2 exists");
+
+        assert_eq!(tree.splits_along(Axis::Horizontal), 2);
+        assert!(tree.equalize(Axis::Horizontal));
+        // The outer divider keeps a third for the pane on its left, and the
+        // inner one halves what is left: a third each.
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 1. / 3.)));
+        assert_eq!(
+            second_of(tree.root()).and_then(split_of),
+            Some((Axis::Horizontal, EVEN))
+        );
+
+        // Already even, so there is nothing left to move.
+        assert!(!tree.equalize(Axis::Horizontal));
+    }
+
+    /// A column split in two is still one column, so the divider above it is
+    /// what the width pass moves and the one inside it is not.
+    #[test]
+    fn evening_one_axis_leaves_the_other_where_the_user_dragged_it() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        let two = tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        tree.split(two, Axis::Vertical, 3).expect("2 exists");
+
+        let stacked = split_id(second_of(tree.root()).expect("the right column"))
+            .expect("the right column is split");
+        assert!(tree.set_ratio(stacked, 0.8));
+        // Dragged off centre, so the width pass has something to leave alone.
+        assert!(tree.set_ratio(root_split(&tree), 0.25));
+
+        assert_eq!(tree.splits_along(Axis::Vertical), 1);
+        assert!(tree.equalize(Axis::Horizontal));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, EVEN)));
+        assert_eq!(
+            second_of(tree.root()).and_then(split_of),
+            Some((Axis::Vertical, 0.8))
+        );
+    }
+
+    #[test]
+    fn a_tree_with_no_split_along_the_axis_has_nothing_to_even_out() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+
+        assert_eq!(tree.splits_along(Axis::Vertical), 0);
+        assert!(!tree.equalize(Axis::Vertical));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, EVEN)));
+
+        // And a lone pane has no divider of either kind.
+        let mut lone = PaneTree::single(1u32);
+        assert_eq!(lone.splits_along(Axis::Horizontal), 0);
+        assert!(!lone.equalize(Axis::Horizontal));
     }
 
     /// The tab strip's own rules, which every application leans on around its

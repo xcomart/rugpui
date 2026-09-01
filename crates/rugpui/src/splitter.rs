@@ -64,10 +64,9 @@
 //! The grab band has to be wide enough for a pointer to find; the mark drawn on
 //! the seam has to be thin enough not to read as a gutter. Those are different
 //! numbers, so they are two elements: an invisible band that takes the press,
-//! and a rounded bar inside it that takes the accent. The bar is also held back
-//! from both ends of the seam, because a capsule that runs into the corners of
-//! the container reads as a rule rather than as a handle — the rounding only
-//! says "grab me" if there is room to see it.
+//! and a rounded bar inside it that takes the accent. They differ in thickness
+//! and in nothing else: the bar runs the whole length of the seam, so what the
+//! pointer can grab and what the eye is told to grab end at the same place.
 
 use std::rc::Rc;
 
@@ -109,12 +108,6 @@ const SEAM: f32 = 1.;
 /// rather than a rule that happens to be curved, thin enough that the pointer's
 /// target stays visibly larger than the thing it is aimed at.
 const BAR_THICKNESS: f32 = 3.;
-
-/// How far the bar stops short of each end of the seam, in pixels.
-///
-/// Enough to clear the rounding at both ends, so the capsule reads as a capsule
-/// and does not run into whatever the container's corners hold.
-const BAR_INSET: f32 = 6.;
 
 /// Callback fired with the ratio the divider is moving to.
 type ChangeHandler = Rc<dyn Fn(f32, &mut Window, &mut App)>;
@@ -488,15 +481,14 @@ impl RenderOnce for Splitter {
         // Centred across the band by the room left over, which is the one
         // measurement that stays right whatever either thickness is set to.
         let gutter = px((band_width - f32::from(bar_width)) / 2.);
-        let inset = px(BAR_INSET);
 
         let shape = div()
             .absolute()
             .rounded_full()
             .bg(palette.accent)
             .map(|bar| match axis {
-                Axis::Horizontal => bar.top(inset).bottom(inset).left(gutter).w(bar_width),
-                Axis::Vertical => bar.left(inset).right(inset).top(gutter).h(bar_width),
+                Axis::Horizontal => bar.top_0().bottom_0().left(gutter).w(bar_width),
+                Axis::Vertical => bar.left_0().right_0().top(gutter).h(bar_width),
             });
 
         // The same two durations the scrollbar fades on, on purpose: two
