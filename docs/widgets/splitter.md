@@ -134,6 +134,8 @@ wide enough for a pointer to find — 6 px, the same bargain a scrollbar's grab
 area makes with its thumb. The mark on the seam has to be thin enough not to
 read as a gutter. So they are two elements: an invisible band that takes the
 press and the cursor, and a rounded 3 px bar inside it that takes the accent.
+Thickness is the only thing they differ in: the bar runs end to end over the
+whole seam, so it never reads as shorter than the split it marks.
 
 The bar is not drawn at all until the pointer first arrives, and after that it
 fades rather than snapping:
@@ -251,10 +253,9 @@ Two boxes in a flex line, and two more floating over the seam between them:
   nothing itself;
 - the **bar** is a child of the band and is what the eye actually follows: 3 px
   across against the band's 6, `rounded_full`, centred in the band by whatever
-  room is left over, and held 6 px back from both ends of the seam so the
-  rounding reads as a capsule rather than running into the container's corners.
-  On `Horizontal` it is `w(bar)` by the band's height less the insets; on
-  `Vertical`, the transpose.
+  room is left over, and running the whole length of the seam so that the mark
+  and the target end at the same place. On `Horizontal` it is `w(bar)` by the
+  band's full height; on `Vertical`, the transpose.
 
 The divider is out of the flow on purpose. One that took part in the layout would
 have to be paid for out of one half's share, and the arithmetic that decides
