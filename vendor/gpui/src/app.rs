@@ -51,7 +51,7 @@ use crate::{
     Menu, MenuItem, OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay,
     PlatformKeyboardLayout, PlatformKeyboardMapper, Point, Priority, PromptBuilder, PromptButton,
     PromptHandle, PromptLevel, Render, RenderImage, RenderablePromptHandle, Reservation,
-    ScreenCaptureSource, SharedString, SubscriberSet, Subscription, SvgRenderer,
+    ScreenCaptureSource, ServiceRequest, SharedString, SubscriberSet, Subscription, SvgRenderer,
     SystemNotification, SystemNotificationResponse, Task, TextRenderingMode, TextSystem,
     ThermalState, Window, WindowAppearance, WindowButtonLayout, WindowHandle, WindowId,
     WindowInvalidator,
@@ -271,6 +271,27 @@ impl Application {
         F: 'static + FnMut(Vec<String>),
     {
         self.0.borrow().platform.on_open_urls(Box::new(callback));
+        self
+    }
+
+    /// RULOGMAN PATCH: register a handler to be invoked when the user picks one
+    /// of the system services this application declares.
+    ///
+    /// Shaped exactly like [`Application::on_open_urls`], and for the same
+    /// reason: a service is something outside the application naming files
+    /// inside it, delivered by the platform at a moment when there is no
+    /// context to hand a callback. What it adds is which of the application's
+    /// service entries was chosen. See [`ServiceRequest`] for the whole of what
+    /// arrives, and [`Platform::on_service_request`] for what the application's
+    /// bundle has to declare for any of it to happen.
+    pub fn on_service_request<F>(&self, callback: F) -> &Self
+    where
+        F: 'static + FnMut(ServiceRequest),
+    {
+        self.0
+            .borrow()
+            .platform
+            .on_service_request(Box::new(callback));
         self
     }
 

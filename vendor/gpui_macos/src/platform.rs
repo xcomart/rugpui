@@ -9,8 +9,9 @@ use cocoa::{
     appkit::{
         NSAppearanceNameVibrantDark, NSAppearanceNameVibrantLight, NSApplication,
         NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular, NSControl as _,
-        NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSOpenPanel, NSSavePanel,
-        NSVisualEffectState, NSVisualEffectView, NSWindow,
+        NSEventModifierFlags, NSFilenamesPboardType, NSMenu, NSMenuItem, NSModalResponse,
+        NSOpenPanel, NSPasteboardURLReadingFileURLsOnlyKey, NSSavePanel, NSVisualEffectState,
+        NSVisualEffectView, NSWindow,
     },
     base::{BOOL, NO, YES, id, nil, selector},
     foundation::{
@@ -32,8 +33,8 @@ use gpui::{
     Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, ForegroundExecutor,
     KeyContext, Keymap, Menu, MenuItem, OsMenu, OwnedMenu, PathPromptOptions, Platform,
     PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
-    PlatformWindow, Result, SystemMenuType, Task, ThermalState, WindowAppearance, WindowKind,
-    WindowParams, popup::PopupNotSupportedError,
+    PlatformWindow, Result, ServiceRequest, SystemMenuType, Task, ThermalState, WindowAppearance,
+    WindowKind, WindowParams, popup::PopupNotSupportedError,
 };
 use gpui_util::{ResultExt, new_std_command};
 use itertools::Itertools;
@@ -142,6 +143,15 @@ unsafe fn build_classes() {
                 sel!(application:openURLs:),
                 open_urls as extern "C" fn(&mut Object, Sel, id, id),
             );
+            // RULOGMAN PATCH: the one selector every `NSServices` entry in the
+            // application's bundle has to name as its `NSMessage`. AppKit
+            // resolves a chosen service by sending this to the object the
+            // application handed `setServicesProvider:`, which is this same
+            // delegate — see `Platform::on_service_request`.
+            decl.add_method(
+                sel!(handleService:userData:error:),
+                handle_service as extern "C" fn(&mut Object, Sel, id, id, ErrorOut),
+            );
 
             decl.add_method(
                 sel!(onKeyboardLayoutChange:),
@@ -184,6 +194,8 @@ pub(crate) struct MacPlatformState {
     will_open_menu: Option<Box<dyn FnMut()>>,
     menu_actions: Vec<Box<dyn Action>>,
     open_urls: Option<Box<dyn FnMut(Vec<String>)>>,
+    /// RULOGMAN PATCH: see `Platform::on_service_request`.
+    service_request: Option<Box<dyn FnMut(ServiceRequest)>>,
     finish_launching: Option<Box<dyn FnOnce()>>,
     dock_menu: Option<id>,
     menus: Option<Vec<OwnedMenu>>,
@@ -228,6 +240,8 @@ impl MacPlatform {
             will_open_menu: None,
             menu_actions: Default::default(),
             open_urls: None,
+            // RULOGMAN PATCH: see `Platform::on_service_request`.
+            service_request: None,
             finish_launching: None,
             dock_menu: None,
             on_keyboard_layout_change: None,
@@ -503,6 +517,13 @@ impl Platform for MacPlatform {
             let app: id = msg_send![APP_CLASS, sharedApplication];
             let app_delegate: id = msg_send![APP_DELEGATE_CLASS, new];
             app.setDelegate_(app_delegate);
+            // RULOGMAN PATCH: the delegate answers for the services the bundle
+            // declares as well as for the application, so that a service
+            // arrives through the same object — and the same platform ivar —
+            // every other callback comes through. Set unconditionally: a bundle
+            // that declares no `NSServices` never has the selector sent to it,
+            // and the delegate lives for the life of the process either way.
+            let _: () = msg_send![app, setServicesProvider: app_delegate];
 
             let self_ptr = self as *const Self as *const c_void;
             (*app).set_ivar(MAC_PLATFORM_IVAR, self_ptr);
@@ -772,6 +793,11 @@ impl Platform for MacPlatform {
 
     fn on_open_urls(&self, callback: Box<dyn FnMut(Vec<String>)>) {
         self.0.lock().open_urls = Some(callback);
+    }
+
+    // RULOGMAN PATCH: see `Platform::on_service_request`.
+    fn on_service_request(&self, callback: Box<dyn FnMut(ServiceRequest)>) {
+        self.0.lock().service_request = Some(callback);
     }
 
     fn prompt_for_paths(
@@ -1415,7 +1441,146 @@ extern "C" fn on_system_wake(this: &mut Object, _: Sel, _: id) {
 }
 
 extern "C" fn open_urls(this: &mut Object, _: Sel, _: id, urls: id) {
-    let urls = unsafe {
+    // RULOGMAN PATCH: the conversion moved to `url_strings`, which the services
+    // provider below reads its own pasteboard with.
+    let urls = unsafe { url_strings(urls) };
+    let platform = unsafe { get_mac_platform(this) };
+    let mut lock = platform.0.lock();
+    if let Some(mut callback) = lock.open_urls.take() {
+        drop(lock);
+        callback(urls);
+        platform.0.lock().open_urls.get_or_insert(callback);
+    }
+}
+
+/// RULOGMAN PATCH: the `NSString **error` out-parameter a services provider's
+/// last argument is.
+///
+/// A newtype rather than a bare `*mut id` because `objc` implements `Encode`
+/// for one level of object pointer and no further, and a method registered with
+/// an argument it cannot encode does not compile. The encoding is the one the
+/// Objective-C compiler would have emitted for `NSString **`; AppKit reads it
+/// back off the class when it builds the invocation, so a pointer that
+/// described itself as anything else would be marshalled by that description.
+#[repr(transparent)]
+struct ErrorOut(#[allow(dead_code)] *mut id);
+
+unsafe impl objc::Encode for ErrorOut {
+    fn encode() -> objc::Encoding {
+        // SAFETY: `^@` is a pointer to an object, which is what this is.
+        unsafe { objc::Encoding::from_str("^@") }
+    }
+}
+
+// RULOGMAN PATCH: the services provider entry point, and the counterpart to
+// `open_urls` above: the user picked one of the entries the bundle declares
+// under `NSServices`, and AppKit is handing over the selection it was invoked
+// on together with the `NSUserData` string that says which entry it was.
+//
+// `error` is an out-parameter for a sentence to show the user, and stays
+// untouched: everything this can be told to do is answered asynchronously by
+// the application, so there is nothing here that can have failed by the time
+// AppKit reads it back. Leaving it alone is what AppKit reads as success.
+extern "C" fn handle_service(
+    this: &mut Object,
+    _: Sel,
+    pasteboard: id,
+    user_data: id,
+    _: ErrorOut,
+) {
+    let request = unsafe { service_request(pasteboard, user_data) };
+    let platform = unsafe { get_mac_platform(this) };
+    let mut lock = platform.0.lock();
+    if let Some(mut callback) = lock.service_request.take() {
+        drop(lock);
+        callback(request);
+        platform.0.lock().service_request.get_or_insert(callback);
+    }
+}
+
+/// RULOGMAN PATCH: what `handle_service` was handed, read off the pasteboard.
+///
+/// # Safety
+///
+/// `pasteboard` is the `NSPasteboard` AppKit passed the services provider and
+/// `user_data` the `NSString` beside it; either may be nil.
+unsafe fn service_request(pasteboard: id, user_data: id) -> ServiceRequest {
+    unsafe {
+        let user_data = if user_data == nil {
+            String::new()
+        } else {
+            CStr::from_ptr(user_data.UTF8String())
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        ServiceRequest {
+            user_data,
+            urls: service_urls(pasteboard),
+        }
+    }
+}
+
+/// RULOGMAN PATCH: the file URLs on a service's pasteboard, in the absolute
+/// spelling `open_urls` hands over.
+///
+/// Two readings, because two generations of the pasteboard API are still in
+/// use. The modern one asks for `NSURL` objects directly, restricted to file
+/// URLs, which is what a Finder selection puts there and what an application
+/// that declared `NSSendFileTypes` asked to be sent. The older one is the
+/// `NSFilenamesPboardType` property list — an array of plain paths — which is
+/// what applications that have never been rewritten against the 10.6 API still
+/// write, and it is worth the twenty lines because a service is invoked from
+/// *someone else's* selection and there is no telling whose.
+///
+/// # Safety
+///
+/// `pasteboard` is the `NSPasteboard` AppKit passed the services provider, and
+/// may be nil.
+unsafe fn service_urls(pasteboard: id) -> Vec<String> {
+    unsafe {
+        if pasteboard == nil {
+            return Vec::new();
+        }
+
+        let url_class: id = msg_send![class!(NSURL), class];
+        let classes = NSArray::arrayWithObject(nil, url_class);
+        let file_urls_only: id = msg_send![class!(NSNumber), numberWithBool: YES];
+        let options: id = msg_send![
+            class!(NSDictionary),
+            dictionaryWithObject: file_urls_only
+            forKey: NSPasteboardURLReadingFileURLsOnlyKey
+        ];
+        let urls: id = msg_send![pasteboard, readObjectsForClasses: classes options: options];
+        if urls != nil {
+            let urls = url_strings(urls);
+            if !urls.is_empty() {
+                return urls;
+            }
+        }
+
+        let filenames: id = msg_send![pasteboard, propertyListForType: NSFilenamesPboardType];
+        if filenames == nil {
+            return Vec::new();
+        }
+        let urls = (0..filenames.count())
+            .map(|i| NSURL::fileURLWithPath_(nil, filenames.objectAtIndex(i)))
+            .filter(|url| *url != nil)
+            .collect::<Vec<_>>();
+        url_strings(NSArray::arrayWithObjects(nil, &urls))
+    }
+}
+
+/// RULOGMAN PATCH: an `NSArray` of `NSURL` as absolute strings, dropping the
+/// ones that are not valid UTF-8 with the reason logged.
+///
+/// The body `open_urls` had before a second caller wanted it.
+///
+/// # Safety
+///
+/// `urls` is a non-nil `NSArray` whose every element is an `NSURL`.
+unsafe fn url_strings(urls: id) -> Vec<String> {
+    unsafe {
         (0..urls.count())
             .filter_map(|i| {
                 let url = urls.objectAtIndex(i);
@@ -1427,14 +1592,7 @@ extern "C" fn open_urls(this: &mut Object, _: Sel, _: id, urls: id) {
                     }
                 }
             })
-            .collect::<Vec<_>>()
-    };
-    let platform = unsafe { get_mac_platform(this) };
-    let mut lock = platform.0.lock();
-    if let Some(mut callback) = lock.open_urls.take() {
-        drop(lock);
-        callback(urls);
-        platform.0.lock().open_urls.get_or_insert(callback);
+            .collect()
     }
 }
 
