@@ -122,6 +122,39 @@ pub fn guess_compositor() -> &'static str {
     }
 }
 
+/// RULOGMAN PATCH: what a system service the user picked handed the
+/// application.
+///
+/// A service is the desktop's way of letting one application act on a
+/// selection made in another: on macOS the entries an application declares
+/// under `NSServices` appear in the Finder's *Services* submenu, in the
+/// application menu of whatever the user is working in, and anywhere else the
+/// system offers them, and choosing one wakes the declaring application —
+/// starting it first if it is not running — with the selection on a
+/// pasteboard. It is the same shape of request as a URL open: something
+/// outside the application naming things inside the filesystem for it to act
+/// on. What it adds is *which* entry was chosen, since one application
+/// commonly declares several that differ only in what should happen to the
+/// selection.
+///
+/// Nothing on Linux or Windows delivers one, so a callback registered there is
+/// simply never called.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServiceRequest {
+    /// The `NSUserData` string of the entry the user chose, or empty if the
+    /// entry declared none.
+    ///
+    /// This is the application's own word, copied back out of its bundle
+    /// description unexamined: gpui neither defines the vocabulary nor checks
+    /// it, so an application that declares more than one service tells them
+    /// apart by whatever strings it wrote there.
+    pub user_data: String,
+    /// What the requester put on the pasteboard, as `file://` URLs in their
+    /// absolute spelling — the same shape [`Platform::on_open_urls`] hands
+    /// over, so that one path through an application answers both doors.
+    pub urls: Vec<String>,
+}
+
 #[expect(missing_docs)]
 pub trait Platform: 'static {
     fn background_executor(&self) -> BackgroundExecutor;
@@ -185,6 +218,22 @@ pub trait Platform: 'static {
 
     fn open_url(&self, url: &str);
     fn on_open_urls(&self, callback: Box<dyn FnMut(Vec<String>)>);
+
+    /// RULOGMAN PATCH: registers a callback invoked when the user picks one of
+    /// the system services this application declares. See [`ServiceRequest`].
+    ///
+    /// The contract on macOS, which is the only platform that delivers one, is
+    /// a bundle-description one and gpui owns half of it: every entry in the
+    /// `NSServices` array of the application's `Info.plist` must declare
+    /// `NSMessage` = `handleService` — the selector gpui installs on the
+    /// services provider, so an entry naming anything else reaches nothing —
+    /// and `NSPortName` = the bundle's `CFBundleName`. The application owns the
+    /// other half: `NSUserData` is what tells one of its entries from another,
+    /// and arrives verbatim in [`ServiceRequest::user_data`].
+    ///
+    /// Backends that have no such notion leave this a no-op, so an application
+    /// may register a callback unconditionally.
+    fn on_service_request(&self, _callback: Box<dyn FnMut(ServiceRequest)>) {}
     fn register_url_scheme(&self, url: &str) -> Task<Result<()>>;
 
     fn prompt_for_paths(
