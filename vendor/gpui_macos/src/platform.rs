@@ -1574,7 +1574,15 @@ unsafe fn service_urls(pasteboard: id) -> Vec<String> {
 /// RULOGMAN PATCH: an `NSArray` of `NSURL` as absolute strings, dropping the
 /// ones that are not valid UTF-8 with the reason logged.
 ///
-/// The body `open_urls` had before a second caller wanted it.
+/// The body `open_urls` had before a second caller wanted it, plus one step
+/// the second caller needs: a file URL is handed over in its *path* form. The
+/// Finder puts a selection on a service's pasteboard as file *reference* URLs
+/// — `file:///.file/id=6571367.72812728/`, an inode rather than a name, so
+/// that the reference survives a rename — and an application that reads the
+/// string back as a path finds no such directory. `filePathURL` is the
+/// documented way back to the name; it answers nil for a URL that is not a
+/// file URL at all, in which case the URL is what it was, so a
+/// `rulogman://` URL or an `https://` one passes through untouched.
 ///
 /// # Safety
 ///
@@ -1584,6 +1592,8 @@ unsafe fn url_strings(urls: id) -> Vec<String> {
         (0..urls.count())
             .filter_map(|i| {
                 let url = urls.objectAtIndex(i);
+                let path_url: id = msg_send![url, filePathURL];
+                let url = if path_url == nil { url } else { path_url };
                 match CStr::from_ptr(url.absoluteString().UTF8String() as *mut c_char).to_str() {
                     Ok(string) => Some(string.to_string()),
                     Err(err) => {
