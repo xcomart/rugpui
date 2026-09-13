@@ -58,6 +58,7 @@ widget.
 | [modal](./widgets/modal.md) | `modal` / `form_row` | A centred dialog panel over a translucent backdrop, plus the labelled row its body is usually built out of. |
 | [scrollbar](./widgets/scrollbar.md) | `Scrollbar` | An overlay scroll indicator: a thumb with no track behind it, drawn over the content rather than beside it. |
 | [splitter](./widgets/splitter.md) | `Splitter` | Two panes side by side, or one above the other, with a divider the pointer can move. |
+| [resize-handle](./widgets/resize-handle.md) | `ResizeHandle` | The grab band a splitter's divider — or a panel resized by dragging its own edge — is dragged by, and the accent bar that fades in under the pointer. |
 | [tree](./widgets/tree.md) | `TreeView` | A virtualised tree whose branches arrive one round trip at a time. |
 | [list](./widgets/list.md) | `ListView` | A virtualised flat list whose rows the host draws itself. |
 | [scheme-select](./widgets/scheme-select.md) | `SchemeSelect` | A dropdown that picks one colour scheme out of a list. |
