@@ -12,7 +12,9 @@
 //! palettes ([`scheme_select`]), hover tooltips of a line, a column of parts
 //! or content the host draws itself ([`tooltip`]), dialogs
 //! ([`modal`]), overlay scroll indicators ([`scrollbar`]), split panes
-//! ([`splitter`]), lazily filled trees ([`tree`]), flat lists of host-drawn
+//! ([`splitter`]) and the grab band a split — or a panel resized by dragging
+//! its own edge — is dragged by ([`resize_handle`]),
+//! lazily filled trees ([`tree`]), flat lists of host-drawn
 //! rows ([`list`]) and the caption buttons of a self-drawn title bar
 //! ([`window_controls`]). A widget that would need to understand the host's
 //! data to draw itself belongs in the host, not here — the tree and the list
@@ -51,6 +53,7 @@ pub mod menu;
 pub mod modal;
 pub mod progress;
 pub mod range_slider;
+pub mod resize_handle;
 pub mod scheme_select;
 pub mod scrollbar;
 pub mod segmented;
@@ -81,6 +84,7 @@ pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
 pub use modal::{form_row, modal};
 pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
+pub use resize_handle::ResizeHandle;
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,

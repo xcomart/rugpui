@@ -7,7 +7,9 @@ in either half: a tree beside a grid, an editor above a preview, a sidebar besid
 everything else are all the same splitter, which is why a split layout does not
 have to be rewritten each time the thing being split changes.
 
-Source: [splitter.rs](../../crates/rugpui/src/splitter.rs).
+Source: [splitter.rs](../../crates/rugpui/src/splitter.rs). The divider itself
+is a [`ResizeHandle`](./resize-handle.md), which is also what a panel resized by
+dragging its own edge uses.
 
 ## Minimal example
 
@@ -99,8 +101,8 @@ are both decided inside the widget rather than left to every host to rediscover.
 The fade is *not* the host's. A fade is a fact about one pointer and one
 divider, and no view has any use for it, so the handle keeps it under gpui's
 element state — the same store an `on_click` uses to remember it saw a press —
-keyed by the splitter's own id. It comes into being the first time the divider
-is drawn and is gone the moment it stops being drawn, which is exactly as long
+keyed by the splitter's own id with `split-handle` hung off it. It comes into
+being the first time the divider is drawn and is gone the moment it stops being drawn, which is exactly as long
 as a fade should live. Nothing to declare, nothing to initialise, nothing to
 reset: the ratio stays the one thing a host stores per divider.
 
@@ -127,37 +129,22 @@ Without the id check the outer divider would jump every time the inner one was
 touched, and it would jump to the wrong place, since the outer listener measures
 the pointer against a box several times the size.
 
-## The handle: a band you can hit, a bar you can see
+## The handle is a `ResizeHandle`
 
-Two different numbers wanted at once. The band that answers a press has to be
-wide enough for a pointer to find — 6 px, the same bargain a scrollbar's grab
-area makes with its thumb. The mark on the seam has to be thin enough not to
-read as a gutter. So they are two elements: an invisible band that takes the
-press and the cursor, and a rounded 3 px bar inside it that takes the accent.
-Thickness is the only thing they differ in: the bar runs end to end over the
-whole seam, so it never reads as shorter than the split it marks.
+The band the pointer grabs, the rounded accent bar that fades in under it, and
+the little state a fade needs are not this widget's — they are
+[`ResizeHandle`](./resize-handle.md), which a panel resized by dragging its own
+edge uses just as well as a splitter does. The splitter places one at
+`relative(ratio)` with [`at`](./resize-handle.md#builder-options), which centres
+its 6 px band on the seam so the grab area is symmetric about the line the eye
+sees, and hands it `handle_thickness` and `bar_thickness` unchanged.
 
-The bar is not drawn at all until the pointer first arrives, and after that it
-fades rather than snapping:
-
-| | duration | easing |
-| --- | --- | --- |
-| in | `FADE_IN`, 120 ms | `ease_in_out` |
-| out | `FADE_OUT`, 250 ms | `ease_in_out` |
-
-Those are `rugpui::scrollbar`'s own two constants, used here on purpose. The
-scrollbar and the splitter handle are the same kind of thing — an overlay that
-appears under the pointer and leaves when it goes — and two overlays breathing
-at different rates make a window look assembled from parts. Out is twice in for
-the reason it is there: nothing is waiting on a bar that is leaving, so it can
-afford to go gently, while one arriving is a reaction to something the user has
-just done and anything slower reads as lag.
-
-Each phase animates under an element id of its own (`…/bar-fade-in`,
-`…/bar-fade-out`). gpui keeps an animation's start time in element state keyed
-by that id and drops it once the id stops being drawn, so switching phase
-restarts the new one from zero, while staying on one phase leaves the clock
-running.
+The short version of what that page says: the band is invisible and 6 px wide so
+a pointer can find it, the bar inside it is 3 px and takes the accent, the bar is
+not drawn at all until the pointer first arrives, and after that it fades in over
+`FADE_IN` (120 ms) and out over `FADE_OUT` (250 ms) — the scrollbar's own two
+constants, on purpose, since two overlays that appear under the pointer should
+breathe at one rate.
 
 ![Two splits, one with a line on the seam and one without](../screenshots/splitter/seamless.png)
 
@@ -174,28 +161,16 @@ pointer keeps going, often clean out of the window.
 That needs saying because gpui reports *every* element as unhovered while a drag
 is in flight, so hover alone would take the bar down the instant the gesture
 began. The handle therefore remembers the press, and a press outranks the
-pointer: while the divider is held the phase stays `In` whatever hover says, and
-because the phase is unchanged the animation keeps its id and its clock across
-every re-render the moving ratio causes. The bar does not blink as the divider
-travels.
+pointer — the whole of that argument, and the state it needs, is
+[over there](./resize-handle.md#the-release-is-heard-twice-and-neither-one-is-the-hosts).
+The bar does not blink as the divider travels.
 
-The release is read from where it landed:
-
-- **on the band** — the handle's own `on_mouse_up`, which gpui only runs when
-  the band is under the pointer, so the bar demonstrably still has a pointer on
-  it and stays up. No fade out and straight back in, which is what a blink is,
-  and this is the common ending: a short drag never reaches the minimum, so the
-  divider is still under the pointer when the button comes up.
-- **anywhere else, inside the container or outside the window** — the
-  container's `on_mouse_up` / `on_mouse_up_out`, which fade the bar out. Both are
-  no-ops unless a press of this splitter's own band is outstanding, so an
-  ordinary click in either pane leaves the bar alone.
-
-Every one of those handlers asks for a repaint even when the phase is unchanged.
-The repaint is the point: gpui re-checks each hover listener against the pointer
-as it paints, and the frame drawn after a release is what tells the band it is
-being hovered again — a fact it had no way to learn during the drag, and without
-which the bar could not hear the pointer eventually leave.
+The release is read from where it landed, and both halves of that are the
+handle's own — the container carries no mouse-up listener at all. See
+[the release is heard twice](./resize-handle.md#the-release-is-heard-twice-and-neither-one-is-the-hosts):
+a release *on* the band leaves the bar up, since the pointer is provably still
+there, and one anywhere else — in either pane, or clean outside the window —
+fades it out.
 
 ## Why the container hears the drag, not the handle
 
@@ -215,7 +190,8 @@ comes back, and no need for the widget to have seen the press.
 ## `split_share` for a host laying out its own split
 
 A sidebar whose width is a *setting* rather than a `Splitter` still needs the
-same arithmetic, so it is public:
+same arithmetic, so it is public — and it can have the same divider to drag, by
+putting a [`ResizeHandle`](./resize-handle.md) on its own edge with `at_end()`:
 
 ```rust
 use rugpui::split_share;
@@ -247,15 +223,12 @@ Two boxes in a flex line, and two more floating over the seam between them:
   `min_h_0` and `overflow_hidden`;
 - the **seam** is a 1 px absolutely positioned line at `relative(ratio)`, the
   same place a border between the two halves would have landed;
-- the **handle** is an absolutely positioned band at the same percentage, pulled
-  back half its own thickness so the grab area is symmetric about the line the
-  eye sees. It `occlude()`s, carries the resize cursor for its axis, and paints
-  nothing itself;
-- the **bar** is a child of the band and is what the eye actually follows: 3 px
-  across against the band's 6, `rounded_full`, centred in the band by whatever
-  room is left over, and running the whole length of the seam so that the mark
-  and the target end at the same place. On `Horizontal` it is `w(bar)` by the
-  band's full height; on `Vertical`, the transpose.
+- the **handle** is a [`ResizeHandle`](./resize-handle.md) placed with
+  `.at(relative(ratio))`: an absolutely positioned band at the same percentage,
+  pulled back half its own thickness so the grab area is symmetric about the line
+  the eye sees, `occlude()`ing, carrying the resize cursor for its axis, and
+  painting nothing itself — with the accent bar centred inside it and running the
+  whole length of the seam.
 
 The divider is out of the flow on purpose. One that took part in the layout would
 have to be paid for out of one half's share, and the arithmetic that decides

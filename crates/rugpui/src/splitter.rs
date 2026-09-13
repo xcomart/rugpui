@@ -12,15 +12,16 @@
 //! [`Splitter::on_change`]. One `f32` per divider is the whole of what a host
 //! stores — no drag flag, no phase, no handle to keep alive between frames.
 //!
-//! ## Why the handle keeps a little state of its own
+//! ## The divider itself is not this module's
 //!
-//! A fade is not a fact about the layout, it is a fact about one pointer and one
-//! divider, and no host has any use for it. So it does not go in the host's
-//! struct: the handle files it under gpui's element state — the same store an
-//! `on_click` uses to remember it saw a press — keyed by the splitter's own id,
-//! which is unique in the window for the reason given below. It lives exactly as
-//! long as the divider is on screen and is gone the moment it is not, which is
-//! precisely the lifetime a fade wants.
+//! The band the pointer grabs, the accent bar that fades in under it, and the
+//! little state a fade needs are a [`ResizeHandle`], which a panel resized by
+//! dragging its own edge uses just as well as a splitter does. The splitter
+//! places one at `relative(ratio)` and hears the drag it starts; everything
+//! about how the divider looks and when it lights up is in
+//! [`resize_handle`](crate::resize_handle), including why a fade is nobody's
+//! business but the handle's and why the bar is thinner than the band that
+//! answers a press.
 //!
 //! ## Why the container hears the drag, and not the handle
 //!
@@ -58,24 +59,15 @@
 //! The other guard is the minimum share. A pane squeezed to nothing takes the
 //! handle with it and leaves no way to drag it back out, so both halves keep
 //! [`Splitter::min_ratio`] of the box whatever the pointer asks for.
-//!
-//! ## Why the bar is smaller than the band that answers a press
-//!
-//! The grab band has to be wide enough for a pointer to find; the mark drawn on
-//! the seam has to be thin enough not to read as a gutter. Those are different
-//! numbers, so they are two elements: an invisible band that takes the press,
-//! and a rounded bar inside it that takes the accent. They differ in thickness
-//! and in nothing else: the bar runs the whole length of the seam, so what the
-//! pointer can grab and what the eye is told to grab end at the same place.
 
 use std::rc::Rc;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Axis, Bounds, Context, DragMoveEvent, ElementId,
-    Entity, MouseButton, Pixels, Point, Window, div, ease_in_out, prelude::*, px, relative,
+    AnyElement, App, Axis, Bounds, DragMoveEvent, ElementId, Pixels, Point, Window, div,
+    prelude::*, px, relative,
 };
 
-use crate::scrollbar::{FADE_IN, FADE_OUT};
+use crate::resize_handle::{DEFAULT_BAR, DEFAULT_THICKNESS, ResizeHandle};
 use crate::theme::theme;
 
 /// Share of the box the first child gets when the host has not said otherwise.
@@ -89,25 +81,11 @@ const DEFAULT_RATIO: f32 = 0.5;
 /// there would be nothing left to grab.
 const DEFAULT_MIN_RATIO: f32 = 0.1;
 
-/// Thickness of the band that answers a press, in pixels.
-///
-/// Wider than the line the eye sees, for the same reason a scrollbar's grab
-/// area is wider than its thumb: a one pixel target is not one a pointer can be
-/// expected to find.
-const DEFAULT_HANDLE: f32 = 6.;
-
 /// Thickness of the line the eye sees, in pixels.
 ///
 /// A hairline and nothing more. It is a seam between two panes, not a border
 /// around either of them, and anything thicker starts to read as a gutter.
 const SEAM: f32 = 1.;
-
-/// Thickness of the accent bar drawn inside the grab band, in pixels.
-///
-/// Half the band, near enough: thick enough to be a shape with two rounded ends
-/// rather than a rule that happens to be curved, thin enough that the pointer's
-/// target stays visibly larger than the thing it is aimed at.
-const BAR_THICKNESS: f32 = 3.;
 
 /// Callback fired with the ratio the divider is moving to.
 type ChangeHandler = Rc<dyn Fn(f32, &mut Window, &mut App)>;
@@ -136,97 +114,6 @@ fn within(share: f32, min: f32) -> f32 {
         return DEFAULT_RATIO;
     }
     share.clamp(min, 1. - min)
-}
-
-/// What the bar over the seam is doing right now.
-///
-/// Three states and no fourth: a fade that has run to its end is still the
-/// phase that ran it, because an animation left alone sits at its last frame —
-/// [`Fade::In`] finished is a bar at full strength and [`Fade::Out`] finished is
-/// a bar at nothing, inside a band that paints nothing either way. Adding a
-/// "shown" would only be a second name for a state already on screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Fade {
-    /// Never yet shown, so nothing is drawn at all — not even a transparent bar.
-    #[default]
-    Hidden,
-    /// Coming up, or up.
-    In,
-    /// Going away, or gone.
-    Out,
-}
-
-/// Everything the handle remembers between frames.
-///
-/// Kept in gpui's element state rather than in the host's struct; see the module
-/// docs for why a fade is nobody else's business. `held` is here because the
-/// pointer stops counting as hovering the band the moment a drag starts — gpui
-/// reports every element as unhovered while a drag is in flight — and a divider
-/// being dragged is the one time the bar most needs to stay up.
-#[derive(Debug, Clone, Copy, Default)]
-struct HandleState {
-    /// What the bar is doing.
-    fade: Fade,
-    /// Whether a press that started on this band has yet to be released.
-    held: bool,
-}
-
-impl HandleState {
-    /// Re-reads the fade from `hovered` and the press, and asks for a repaint.
-    ///
-    /// Always notifies, even when the phase is unchanged. The repaint is the
-    /// point: gpui re-checks each hover listener against the pointer as it
-    /// paints, so the frame drawn after a release is what tells the band it is
-    /// being hovered again — a fact it could not learn during the drag, and
-    /// without which the bar would have no way to hear the pointer leave.
-    fn shift(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.fade = next_fade(self.fade, hovered, self.held);
-        cx.notify();
-    }
-}
-
-/// The phase a bar in `current` moves to, given a pointer and a press.
-///
-/// The whole of the handle's behaviour, and pure, so that the awkward pairs —
-/// the pointer leaving mid-drag, a release with the pointer still on the band —
-/// can be stated as answers rather than traced through gpui's event order.
-///
-/// A press outranks the pointer: while the divider is held the bar stays up
-/// wherever the pointer has got to, including outside the window. And a bar
-/// that was never shown stays hidden rather than fading out of nothing, which
-/// would draw a frame of full-strength accent nobody asked for.
-fn next_fade(current: Fade, hovered: bool, held: bool) -> Fade {
-    if hovered || held {
-        Fade::In
-    } else if current == Fade::Hidden {
-        Fade::Hidden
-    } else {
-        Fade::Out
-    }
-}
-
-/// Ends a press that did not finish on the band, and fades the bar out with it.
-///
-/// A no-op unless a press of this splitter's own band is outstanding, which is
-/// what keeps an ordinary click in either pane — and a release the band has
-/// already answered for itself — from touching the bar.
-fn end_press(state: &Entity<HandleState>, cx: &mut App) {
-    state.update(cx, |handle, cx| {
-        if !handle.held {
-            return;
-        }
-        handle.held = false;
-        handle.shift(false, cx);
-    });
-}
-
-/// Where a splitter's handle files its fade.
-///
-/// One function so that the key is written once: the state is looked up by this
-/// id on every frame, and a splitter whose key drifted between frames would get
-/// a fresh, hidden bar each time it was drawn.
-fn fade_key(id: &ElementId) -> ElementId {
-    ElementId::from((id.clone(), "handle-fade"))
 }
 
 /// The share of `bounds` a pointer at `position` is asking the first half to
@@ -332,8 +219,8 @@ impl Splitter {
             axis,
             ratio: DEFAULT_RATIO,
             min_ratio: DEFAULT_MIN_RATIO,
-            thickness: px(DEFAULT_HANDLE),
-            bar: px(BAR_THICKNESS),
+            thickness: px(DEFAULT_THICKNESS),
+            bar: px(DEFAULT_BAR),
             seam: true,
             first: None,
             second: None,
@@ -416,8 +303,8 @@ impl Splitter {
 }
 
 impl RenderOnce for Splitter {
-    /// Two boxes in a flex line, and two more floating over the seam between
-    /// them.
+    /// Two boxes in a flex line, a hairline over the seam between them, and a
+    /// [`ResizeHandle`] over that.
     ///
     /// The halves are sized by `flex_basis` alone — a percentage each, adding up
     /// to the whole — which is what lets the split be drawn without knowing how
@@ -430,29 +317,16 @@ impl RenderOnce for Splitter {
     /// percentage, so both follow the ratio rather than being wedged between the
     /// halves: a divider that took part in the layout would have to be paid for
     /// out of one half's share, and the arithmetic that decides which one is
-    /// exactly the arithmetic this widget exists to avoid. The handle is pulled
-    /// back half its own thickness so the grab area is symmetric about the line
-    /// the eye sees, and occludes: a plain hitbox would let the press reach the
-    /// pane underneath as well.
-    ///
-    /// The band itself paints nothing. What the eye follows is the bar inside
-    /// it, and it is a separate element for the reason in the module docs: the
-    /// target and the mark want different sizes.
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    /// exactly the arithmetic this widget exists to avoid. The handle is placed
+    /// with [`ResizeHandle::at`], which centres its band on the ratio so the
+    /// grab area is symmetric about the line the eye sees.
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = theme(cx);
         let axis = self.axis;
         let id = self.id;
         let min = self.min_ratio;
         let ratio = within(self.ratio, min);
-        let thickness = self.thickness;
         let on_change = self.on_change;
-
-        // Looked up rather than passed in, and looked up again on every frame:
-        // the entity gpui hands back is the same one for as long as the divider
-        // keeps being drawn, and it already notifies this view when it changes,
-        // so nothing here has to arrange a repaint of its own.
-        let state = window.use_keyed_state(fade_key(&id), cx, |_, _| HandleState::default());
-        let fade = state.read(cx).fade;
 
         let half = |share: f32, child: Option<AnyElement>| {
             div()
@@ -474,118 +348,17 @@ impl RenderOnce for Splitter {
             })
         });
 
-        // Clamped here rather than in the builder so that a host may set the two
-        // thicknesses in either order and still get a bar that fits its band.
-        let band_width = f32::from(thickness).max(0.);
-        let bar_width = px(f32::from(self.bar).clamp(0., band_width));
-        // Centred across the band by the room left over, which is the one
-        // measurement that stays right whatever either thickness is set to.
-        let gutter = px((band_width - f32::from(bar_width)) / 2.);
-
-        let shape = div()
-            .absolute()
-            .rounded_full()
-            .bg(palette.accent)
-            .map(|bar| match axis {
-                Axis::Horizontal => bar.top_0().bottom_0().left(gutter).w(bar_width),
-                Axis::Vertical => bar.left_0().right_0().top(gutter).h(bar_width),
-            });
-
-        // The same two durations the scrollbar fades on, on purpose: two
-        // overlays that appear under the pointer and leave when it goes should
-        // breathe at one rate, or the window looks assembled from parts.
-        //
-        // Each phase animates under an id of its own. gpui keeps an animation's
-        // start time in element state keyed by that id and drops it once the id
-        // stops being drawn, so switching phase restarts the new one from zero
-        // while staying on one phase — every frame of a drag, say — leaves the
-        // clock running and the bar does not blink.
-        let bar = match fade {
-            Fade::Hidden => None,
-            Fade::In => Some(
-                shape
-                    .with_animation(
-                        ElementId::from((id.clone(), "bar-fade-in")),
-                        Animation::new(FADE_IN).with_easing(ease_in_out),
-                        |bar, delta| bar.opacity(delta),
-                    )
-                    .into_any_element(),
-            ),
-            Fade::Out => Some(
-                shape
-                    .with_animation(
-                        ElementId::from((id.clone(), "bar-fade-out")),
-                        Animation::new(FADE_OUT).with_easing(ease_in_out),
-                        |bar, delta| bar.opacity(1. - delta),
-                    )
-                    .into_any_element(),
-            ),
-        };
-
-        let offset = px(-f32::from(thickness) / 2.);
-        let handle = div()
-            .id(ElementId::from((id.clone(), "split-handle")))
-            .absolute()
-            .occlude()
-            .map(|band| match axis {
-                Axis::Horizontal => band
-                    .top_0()
-                    .bottom_0()
-                    .left(relative(ratio))
-                    .ml(offset)
-                    .w(thickness)
-                    .cursor_ew_resize(),
-                Axis::Vertical => band
-                    .left_0()
-                    .right_0()
-                    .top(relative(ratio))
-                    .mt(offset)
-                    .h(thickness)
-                    .cursor_ns_resize(),
-            })
-            // The pointer arriving and the pointer leaving, and nothing else:
-            // what either one means is decided by `next_fade`, which also knows
-            // about the press this listener cannot see.
-            .on_hover({
-                let state = state.clone();
-                move |hovered: &bool, _window, cx| {
-                    let hovered = *hovered;
-                    state.update(cx, |handle, cx| handle.shift(hovered, cx));
-                }
-            })
-            // Taken on the press rather than when the drag is minted, since gpui
-            // only mints one after the pointer has moved far enough to prove it
-            // was a drag, and the bar should be up for the whole gesture.
-            .on_mouse_down(MouseButton::Left, {
-                let state = state.clone();
-                move |_, _window, cx| {
-                    state.update(cx, |handle, cx| {
-                        handle.held = true;
-                        handle.shift(true, cx);
-                    });
-                }
-            })
-            // A release that lands on the band itself: the pointer is provably
-            // still here — gpui only runs this listener when the band is under
-            // it — so the bar stays up and there is nothing to fade. Clearing
-            // `held` here is also what tells the container's listener below,
-            // which runs next and cannot tell where the release landed, that
-            // this release has already been accounted for.
-            .on_mouse_up(MouseButton::Left, {
-                let state = state.clone();
-                move |_, _window, cx| {
-                    state.update(cx, |handle, cx| {
-                        handle.held = false;
-                        handle.shift(true, cx);
-                    });
-                }
-            })
-            // An empty preview: the divider follows the pointer directly, so a
-            // ghost trailing it would only be a second thing to watch.
-            .on_drag(DraggedSplit { id: id.clone() }, |_, _, _, cx| {
-                cx.new(|_| gpui::Empty)
-            })
-            .children(bar);
+        // The id the handle files its fade under is the splitter's own with a
+        // name hung off it, so that two splitters never share a bar and the
+        // tests below can find the one this splitter drew.
+        let handle = ResizeHandle::new(
+            ElementId::from((id.clone(), "split-handle")),
+            axis,
+            DraggedSplit { id: id.clone() },
+        )
+        .at(relative(ratio))
+        .thickness(self.thickness)
+        .bar_thickness(self.bar);
 
         div()
             .relative()
@@ -597,26 +370,11 @@ impl RenderOnce for Splitter {
             .size_full()
             .min_w_0()
             .min_h_0()
-            // A drag that ends anywhere but on the band — which, once the ratio
-            // has hit its minimum, is most of them, because the divider stops
-            // and the pointer runs on. Two listeners for the one event: gpui
-            // asks separately about a release inside this box and a release
-            // outside it, and a gesture that left the window is still a gesture
-            // this divider has to hear the end of.
-            //
-            // Both are no-ops unless a press of this splitter's own band is
-            // outstanding, so an ordinary click in either pane leaves the bar
-            // alone, and so does a release the band has already answered for.
-            .on_mouse_up(MouseButton::Left, {
-                let state = state.clone();
-                move |_, _window, cx| end_press(&state, cx)
-            })
-            .on_mouse_up_out(MouseButton::Left, move |_, _window, cx| {
-                end_press(&state, cx)
-            })
             // Listening here rather than on the handle because the handle moves
             // out from under the pointer as the drag goes on, while this box
-            // stays put and is what the new ratio is measured against.
+            // stays put and is what the new ratio is measured against. The end
+            // of the gesture is not this box's business: the band hears its own
+            // release, wherever it lands.
             .on_drag_move(move |event: &DragMoveEvent<DraggedSplit>, window, cx| {
                 let Some(handler) = on_change.as_ref() else {
                     return;
@@ -644,9 +402,13 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::ops::Deref;
 
-    use gpui::{Entity, Modifiers, Render, TestAppContext, VisualTestContext, point, size};
+    use gpui::{
+        Context, Entity, Modifiers, MouseButton, Render, TestAppContext, VisualTestContext, point,
+        size,
+    };
 
     use super::*;
+    use crate::resize_handle::{Fade, HandleState, fade_key};
 
     /// Width of the window the drag test runs in.
     ///
@@ -691,16 +453,22 @@ mod tests {
             let ratio = self.ratio.clone();
             // gpui isolates a stateless view's subtree under its type name — see
             // `ViewElement::request_layout` — so the splitter's own element ids
-            // sit one level below the harness's. Standing in the same place is
-            // what makes this the splitter's state rather than a second copy of
-            // it, and the assertions below fail loudly if that ever stops being
-            // true.
+            // sit one level below the harness's, and the handle's one level
+            // below the splitter's, since the handle is a stateless view too.
+            // Standing in the same place is what makes this the handle's state
+            // rather than a second copy of it, and the assertions below fail
+            // loudly if that ever stops being true.
+            let band = ElementId::from((ElementId::from("split"), "split-handle"));
             let handle = window.with_id(
                 ElementId::Name(std::any::type_name::<Splitter>().into()),
                 |window| {
-                    window.use_keyed_state(fade_key(&"split".into()), cx, |_, _| {
-                        HandleState::default()
-                    })
+                    window.with_id(
+                        ElementId::Name(std::any::type_name::<ResizeHandle<DraggedSplit>>().into()),
+                        |window| {
+                            window
+                                .use_keyed_state(fade_key(&band), cx, |_, _| HandleState::default())
+                        },
+                    )
                 },
             );
             *self.fade.borrow_mut() = Some(handle);
@@ -859,33 +627,6 @@ mod tests {
 
         assert_eq!(dragged.id(), &ElementId::from("inner"));
         assert_ne!(dragged.id(), &ElementId::from("outer"));
-    }
-
-    /// The pure half of the handle's behaviour, stated as answers.
-    ///
-    /// The two that matter are the ones event order alone would get wrong: the
-    /// pointer "leaving" the moment a drag starts, which must not take the bar
-    /// with it, and a release with the pointer still on the band, which must
-    /// not fade anything out.
-    #[test]
-    fn a_press_outranks_the_pointer() {
-        // Arriving shows it, from either of the two states it can arrive in.
-        assert_eq!(next_fade(Fade::Hidden, true, false), Fade::In);
-        assert_eq!(next_fade(Fade::Out, true, false), Fade::In);
-        assert_eq!(next_fade(Fade::In, true, false), Fade::In);
-
-        // Leaving takes it away — unless the divider is being dragged, which is
-        // exactly when gpui reports the band as unhovered.
-        assert_eq!(next_fade(Fade::In, false, false), Fade::Out);
-        assert_eq!(next_fade(Fade::In, false, true), Fade::In);
-
-        // A release with the pointer still on the band changes nothing; one
-        // with the pointer elsewhere fades out.
-        assert_eq!(next_fade(Fade::In, true, false), Fade::In);
-        assert_eq!(next_fade(Fade::In, false, false), Fade::Out);
-
-        // A bar that was never shown has nothing to fade out of.
-        assert_eq!(next_fade(Fade::Hidden, false, false), Fade::Hidden);
     }
 
     /// Where the harness leaves the handle's state for the test to find.
