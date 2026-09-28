@@ -134,6 +134,7 @@ pub struct WindowControls {
     id: ElementId,
     icons: WindowControlIcons,
     buttons: Vec<WindowButton>,
+    active: Option<bool>,
 }
 
 impl WindowControls {
@@ -150,7 +151,17 @@ impl WindowControls {
             id: id.into(),
             icons,
             buttons,
+            active: None,
         }
+    }
+
+    /// Uses the window's active state to tint the caption glyphs.
+    ///
+    /// When unset, the strip keeps its usual theme icon colour. A custom
+    /// Linux title bar sets it so an inactive window can quieten its glyphs.
+    pub fn with_active(mut self, active: bool) -> Self {
+        self.active = Some(active);
+        self
     }
 }
 
@@ -167,7 +178,17 @@ impl RenderOnce for WindowControls {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let maximized = window.is_maximized();
-        let Self { id, icons, buttons } = self;
+        let Self {
+            id,
+            icons,
+            buttons,
+            active,
+        } = self;
+        let glyph_color = match active {
+            Some(true) => theme.text,
+            Some(false) => theme.text_muted,
+            None => theme.icon,
+        };
 
         // The frame shared by all three: the group that lets the hover fill
         // reach the glyph, and the area the platform hit test reads.
@@ -194,7 +215,7 @@ impl RenderOnce for WindowControls {
                     // press to the window procedure before the app sees a click.
                     .on_click(|_, window, _cx| window.minimize_window())
                     .child(
-                        glyph(icons.minimize.clone(), theme.icon)
+                        glyph(icons.minimize.clone(), glyph_color)
                             .group_hover(MINIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
@@ -208,7 +229,7 @@ impl RenderOnce for WindowControls {
                     .hover(|style| style.bg(theme.surface_hover))
                     .on_click(|_, window, _cx| window.zoom_window())
                     .child(
-                        glyph(path, theme.icon)
+                        glyph(path, glyph_color)
                             .group_hover(MAXIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
@@ -216,7 +237,7 @@ impl RenderOnce for WindowControls {
                 .hover(|style| style.bg(rgb(CLOSE_HOVER)))
                 .on_click(|_, window, _cx| window.remove_window())
                 .child(
-                    glyph(icons.close.clone(), theme.icon).group_hover(CLOSE_GROUP, |style| {
+                    glyph(icons.close.clone(), glyph_color).group_hover(CLOSE_GROUP, |style| {
                         style.text_color(rgb(CLOSE_HOVER_GLYPH))
                     }),
                 ),
