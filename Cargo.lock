@@ -4598,7 +4598,7 @@ dependencies = [
 
 [[package]]
 name = "rugpui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "gpui",
@@ -4611,7 +4611,7 @@ dependencies = [
 
 [[package]]
 name = "rugpui-editor"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "gpui",
@@ -4625,7 +4625,7 @@ dependencies = [
 
 [[package]]
 name = "rugpui-gallery"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gpui",
  "gpui_platform",
@@ -4637,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "rugpui-grid"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gpui",
  "rugpui",
@@ -4646,7 +4646,7 @@ dependencies = [
 
 [[package]]
 name = "rugpui-shell"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "futures",

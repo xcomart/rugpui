@@ -101,7 +101,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]
