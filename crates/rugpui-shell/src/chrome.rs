@@ -353,7 +353,7 @@ pub fn window_control_strips(
     } else {
         (Vec::new(), Vec::new())
     };
-    let active = (cfg!(target_os = "linux") && custom).then(|| window.is_window_active());
+    let active = custom.then(|| window.is_window_active());
     let strip = |id: &'static str, buttons: Vec<gpui::WindowButton>| {
         (!buttons.is_empty()).then(|| {
             let controls = WindowControls::new(id, icons.clone(), buttons);
