@@ -36,6 +36,15 @@ pub fn form_row<E: IntoElement>(
 `form_row` puts a fixed 96 px label column beside a control that takes the rest
 of the row, so a stack of them lines up without the caller measuring anything.
 
+## Keyboard navigation
+
+Tab and Shift+Tab wrap among the enabled controls of the topmost modal.
+Background controls are skipped. Form controls take tab index `0` by default,
+which preserves render order; explicit indices override it. Existing host
+focus actions use the same boundary, and unbound Tab works without a dialog
+specific key binding. Editors retain their own indent and outdent bindings.
+Closing the modal restores the window's normal tab ring.
+
 ## Minimal example
 
 The shell's about dialog is the worked example. It builds a `body`, a `title`

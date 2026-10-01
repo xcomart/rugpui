@@ -63,7 +63,7 @@ impl Button {
             disabled: false,
             full_width: false,
             compact: false,
-            tab_index: None,
+            tab_index: Some(0),
             on_click: None,
         }
     }

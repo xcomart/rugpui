@@ -49,7 +49,7 @@ Button::new("connect", "Connect")
 | `disabled` | `bool` | `false` | Halves the opacity of background, border and label, drops the hover and press styles, and stops `on_click` from being wired at all. |
 | `full_width` | `bool` | `false` | Stretches the button across its parent's width (`w_full`). |
 | `compact` | — (no argument) | off | Shrinks the button from 30 px tall / 12 px padding / 13 px text to 20 / 8 / 11, for a dense toolbar or status bar. |
-| `tab_index` | `isize` | none | Places the button in the window's tab order. |
+| `tab_index` | `isize` | `0` | Places the button in the window's tab order. |
 | `on_click` | `impl Fn(&ClickEvent, &mut Window, &mut App) + 'static` | none | Click callback. Ignored while the button is disabled. |
 
 Note that `compact()` takes no argument — it is a switch, not a setter, unlike
@@ -85,7 +85,7 @@ mutates and whatever decides `disabled(..)`, and both live in the host view.
   and press fills are the variant's base colour shifted by ±6% lightness
   (`surface_active` darkened by 4% for `Secondary`), computed by
   `rugpui::theme::shift_lightness`.
-- A button given `tab_index` draws an accent outline while focused and is
+- A focused button draws an accent outline and is
   activated by `Enter` or `Space`, which gpui delivers as an ordinary click.
 - A disabled button is skipped by the tab order entirely, mirroring how the
   platform treats a disabled control: the `tab_index` call is filtered out

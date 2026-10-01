@@ -62,7 +62,7 @@ Slider::new("volume")
 | `Slider::new` | `id: impl Into<ElementId>` | — | Creates a slider at the start of its range. See below for why `id` is unusual. |
 | `value` | `f32` | `0.0` | Where the knob sits. Clamped to `0.0..=1.0` for drawing; `NaN` draws as `0.0`. The host's own value is left alone. |
 | `step` | `f32` | `0.05` | How far one arrow key moves the slider, and which grid keyboard values snap to. A step that is not positive and finite disables stepping rather than freezing the keys. |
-| `tab_index` | `isize` | none | Places the slider in the window's tab order and enables the arrow / `Home` / `End` keys. |
+| `tab_index` | `isize` | `0` | Places the slider in the window's tab order and enables the arrow / `Home` / `End` keys. |
 | `on_change` | `impl Fn(f32, &mut Window, &mut App) + 'static` | none | Fired with the value the slider is moving to, by all three ways of moving it, and never with the value already showing. |
 
 Three more items in the module are part of the public API:
@@ -124,7 +124,7 @@ Three ways to move it, and all three end at `on_change`:
 | `Right` / `Up` | one step towards the end, snapped to the step's grid |
 | `Home` / `End` | straight to `0.0` / `1.0` |
 
-Keys only work when `tab_index` has been set, and a keystroke carrying any
+Keys work while focused; a keystroke carrying any
 modifier is ignored. Propagation is stopped for the slider's own keys whether or
 not the press moved it: the slider owns those keys while it holds focus.
 

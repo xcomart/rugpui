@@ -85,7 +85,7 @@ title.*
 | `on_toggle` | `impl Fn(bool, &mut Window, &mut App) + 'static` | none | Fired with the value the section is folding *to*. |
 | `trailing` | `impl IntoElement` | none | An element at the far end of the header, beside the disclosure. Clicking it does not fold the section. |
 | `arrow_icons` | `closed: impl Into<SharedString>`, `open: impl Into<SharedString>` | `rugpui::CARET_RIGHT` / `CARET_DOWN` | Host svg paths for the disclosure, painted in `theme.icon` at 14 px. |
-| `tab_index` | `isize` | none | Places the header in the window's tab order. A disabled section takes no stop. |
+| `tab_index` | `isize` | `0` | Places the header in the window's tab order. A disabled section takes no stop. |
 | `indent` | `bool` | `true` | Pads the body left by the arrow box, so its content lines up with the title. |
 | `disabled` | `bool` | `false` | Greys the header and stops it answering presses. The body still draws if `open` says so. |
 
@@ -191,7 +191,7 @@ disagree about which way the chevron points.
 - Clicking anywhere on the disclosure — the arrow, the title, or the empty width
   after it up to the trailing control — folds the section. The target is
   `flex_1`, so it is the whole row rather than the 16 px arrow box.
-- With `tab_index`, a focused header draws an accent outline and folds on
+- A focused header draws an accent outline and folds on
   `Space` or `Enter`, which gpui delivers as an ordinary click. One `on_click`
   therefore covers pointer and keyboard both.
 - A disabled section is not a tab stop and has no `cursor_pointer` or hover
@@ -203,7 +203,7 @@ disagree about which way the chevron points.
 - `text` — the title.
 - `text_muted` — the title *and* the arrow while `disabled(true)`.
 - `surface_hover` — the wash under the disclosure while the pointer is on it.
-- `accent` — the focus outline, when the header has a `tab_index`.
+- `accent` — the focus outline.
 
 Nothing else is painted. The section draws no border, no background and no rule
 under the header: it is a heading in a form, not a panel, and a host that wants

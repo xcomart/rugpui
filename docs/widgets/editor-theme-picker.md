@@ -72,7 +72,7 @@ The id is what `on_select` reports and what settings store; the name is drawn un
 | `.selected` | `Option<impl Into<SharedString>>` | `None` | id of the highlighted card; an unknown id highlights nothing |
 | `.columns` | `usize` | `2` | cards per row; zero is treated as one |
 | `.font_family` | `impl Into<SharedString>` | inherited | family the snippet is drawn in |
-| `.tab_index` | `isize` | not a tab stop | joins the window's tab ring |
+| `.tab_index` | `isize` | `0` | joins the window's tab ring |
 | `.on_select` | `Fn(&str, …)` | none | **the id** of the picked entry |
 
 Two columns rather than the three a swatch grid takes: a card has a statement in it, and a statement needs the width. The last row is padded with empty flex boxes so its cards keep the width of a full row instead of stretching.
@@ -83,7 +83,7 @@ Two columns rather than the three a swatch grid takes: a card has a statement in
 
 ## Keyboard
 
-The grid takes a single tab stop when `.tab_index(…)` is set. While focused, the arrow keys move the selection within the grid, without wrapping — how a grid of radio buttons behaves everywhere else:
+The grid takes a single tab stop by default; `.tab_index(…)` changes its order. While focused, the arrow keys move the selection within the grid, without wrapping — how a grid of radio buttons behaves everywhere else:
 
 | key | effect |
 | --- | --- |

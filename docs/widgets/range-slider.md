@@ -51,7 +51,7 @@ met](../screenshots/range-slider/values.png)
 | `low` | `f32` | `0.0` | Where the interval starts. Clamped to `0.0..=1.0` for drawing; `NaN` draws as `0.0`; a `low` above its `high` is drawn *at* the high knob. |
 | `high` | `f32` | `1.0` | Where the interval ends, clamped the same way. |
 | `step` | `f32` | `0.05` | How far one arrow key moves the focused knob, and which grid keyboard values snap to. A step that is not positive and finite disables stepping rather than freezing the keys. |
-| `tab_index` | `isize` | none | Places the low knob at `index` and the high knob at `index + 1` in the window's tab order, and enables the arrow / `Home` / `End` keys on whichever holds focus. |
+| `tab_index` | `isize` | `0` | By default both knobs follow render order. Explicitly places the low knob at `index` and the high knob at `index + 1` in the window's tab order, and enables the arrow / `Home` / `End` keys on whichever holds focus. |
 | `on_change` | `impl Fn(f32, f32, &mut Window, &mut App) + 'static` | none | Fired with the interval the slider is moving to, by all three ways of moving a knob, and never with the interval already showing. |
 
 Two more items in the module are part of the public API:

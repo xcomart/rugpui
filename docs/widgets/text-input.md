@@ -48,7 +48,7 @@ Before the first window opens, call [`rugpui::init`](../getting-started.md) (whi
 | `.masked` | `bool` | `false` | renders every grapheme as `•`; copy and cut are refused while masked |
 | `.multiline` | `usize` rows | single line | field is `rows` rows tall, `Enter` breaks the line instead of submitting |
 | `.disabled` | `bool` | `false` | read-only, muted text, arrow cursor, no actions and no menu wired at all |
-| `.tab_index` | `isize` | not a tab stop | joins the window's tab ring at that index |
+| `.tab_index` | `isize` | `0` | joins the window's tab ring at that index |
 | `.on_submit` | `Fn(&str, &mut Window, &mut App)` | none | invoked on `Enter` in a single-line field, with the current content |
 | `.context_menu` | `Fn(&App) -> InputMenuLabels` | none | gives the field a right-click cut/copy/paste/select-all menu |
 | `.content()` | — | — | the current value as `&str` |
@@ -135,7 +135,7 @@ Validation is the host's job, which is why `set_invalid` is a setter rather than
 | `cmd/ctrl-v` | `Paste` | insert the clipboard at the caret |
 | `ctrl-cmd-space` (macOS only) | `ShowCharacterPalette` | opens the system emoji / character palette |
 
-Mouse: left press places the caret and starts a drag selection, moving extends it, release ends it (including a release outside the field). Right press focuses the field and opens the edit menu, if it has one. A multiline field scrolls with the wheel, and the caret is kept in view by the element asking gpui to scroll to it after the frame that moved it.
+Mouse: left press places the caret and starts a drag selection, moving extends it across control and window boundaries, and release ends it (including a release outside the field). Right press focuses the field and opens the edit menu, if it has one. A multiline field scrolls with the wheel, and the caret is kept in view by the element asking gpui to scroll to it after the frame that moved it.
 
 IME works because `TextInput` implements `EntityInputHandler` and installs an `ElementInputHandler` over its painted bounds. Composition text is held in a marked range and drawn with a one-pixel underline until it is committed, so Hangul, kana and pinyin all compose in place. Every offset the field stores is a *byte* offset into the real content; when the field is masked a `DisplayMap` translates those to and from the bullet string, which is what keeps the caret correct for multi-byte text.
 

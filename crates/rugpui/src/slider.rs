@@ -244,7 +244,7 @@ impl Slider {
             id: id.into(),
             value: 0.,
             step: DEFAULT_STEP,
-            tab_index: None,
+            tab_index: Some(0),
             on_change: None,
         }
     }

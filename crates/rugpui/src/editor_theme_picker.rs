@@ -269,7 +269,7 @@ impl EditorThemePicker {
             selected: None,
             columns: DEFAULT_COLUMNS,
             font_family: None,
-            tab_index: None,
+            tab_index: Some(0),
             on_select: None,
         }
     }

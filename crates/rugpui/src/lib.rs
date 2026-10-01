@@ -31,6 +31,11 @@
 //! of tokens. [`theme_store`] reads both from directories the host names
 //! through [`ThemeDirs`].
 //!
+//! Form controls participate in keyboard navigation by default, in render order.
+//! Use `tab_index` to specify an order; disabled controls are skipped. [`modal`]
+//! confines Tab and Shift+Tab to its controls, including when the host supplies
+//! its own focus actions.
+//!
 //! Call [`init`] once during application start-up so the widgets that need key
 //! bindings get them.
 //!

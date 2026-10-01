@@ -42,7 +42,7 @@ impl Segmented {
             id: id.into(),
             options: Vec::new(),
             selected: 0,
-            tab_index: None,
+            tab_index: Some(0),
             on_select: None,
         }
     }

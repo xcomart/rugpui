@@ -272,7 +272,7 @@ impl TextInput {
     /// Creates an empty text field owned by `cx`.
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            focus_handle: cx.focus_handle(),
+            focus_handle: cx.focus_handle().tab_stop(true),
             content: SharedString::default(),
             placeholder: SharedString::default(),
             selected_range: 0..0,
@@ -854,6 +854,9 @@ impl TextInput {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.pressed_button != Some(MouseButton::Left) {
+            self.is_selecting = false;
+        }
         if self.is_selecting {
             self.select_to(self.index_for_mouse_position(event.position), cx);
         }
@@ -1205,6 +1208,10 @@ impl Render for TextInput {
         let theme = theme(cx);
         let focused = !self.disabled && self.focus_handle.is_focused(window);
         let disabled = self.disabled;
+        if disabled {
+            self.is_selecting = false;
+        }
+        self.focus_handle = self.focus_handle.clone().tab_stop(!disabled);
 
         let rows = self.rows;
         // A single line is 32 pixels tall: the 20-pixel line box with six
@@ -1274,9 +1281,6 @@ impl Render for TextInput {
                     // leaves a disabled field with no menu at all: there is no
                     // row on it a read-only field could honour.
                     .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
-                    .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                    .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                    .on_mouse_move(cx.listener(Self::on_mouse_move))
                     .on_action(cx.listener(Self::up))
                     .on_action(cx.listener(Self::down))
                     .on_action(cx.listener(Self::select_up))
@@ -1456,6 +1460,20 @@ impl Element for TextElement {
     ) {
         let focus_handle = self.input.read(cx).focus_handle.clone();
         let disabled = self.input.read(cx).disabled;
+        // Track a selection independently of hover, including captured moves outside the window.
+        let input = self.input.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == gpui::DispatchPhase::Capture {
+                input.update(cx, |input, cx| input.on_mouse_move(event, window, cx));
+            }
+        });
+        let input = self.input.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+            if phase == gpui::DispatchPhase::Capture && event.button == MouseButton::Left {
+                input.update(cx, |input, cx| input.on_mouse_up(event, window, cx));
+            }
+        });
+
         let line_height = prepaint.line_height;
 
         if !disabled {
@@ -2128,5 +2146,51 @@ mod tests {
             (10..14).contains(&third),
             "the third row is offsets 10..14, got {third}"
         );
+    }
+
+    #[gpui::test]
+    fn selection_tracks_outside_the_field_and_stops_after_release(cx: &mut TestAppContext) {
+        use gpui::{MouseMoveEvent, MouseUpEvent};
+        let (input, mut cx) = open(None, "drag across this text", cx);
+        let position =
+            cx.update(|_, cx| input.read(cx).last_bounds.unwrap().origin) + point(px(1.), px(10.));
+        cx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(gpui::MouseExitEvent {
+            position,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        let outside = point(px(2000.), position.y);
+        cx.simulate_event(MouseMoveEvent {
+            position: outside,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        cx.update(|_, cx| assert_eq!(input.read(cx).selected_range, 0..21));
+        // Negative coordinates exercise a drag beyond the left edge of the window.
+        cx.simulate_event(MouseMoveEvent {
+            position: point(px(-100.), position.y),
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        cx.update(|_, cx| assert_eq!(input.read(cx).selected_range, 0..0));
+        cx.simulate_event(MouseUpEvent {
+            position: outside,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Left,
+            click_count: 1,
+        });
+        cx.simulate_event(MouseMoveEvent {
+            position: outside,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        cx.update(|_, cx| assert_eq!(input.read(cx).selected_range, 0..0));
     }
 }

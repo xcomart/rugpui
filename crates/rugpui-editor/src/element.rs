@@ -506,6 +506,19 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) {
+        // Selection belongs to the press, not to the currently hovered hitbox.
+        let editor = self.editor.clone();
+        window.on_mouse_event(move |event: &gpui::MouseMoveEvent, phase, window, cx| {
+            if phase == gpui::DispatchPhase::Capture {
+                editor.update(cx, |editor, cx| editor.on_mouse_move(event, window, cx));
+            }
+        });
+        let editor = self.editor.clone();
+        window.on_mouse_event(move |event: &gpui::MouseUpEvent, phase, window, cx| {
+            if phase == gpui::DispatchPhase::Capture && event.button == gpui::MouseButton::Left {
+                editor.update(cx, |editor, cx| editor.on_mouse_up(event, window, cx));
+            }
+        });
         let focus = self.editor.read(cx).input_focus();
         let read_only = self.editor.read(cx).is_read_only();
         let focused = self.editor.read(cx).is_focused(window);

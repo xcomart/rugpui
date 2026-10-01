@@ -1855,3 +1855,53 @@ fn a_wrapped_buffer_survives_being_driven_about(cx: &mut TestAppContext) {
         assert!(editor.caret_bounds().is_some() || editor.row_of(caret) > 40);
     });
 }
+
+#[gpui::test]
+fn selection_tracks_outside_the_editor_and_stops_after_release(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, point, px};
+    let (editor, mut cx) = open("select count from t", cx);
+    draw(&mut cx);
+    let position = editor.read(&mut cx, |editor| {
+        point(
+            editor.layout.gutter + px(1.),
+            editor.layout.line_height / 2.,
+        )
+    });
+    cx.simulate_event(MouseDownEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_event(gpui::MouseExitEvent {
+        position,
+        pressed_button: Some(MouseButton::Left),
+        modifiers: Modifiers::none(),
+    });
+    let outside = point(px(2000.), position.y);
+    cx.simulate_event(MouseMoveEvent {
+        position: outside,
+        pressed_button: Some(MouseButton::Left),
+        modifiers: Modifiers::none(),
+    });
+    assert_eq!(editor.read(&mut cx, EditorView::selection), 0..19);
+    cx.simulate_event(MouseMoveEvent {
+        position: point(px(-100.), position.y),
+        pressed_button: Some(MouseButton::Left),
+        modifiers: Modifiers::none(),
+    });
+    assert_eq!(editor.read(&mut cx, EditorView::selection), 0..0);
+    cx.simulate_event(MouseUpEvent {
+        position: outside,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.simulate_event(MouseMoveEvent {
+        position: outside,
+        pressed_button: Some(MouseButton::Left),
+        modifiers: Modifiers::none(),
+    });
+    assert_eq!(editor.read(&mut cx, EditorView::selection), 0..0);
+}

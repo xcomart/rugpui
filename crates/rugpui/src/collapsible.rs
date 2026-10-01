@@ -117,7 +117,7 @@ impl Collapsible {
             open: false,
             indent: true,
             disabled: false,
-            tab_index: None,
+            tab_index: Some(0),
             arrow_icons: None,
             trailing: None,
             children: Vec::new(),

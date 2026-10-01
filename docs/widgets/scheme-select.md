@@ -86,7 +86,7 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 | `.open` | `bool` | `false` | whether the list is showing |
 | `.disabled` | `bool` | `false` | read-only line: muted, unfocusable, cannot open |
 | `.width` | `Pixels` | trigger fills parent, list 320 px | width of trigger and list |
-| `.tab_index` | `isize` | not a tab stop | joins the tab ring; ignored while disabled |
+| `.tab_index` | `isize` | `0` | joins the tab ring; ignored while disabled |
 | `.scroll_handle` | `ScrollHandle` | none | so the parent can reveal the current entry |
 | `.scrollbar` | `Scrollbar` | none | overlay indicator down the open list |
 | `.on_select` | `Fn(&str, …)` | none | **the id** of the newly picked entry |

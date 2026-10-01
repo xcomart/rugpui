@@ -23,7 +23,7 @@ exclude = [
 # floating dependency would make two checkouts of this repository build
 # different widgets.
 #
-# Zed has no answer of its own for the six things listed below, so the crates
+# Zed has no answer of its own for the patches listed below, so the crates
 # that need one are vendored under `vendor/` and patched back over the git
 # source by the `[patch."https://github.com/zed-industries/zed"]` table. Each
 # vendored copy is the upstream directory with its manifest flattened —
@@ -36,6 +36,10 @@ exclude = [
 # own take them from here, so a fix made once is a fix everywhere. Nothing here
 # is specific to any one of those applications, and nothing here may become so.
 #
+#   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
+#     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
+#     tab stops, and default Tab traversal for dialogs without host bindings.
+#     Background controls remain in the frame but are skipped by traversal.
 #   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
 #     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
 #     an open window between the caption the platform draws and the one the app
@@ -101,7 +105,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]

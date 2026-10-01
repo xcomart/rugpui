@@ -56,7 +56,7 @@ but clicking it does nothing.
 | --- | --- | --- | --- |
 | `Checkbox::new` | `id: impl Into<ElementId>`, `label: impl Into<SharedString>` | — | Creates an unchecked checkbox. `id` must be unique among its siblings. |
 | `checked` | `bool` | `false` | Whether the box is ticked. |
-| `tab_index` | `isize` | none | Places the checkbox in the window's tab order. |
+| `tab_index` | `isize` | `0` | Places the checkbox in the window's tab order. |
 | `on_toggle` | `impl Fn(bool, &mut Window, &mut App) + 'static` | none | Fired with the value the checkbox is toggling *to*. |
 
 ## State the host keeps
@@ -76,7 +76,7 @@ changed but nothing asked for a repaint.
 
 - Clicking anywhere on the row — box or label — toggles it. The whole row is one
   clickable element with `cursor_pointer`, not just the 16 px box.
-- With `tab_index`, a focused checkbox draws an accent outline and toggles on
+- A focused checkbox draws an accent outline and toggles on
   `Space` or `Enter`, which gpui delivers as an ordinary click. Unlike
   [`Button`](./button.md) there is no disabled state to skip, so the tab stop is
   unconditional.

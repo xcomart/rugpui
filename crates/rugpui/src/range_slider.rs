@@ -311,8 +311,13 @@ impl RenderOnce for RangeSlider {
         // of the interval their keys are allowed to reach.
         let knob_at = |which: Knob| {
             let (value, tail, ring_tail, index) = match which {
-                Knob::Low => (low, "low", "low-ring", tab_index),
-                Knob::High => (high, "high", "high-ring", tab_index.map(|index| index + 1)),
+                Knob::Low => (low, "low", "low-ring", Some(tab_index.unwrap_or(0))),
+                Knob::High => (
+                    high,
+                    "high",
+                    "high-ring",
+                    Some(tab_index.map_or(0, |index| index + 1)),
+                ),
             };
 
             let knob = div()
