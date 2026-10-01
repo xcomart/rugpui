@@ -70,7 +70,7 @@ struct Gallery {
 | `.placeholder` | `impl Into<SharedString>` | empty | muted text on the trigger while nothing is selected |
 | `.open` | `bool` | `false` | whether the list is showing |
 | `.width` | `Pixels` | trigger fills parent, list 320 px | width of both trigger and list |
-| `.tab_index` | `isize` | not a tab stop | joins the window's tab ring |
+| `.tab_index` | `isize` | `0` | joins the window's tab ring |
 | `.scroll_handle` | `ScrollHandle` | none | tracks the list's scroll, so the parent can reveal a row |
 | `.scrollbar` | `Scrollbar` | none | overlay indicator down the open list |
 | `.on_select` | `Fn(usize, &str, …)` | none | index and text of the option picked |
@@ -125,7 +125,7 @@ A value the option list does not contain still shows on the trigger; it just hig
 
 ## Keyboard and mouse
 
-The control takes a single tab stop when `.tab_index(…)` is set. `Enter` and `Space` toggle the list, as they do for any focusable element in gpui.
+The control takes a single tab stop by default; `.tab_index(…)` changes its order. `Enter` and `Space` toggle the list, as they do for any focusable element in gpui.
 
 | keys | effect |
 | --- | --- |

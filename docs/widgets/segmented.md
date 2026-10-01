@@ -43,7 +43,7 @@ and `text`, the rest stay `text_muted`.*
 | `Segmented::new` | `id: impl Into<ElementId>` | — | Creates an empty control with segment `0` selected. `id` must be unique among its siblings. |
 | `options` | `impl IntoIterator<Item = (V, L)>` where both convert into `SharedString` | empty | The segments in display order, as `(value, label)` pairs. |
 | `selected` | `usize` | `0` | Index of the highlighted segment. Out of range simply highlights nothing. |
-| `tab_index` | `isize` | none | Puts the whole group at one tab stop. |
+| `tab_index` | `isize` | `0` | Puts the whole group at one tab stop. |
 | `on_select` | `impl Fn(usize, &mut Window, &mut App) + 'static` | none | Fired with the index the user picked. Never fired for the segment already selected. |
 
 ## Why every option carries a value
@@ -70,7 +70,7 @@ worth keeping meaningful: `options[index].0` is usually what wants storing.
 - Clicking an unselected segment fires `on_select`. The selected segment is not
   clickable at all — its handler is filtered out — so re-selecting is a no-op by
   construction rather than by a check in the callback.
-- With `tab_index`, the group takes a **single** tab stop rather than one per
+- The group takes a **single** tab stop rather than one per
   segment, so `Tab` steps past the control instead of through it. That is the
   behaviour WAI-ARIA prescribes for a radio group.
 - While focused, `Left`/`Up` move the selection one segment towards the start
@@ -97,5 +97,5 @@ worth keeping meaningful: `options[index].0` is usually what wants storing.
 - An out-of-range `selected` is not an error and not clamped — it just leaves
   every segment looking unselected. Arrow keys still work from it, computing
   from the out-of-range index.
-- The arrow keys need `on_select` to be set as well as `tab_index`; without a
+- The arrow keys need `on_select` to be set; without a
   handler there is nowhere to report the move and the keys do nothing.

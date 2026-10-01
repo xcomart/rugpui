@@ -13,6 +13,8 @@ pub(crate) struct TabStopMap {
     pub(crate) insertion_history: Vec<TabStopOperation>,
     by_id: FxHashMap<FocusId, TabStopNode>,
     order: SumTree<TabStopNode>,
+    // RULOGMAN PATCH: the last painted modal owns keyboard traversal.
+    pub(crate) focus_trap: Option<FocusHandle>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +22,8 @@ pub enum TabStopOperation {
     Insert(FocusHandle),
     Group(TabIndex),
     GroupEnd,
+    // RULOGMAN PATCH: replay focus traps alongside cached tab stops.
+    FocusTrap(FocusHandle),
 }
 
 impl TabStopOperation {
@@ -70,6 +74,7 @@ impl Default for TabStopMap {
             insertion_history: Vec::new(),
             by_id: FxHashMap::default(),
             order: SumTree::new(()),
+            focus_trap: None,
         }
     }
 }
@@ -87,6 +92,13 @@ impl TabStopMap {
         };
         self.by_id.insert(focus_handle.id, order.clone());
         self.order.insert_or_replace(order, ());
+    }
+
+    // RULOGMAN PATCH: later overlays replace earlier traps, including nested dialogs.
+    pub fn trap_focus(&mut self, handle: &FocusHandle) {
+        self.focus_trap = Some(handle.clone());
+        self.insertion_history
+            .push(TabStopOperation::FocusTrap(handle.clone()));
     }
 
     pub fn begin_group(&mut self, tab_index: isize) {
@@ -188,6 +200,7 @@ impl TabStopMap {
                 TabStopOperation::Insert(focus_handle) => self.insert(focus_handle),
                 TabStopOperation::Group(tab_index) => self.begin_group(*tab_index),
                 TabStopOperation::GroupEnd => self.end_group(),
+                TabStopOperation::FocusTrap(handle) => self.trap_focus(handle),
             }
         }
     }

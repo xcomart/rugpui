@@ -198,7 +198,7 @@ impl Select {
             placeholder: SharedString::default(),
             open: false,
             width: None,
-            tab_index: None,
+            tab_index: Some(0),
             scroll_handle: None,
             scrollbar: None,
             on_select: None,

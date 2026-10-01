@@ -24,6 +24,9 @@ const MIN_PANEL_HEIGHT: f32 = 160.;
 /// element of the view — and it should be the last child so that it paints on
 /// top of everything else.
 ///
+/// Tab and Shift+Tab cycle through the topmost dialog's enabled controls.
+/// Existing host key bindings keep their behaviour within that boundary.
+///
 /// Clicks on the panel itself are swallowed; only clicks on the backdrop invoke
 /// `on_dismiss`.
 ///
@@ -80,6 +83,8 @@ impl RenderOnce for Modal {
                 div()
                     .id(ElementId::from((self.id, "panel")))
                     .occlude()
+                    .tab_group()
+                    .focus_trap()
                     .flex()
                     .flex_col()
                     .w(self.width)
@@ -156,5 +161,188 @@ impl RenderOnce for FormRow {
                     .child(self.label),
             )
             .child(div().flex_grow_1().min_w_0().child(self.control))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Button, TextInput};
+    use gpui::{
+        Context, Entity, FocusHandle, Focusable, Render, TestAppContext, VisualTestContext,
+    };
+
+    struct Harness {
+        root: FocusHandle,
+        background: Entity<TextInput>,
+        first: Entity<TextInput>,
+        second: Entity<TextInput>,
+        disabled: Entity<TextInput>,
+        show_dialog: bool,
+        top_overlay: bool,
+        top_field: Entity<TextInput>,
+        clicks: usize,
+    }
+
+    impl Render for Harness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let owner = cx.entity();
+            div()
+                .relative()
+                .size_full()
+                .track_focus(&self.root)
+                .child(self.background.clone())
+                .when(self.show_dialog, |root| {
+                    root.child(modal(
+                        "test-modal",
+                        "Dialog",
+                        px(400.),
+                        div()
+                            .child(self.first.clone())
+                            .child(self.disabled.clone())
+                            .child(self.second.clone())
+                            .child(Button::new("disabled-button", "Disabled").disabled(true))
+                            .child(Button::new("accept", "Accept").on_click(move |_, _, cx| {
+                                owner.update(cx, |harness, _| harness.clicks += 1);
+                            })),
+                        |_, _| {},
+                    ))
+                })
+                .when(self.top_overlay, |root| {
+                    root.child(modal(
+                        "front-modal",
+                        "Confirm",
+                        px(300.),
+                        self.top_field.clone(),
+                        |_, _| {},
+                    ))
+                })
+        }
+    }
+
+    fn activate(cx: &mut VisualTestContext) {
+        let keystroke = gpui::Keystroke::parse("enter").unwrap();
+        cx.simulate_event(gpui::KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(gpui::KeyUpEvent { keystroke });
+    }
+
+    #[gpui::test]
+    fn tab_enters_and_wraps_a_dialog_and_skips_disabled_controls(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, cx| Harness {
+            root: cx.focus_handle(),
+            background: cx.new(TextInput::new),
+            first: cx.new(TextInput::new),
+            second: cx.new(TextInput::new),
+            disabled: cx.new(|cx| TextInput::new(cx).disabled(true)),
+            show_dialog: true,
+            top_overlay: false,
+            top_field: cx.new(TextInput::new),
+            clicks: 0,
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |harness, window, cx| {
+                harness.root.focus(window, cx)
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(harness.first.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(harness.second.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        activate(&mut cx);
+        window
+            .update(&mut cx, |harness, _, _| assert_eq!(harness.clicks, 1))
+            .unwrap();
+        cx.simulate_keystrokes("tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(harness.first.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("shift-tab");
+        activate(&mut cx);
+        cx.simulate_keystrokes("shift-tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert_eq!(harness.clicks, 2);
+                assert!(harness.second.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        // A second overlay owns the ring until it disappears.
+        window
+            .update(&mut cx, |harness, window, cx| {
+                harness.top_overlay = true;
+                harness.root.focus(window, cx);
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.simulate_keystrokes("tab tab shift-tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(
+                    harness
+                        .top_field
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window)
+                );
+                harness.top_overlay = false;
+                harness.root.focus(window, cx);
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.simulate_keystrokes("tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(harness.first.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+
+        // Existing host actions that call focus_next/prev must obey the same boundary.
+        window
+            .update(&mut cx, |harness, window, cx| {
+                harness.first.read(cx).focus_handle(cx).focus(window, cx);
+                window.focus_prev(cx);
+                window.focus_next(cx);
+                assert!(harness.first.read(cx).focus_handle(cx).is_focused(window));
+                harness.show_dialog = false;
+                harness
+                    .background
+                    .read(cx)
+                    .focus_handle(cx)
+                    .focus(window, cx);
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |harness, window, cx| {
+                window.focus_next(cx);
+                assert!(
+                    harness
+                        .background
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window)
+                );
+            })
+            .unwrap();
     }
 }

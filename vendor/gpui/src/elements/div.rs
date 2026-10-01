@@ -777,6 +777,15 @@ pub trait InteractiveElement: Sized {
         self
     }
 
+    /// RULOGMAN PATCH: confine Tab traversal to this element's descendants.
+    /// The last painted trap wins, so the topmost dialog owns the tab ring.
+    fn focus_trap(mut self) -> Self {
+        self.interactivity().focus_trap = true;
+        self.interactivity().focusable = true;
+        self.interactivity().tab_stop = false;
+        self
+    }
+
     /// Designate this div as a "tab group". Tab groups have their own location in the tab-index order,
     /// but for children of the tab group, the tab index is reset to 0. This can be useful for swapping
     /// the order of tab stops within the group, without having to renumber all the tab stops in the whole
@@ -2078,6 +2087,8 @@ pub struct Interactivity {
     pub(crate) hitbox_behavior: HitboxBehavior,
     pub(crate) tab_index: Option<isize>,
     pub(crate) tab_group: bool,
+    // RULOGMAN PATCH: a modal keyboard boundary.
+    pub(crate) focus_trap: bool,
     pub(crate) tab_stop: bool,
 
     pub(crate) a11y_action_listeners:
@@ -2436,6 +2447,13 @@ impl Interactivity {
                                         // to the first item in the whole window instead of its own.
                                         if let Some(focus_handle) = &self.tracked_focus_handle {
                                             window.next_frame.tab_stops.insert(focus_handle);
+                                            // RULOGMAN PATCH: record after registering this root.
+                                            if self.focus_trap {
+                                                window
+                                                    .next_frame
+                                                    .tab_stops
+                                                    .trap_focus(focus_handle);
+                                            }
                                         }
                                         if let Some(hitbox) = hitbox {
                                             #[cfg(debug_assertions)]

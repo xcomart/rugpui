@@ -54,7 +54,7 @@ Switch::new("notifications", "Enable notifications")
 | --- | --- | --- | --- |
 | `Switch::new` | `id: impl Into<ElementId>`, `label: impl Into<SharedString>` | — | Creates a switch in the off position. `id` must be unique among its siblings. |
 | `checked` | `bool` | `false` | Whether the switch is on. |
-| `tab_index` | `isize` | none | Places the switch in the window's tab order. |
+| `tab_index` | `isize` | `0` | Places the switch in the window's tab order. |
 | `on_toggle` | `impl Fn(bool, &mut Window, &mut App) + 'static` | none | Fired with the value the switch is toggling *to*. |
 
 There is no `disabled`, no size option and no variant: the switch draws one way
@@ -75,7 +75,7 @@ chance of the widget and the host disagreeing about which way the flip went.
 
 - Clicking anywhere on the row — track or label — flips it; the whole row is one
   clickable element.
-- With `tab_index`, a focused switch draws an accent outline and toggles on
+- A focused switch draws an accent outline and toggles on
   `Space` or `Enter`, which gpui delivers as an ordinary click.
 - The knob is placed by an offset from the near end of the track rather than by
   a flex alignment, because an alignment has only the two ends to offer and the

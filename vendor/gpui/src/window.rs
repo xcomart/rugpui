@@ -2095,7 +2095,7 @@ impl Window {
             return;
         }
 
-        if let Some(handle) = self.rendered_frame.tab_stops.next(self.focus.as_ref()) {
+        if let Some(handle) = self.next_tab_stop(false) {
             self.focus(&handle, cx)
         }
     }
@@ -2106,9 +2106,31 @@ impl Window {
             return;
         }
 
-        if let Some(handle) = self.rendered_frame.tab_stops.prev(self.focus.as_ref()) {
+        if let Some(handle) = self.next_tab_stop(true) {
             self.focus(&handle, cx)
         }
+    }
+
+    // RULOGMAN PATCH: filter the existing order without briefly focusing background controls.
+    fn next_tab_stop(&self, reverse: bool) -> Option<FocusHandle> {
+        let stops = &self.rendered_frame.tab_stops;
+        let mut current = self.focus;
+        for _ in 0..stops.tab_stop_count() {
+            let handle = if reverse {
+                stops.prev(current.as_ref())
+            } else {
+                stops.next(current.as_ref())
+            }?;
+            current = Some(handle.id);
+            if stops
+                .focus_trap
+                .as_ref()
+                .is_none_or(|trap| trap.contains(&handle, self))
+            {
+                return Some(handle);
+            }
+        }
+        None
     }
 
     /// Accessor for the text system.
@@ -5444,6 +5466,28 @@ impl Window {
             return;
         }
 
+        // RULOGMAN PATCH: dialogs need Tab even when their owner only bound Escape.
+        // Run after bindings/listeners, preserving editor indentation and host actions.
+        if self.rendered_frame.tab_stops.focus_trap.is_some()
+            && !self.default_prevented
+            && let Some(event) = event.downcast_ref::<KeyDownEvent>()
+        {
+            let stroke = &event.keystroke;
+            if stroke.key == "tab"
+                && !stroke.modifiers.control
+                && !stroke.modifiers.alt
+                && !stroke.modifiers.platform
+                && !stroke.modifiers.function
+            {
+                if stroke.modifiers.shift {
+                    self.focus_prev(cx);
+                } else {
+                    self.focus_next(cx);
+                }
+                self.prevent_default();
+                cx.stop_propagation();
+            }
+        }
         self.dispatch_keystroke_observers(event, None, context_stack, cx);
     }
 

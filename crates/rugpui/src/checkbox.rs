@@ -43,7 +43,7 @@ impl Checkbox {
             id: id.into(),
             label: label.into(),
             checked: false,
-            tab_index: None,
+            tab_index: Some(0),
             on_toggle: None,
         }
     }
