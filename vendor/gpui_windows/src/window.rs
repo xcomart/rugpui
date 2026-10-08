@@ -556,6 +556,7 @@ impl WindowsWindow {
         register_drag_drop(&this)?;
         set_non_rude_hwnd(hwnd, true);
         configure_dwm_dark_mode(hwnd, appearance);
+        configure_dwm_corner_preference(hwnd, hide_title_bar);
         this.state.border_offset.update(hwnd)?;
         let placement = retrieve_window_placement(
             hwnd,
@@ -931,6 +932,7 @@ impl PlatformWindow for WindowsWindow {
         self.0
             .executor
             .spawn(async move {
+                configure_dwm_corner_preference(hwnd, transparent);
                 notify_frame_changed(hwnd);
             })
             .detach();
@@ -1569,6 +1571,27 @@ fn retrieve_window_placement(
     let bounds = bounds.to_device_pixels(scale_factor);
     placement.rcNormalPosition = calculate_window_rect(bounds, border_offset);
     Ok(placement)
+}
+
+// RUGPUI PATCH: custom non-client frames do not always qualify for Windows 11's
+// automatic rounding. Opt into the small native radius; DWM keeps maximized,
+// snapped and fullscreen windows square. Restore the system policy when the
+// caption is switched back on. Earlier Windows versions do not support this
+// attribute, so failure deliberately leaves their existing frame intact.
+fn configure_dwm_corner_preference(hwnd: HWND, custom_titlebar: bool) {
+    let preference = if custom_titlebar {
+        DWMWCP_ROUNDSMALL
+    } else {
+        DWMWCP_DEFAULT
+    };
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &preference as *const _ as *const _,
+            std::mem::size_of_val(&preference) as u32,
+        );
+    }
 }
 
 fn dwm_set_window_composition_attribute(hwnd: HWND, backdrop_type: u32) {

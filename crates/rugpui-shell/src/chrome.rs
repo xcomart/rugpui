@@ -17,6 +17,7 @@
 //!   wired onto the row that stands in for the caption.
 //! * [`client_tiling`] — whether the window carries the shadow band, and which
 //!   of its edges currently touch something.
+//! * [`render_client_frame`] — rounded corners, the outline and drop shadow.
 //! * [`render_resize_edges`] — the resize grips that band doubles as.
 //! * [`window_appearance`] — blur, translucency or neither.
 //! * [`window_control_strips`] — the caption buttons, split into the two ends a
@@ -27,7 +28,7 @@
 //! shaped differently still calls the same code.
 
 use gpui::{
-    AnyElement, App, Div, MouseButton, Stateful, Window, WindowBackgroundAppearance, div,
+    AnyElement, App, Div, Hsla, MouseButton, Stateful, Window, WindowBackgroundAppearance, div,
     prelude::*, px,
 };
 use rugpui::{WindowControlIcons, WindowControls, window_controls};
@@ -41,10 +42,13 @@ use serde::{Deserialize, Serialize};
 /// understands it: [`Window::set_client_inset`] publishes the visible bounds
 /// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximises and stacks
 /// by the visible edge, exactly as it does for GTK's frames.
-pub const SHADOW_BAND: f32 = 12.;
+pub const SHADOW_BAND: f32 = 24.;
+
+/// A small radius for the four exposed corners of a client-decorated window.
+pub const WINDOW_CORNER_RADIUS: f32 = 6.;
 
 /// Edge length of the corner squares, where the resize goes diagonal.
-pub const RESIZE_CORNER: f32 = 24.;
+pub const RESIZE_CORNER: f32 = SHADOW_BAND + 12.;
 
 /// Who draws the window's title bar.
 ///
@@ -167,6 +171,57 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
         gpui::Decorations::Client { tiling } => Some(tiling),
         gpui::Decorations::Server => None,
     }
+}
+
+/// Frames a Linux client-decorated window, including its content and overlays.
+///
+/// GPUI's overflow mask is rectangular. A two-pixel border keeps that rectangle
+/// wholly inside the six-pixel outer curve, so child backgrounds (including
+/// caption-button hover fills and deferred modal backdrops) cannot square off
+/// the corners. The frame stays unfilled to preserve translucent app content.
+/// An edge touching a neighbour has neither an inset nor a border; both corners
+/// on that edge are square. Windows and macOS keep their native frames instead.
+pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, active: bool) -> Div {
+    let content = content
+        .overflow_hidden()
+        .border_color(border)
+        .when(!tiling.top, |content| content.border_t_2())
+        .when(!tiling.bottom, |content| content.border_b_2())
+        .when(!tiling.left, |content| content.border_l_2())
+        .when(!tiling.right, |content| content.border_r_2())
+        .when(!tiling.top && !tiling.left, |content| {
+            content.rounded_tl(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.top && !tiling.right, |content| {
+            content.rounded_tr(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.bottom && !tiling.left, |content| {
+            content.rounded_bl(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.bottom && !tiling.right, |content| {
+            content.rounded_br(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.is_tiled(), |content| {
+            content.shadow(vec![gpui::BoxShadow {
+                color: gpui::hsla(0., 0., 0., if active { 0.50 } else { 0.26 }),
+                blur_radius: px(if active { 14. } else { 10. }),
+                spread_radius: px(0.),
+                offset: gpui::point(px(0.), px(3.)),
+                inset: false,
+            }])
+        });
+
+    div()
+        .size_full()
+        .relative()
+        .bg(gpui::transparent_black())
+        .when(!tiling.top, |outer| outer.pt(px(SHADOW_BAND)))
+        .when(!tiling.bottom, |outer| outer.pb(px(SHADOW_BAND)))
+        .when(!tiling.left, |outer| outer.pl(px(SHADOW_BAND)))
+        .when(!tiling.right, |outer| outer.pr(px(SHADOW_BAND)))
+        .child(content)
+        // Keep resize grips above the clipped content, including its dialogs.
+        .children(render_resize_edges(tiling))
 }
 
 /// The resize handles the compositor's frame would have provided.
