@@ -48,8 +48,6 @@ exclude = [
 #     a change without dropping whatever the window is holding. It has to reach
 #     the backends, so it is a `PlatformWindow` method, which is why the core is
 #     vendored at all rather than only the two backends that implement it.
-#   * `gpui_windows/src/window.rs` — explicitly request Windows 11's small
-#     rounded corners for custom title bars, including live caption switches.
 #   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
 #     the close callbacks with the client `RefCell` borrowed, and both of them
 #     re-enter the application, where anything that reaches the platform borrows

@@ -44,8 +44,8 @@ use serde::{Deserialize, Serialize};
 /// by the visible edge, exactly as it does for GTK's frames.
 pub const SHADOW_BAND: f32 = 24.;
 
-/// A small radius for the four exposed corners of a client-decorated window.
-pub const WINDOW_CORNER_RADIUS: f32 = 6.;
+/// Radius of the four exposed corners of a client-decorated window.
+pub const WINDOW_CORNER_RADIUS: f32 = 10.;
 
 /// Edge length of the corner squares, where the resize goes diagonal.
 pub const RESIZE_CORNER: f32 = SHADOW_BAND + 12.;
@@ -175,8 +175,8 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
 
 /// Frames a Linux client-decorated window, including its content and overlays.
 ///
-/// GPUI's overflow mask is rectangular. A two-pixel border keeps that rectangle
-/// wholly inside the six-pixel outer curve, so child backgrounds (including
+/// GPUI's overflow mask is rectangular. A three-pixel border keeps that rectangle
+/// wholly inside the ten-pixel outer curve, so child backgrounds (including
 /// caption-button hover fills and deferred modal backdrops) cannot square off
 /// the corners. The frame stays unfilled to preserve translucent app content.
 /// An edge touching a neighbour has neither an inset nor a border; both corners
@@ -185,10 +185,10 @@ pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, act
     let content = content
         .overflow_hidden()
         .border_color(border)
-        .when(!tiling.top, |content| content.border_t_2())
-        .when(!tiling.bottom, |content| content.border_b_2())
-        .when(!tiling.left, |content| content.border_l_2())
-        .when(!tiling.right, |content| content.border_r_2())
+        .when(!tiling.top, |content| content.border_t(px(3.)))
+        .when(!tiling.bottom, |content| content.border_b(px(3.)))
+        .when(!tiling.left, |content| content.border_l(px(3.)))
+        .when(!tiling.right, |content| content.border_r(px(3.)))
         .when(!tiling.top && !tiling.left, |content| {
             content.rounded_tl(px(WINDOW_CORNER_RADIUS))
         })
@@ -203,7 +203,7 @@ pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, act
         })
         .when(!tiling.is_tiled(), |content| {
             content.shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., if active { 0.50 } else { 0.26 }),
+                color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
                 blur_radius: px(if active { 14. } else { 10. }),
                 spread_radius: px(0.),
                 offset: gpui::point(px(0.), px(3.)),
