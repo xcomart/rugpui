@@ -47,6 +47,9 @@ pub const SHADOW_BAND: f32 = 24.;
 /// Radius of the four exposed corners of a client-decorated window.
 pub const WINDOW_CORNER_RADIUS: f32 = 10.;
 
+/// Visible outline width, independent of the window's corner radius.
+const WINDOW_BORDER_WIDTH: f32 = 1.;
+
 /// Edge length of the corner squares, where the resize goes diagonal.
 pub const RESIZE_CORNER: f32 = SHADOW_BAND + 12.;
 
@@ -175,41 +178,48 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
 
 /// Frames a Linux client-decorated window, including its content and overlays.
 ///
-/// GPUI's overflow mask is rectangular. A three-pixel border keeps that rectangle
-/// wholly inside the ten-pixel outer curve, so child backgrounds (including
-/// caption-button hover fills and deferred modal backdrops) cannot square off
-/// the corners. The frame stays unfilled to preserve translucent app content.
+/// GPUI's overflow mask is rectangular. A background-colored rim keeps that
+/// rectangle inside the outer curve, while a separate one-pixel outline supplies
+/// the visible border. Only the rim is filled, preserving translucent content.
+/// The outline is deferred above overlays so dialog backdrops cannot cover it.
 /// An edge touching a neighbour has neither an inset nor a border; both corners
 /// on that edge are square. Windows and macOS keep their native frames instead.
-pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, active: bool) -> Div {
-    let content = content
-        .overflow_hidden()
-        .border_color(border)
-        .when(!tiling.top, |content| content.border_t(px(3.)))
-        .when(!tiling.bottom, |content| content.border_b(px(3.)))
-        .when(!tiling.left, |content| content.border_l(px(3.)))
-        .when(!tiling.right, |content| content.border_r(px(3.)))
-        .when(!tiling.top && !tiling.left, |content| {
-            content.rounded_tl(px(WINDOW_CORNER_RADIUS))
-        })
-        .when(!tiling.top && !tiling.right, |content| {
-            content.rounded_tr(px(WINDOW_CORNER_RADIUS))
-        })
-        .when(!tiling.bottom && !tiling.left, |content| {
-            content.rounded_bl(px(WINDOW_CORNER_RADIUS))
-        })
-        .when(!tiling.bottom && !tiling.right, |content| {
-            content.rounded_br(px(WINDOW_CORNER_RADIUS))
-        })
-        .when(!tiling.is_tiled(), |content| {
-            content.shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
-                blur_radius: px(if active { 14. } else { 10. }),
-                spread_radius: px(0.),
-                offset: gpui::point(px(0.), px(3.)),
-                inset: false,
-            }])
-        });
+pub fn render_client_frame(
+    content: Div,
+    tiling: gpui::Tiling,
+    background: Hsla,
+    border: Hsla,
+    active: bool,
+) -> Div {
+    // The corner of an inset rectangle meets a quarter circle at 45 degrees.
+    // This clearance can grow with the radius without thickening the outline.
+    let content_inset = (WINDOW_CORNER_RADIUS * (1. - std::f32::consts::FRAC_1_SQRT_2))
+        .ceil()
+        .max(WINDOW_BORDER_WIDTH);
+    let content = frame_shape(
+        content.overflow_hidden().border_color(background),
+        tiling,
+        content_inset,
+    )
+    .when(!tiling.is_tiled(), |content| {
+        content.shadow(vec![gpui::BoxShadow {
+            color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
+            blur_radius: px(if active { 14. } else { 10. }),
+            spread_radius: px(0.),
+            offset: gpui::point(px(0.), px(3.)),
+            inset: false,
+        }])
+    });
+    let outline = frame_shape(
+        div().absolute().inset_0().border_color(border),
+        tiling,
+        WINDOW_BORDER_WIDTH,
+    );
+    let frame = div()
+        .size_full()
+        .relative()
+        .child(content)
+        .child(gpui::deferred(outline).with_priority(usize::MAX));
 
     div()
         .size_full()
@@ -219,9 +229,29 @@ pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, act
         .when(!tiling.bottom, |outer| outer.pb(px(SHADOW_BAND)))
         .when(!tiling.left, |outer| outer.pl(px(SHADOW_BAND)))
         .when(!tiling.right, |outer| outer.pr(px(SHADOW_BAND)))
-        .child(content)
+        .child(frame)
         // Keep resize grips above the clipped content, including its dialogs.
         .children(render_resize_edges(tiling))
+}
+
+fn frame_shape(frame: Div, tiling: gpui::Tiling, edge_width: f32) -> Div {
+    frame
+        .when(!tiling.top, |frame| frame.border_t(px(edge_width)))
+        .when(!tiling.bottom, |frame| frame.border_b(px(edge_width)))
+        .when(!tiling.left, |frame| frame.border_l(px(edge_width)))
+        .when(!tiling.right, |frame| frame.border_r(px(edge_width)))
+        .when(!tiling.top && !tiling.left, |frame| {
+            frame.rounded_tl(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.top && !tiling.right, |frame| {
+            frame.rounded_tr(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.bottom && !tiling.left, |frame| {
+            frame.rounded_bl(px(WINDOW_CORNER_RADIUS))
+        })
+        .when(!tiling.bottom && !tiling.right, |frame| {
+            frame.rounded_br(px(WINDOW_CORNER_RADIUS))
+        })
 }
 
 /// The resize handles the compositor's frame would have provided.
