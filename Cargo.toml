@@ -36,6 +36,10 @@ exclude = [
 # own take them from here, so a fix made once is a fix everywhere. Nothing here
 # is specific to any one of those applications, and nothing here may become so.
 #
+#   * `gpui/src/scene.rs` and `gpui/src/window.rs` — disjoint content clip
+#     regions, inherited by deferred overlays and cached draws. The shell uses
+#     pixel-row strips to clip rounded window corners without adding padding.
+#     GPU primitive layouts and the platform renderers remain unchanged.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
 #     tab stops, and default Tab traversal for dialogs without host bindings.
@@ -48,8 +52,6 @@ exclude = [
 #     a change without dropping whatever the window is holding. It has to reach
 #     the backends, so it is a `PlatformWindow` method, which is why the core is
 #     vendored at all rather than only the two backends that implement it.
-#   * `gpui_windows/src/window.rs` — explicitly request Windows 11's small
-#     rounded corners for custom title bars, including live caption switches.
 #   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
 #     the close callbacks with the client `RefCell` borrowed, and both of them
 #     re-enter the application, where anything that reaches the platform borrows
@@ -107,7 +109,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]

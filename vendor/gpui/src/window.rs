@@ -956,6 +956,8 @@ pub(crate) struct DeferredDraw {
     element_id_stack: SmallVec<[ElementId; 32]>,
     text_style_stack: Vec<TextStyleRefinement>,
     content_mask: Option<ContentMask<Pixels>>,
+    // RULOGMAN PATCH: preserve shaped clipping through deferred overlays.
+    clip_regions: Option<Arc<[Bounds<ScaledPixels>]>>,
     rem_size: Pixels,
     element: Option<AnyElement>,
     absolute_offset: Point<Pixels>,
@@ -3358,6 +3360,12 @@ impl Window {
                 self.next_frame.dispatch_tree.set_active_node(parent_node);
 
                 let prepaint_start = self.prepaint_index();
+                // RULOGMAN PATCH: nested deferred draws inherit the frame clip.
+                let clip_regions = self.next_frame.deferred_draws[deferred_draw_ix]
+                    .clip_regions
+                    .clone();
+                let previous_clip =
+                    mem::replace(&mut self.next_frame.scene.clip_regions, clip_regions);
                 if let Some(mut element) = element {
                     self.with_rendered_view(current_view, |window| {
                         window.with_rem_size(Some(rem_size), |window| {
@@ -3370,6 +3378,7 @@ impl Window {
                 } else {
                     self.reuse_prepaint(prepaint_range);
                 }
+                self.next_frame.scene.clip_regions = previous_clip;
                 let prepaint_end = self.prepaint_index();
                 self.next_frame.deferred_draws[deferred_draw_ix].prepaint_range =
                     prepaint_start..prepaint_end;
@@ -3402,6 +3411,11 @@ impl Window {
 
             let paint_start = self.paint_index();
             let content_mask = deferred_draw.content_mask;
+            // RULOGMAN PATCH: keep deferred painting inside the same shaped clip.
+            let previous_clip = mem::replace(
+                &mut self.next_frame.scene.clip_regions,
+                deferred_draw.clip_regions.clone(),
+            );
             if let Some(element) = deferred_draw.element.as_mut() {
                 self.with_rendered_view(deferred_draw.current_view, |window| {
                     window.with_content_mask(content_mask, |window| {
@@ -3413,6 +3427,7 @@ impl Window {
             } else {
                 self.reuse_paint(deferred_draw.paint_range.clone());
             }
+            self.next_frame.scene.clip_regions = previous_clip;
             let paint_end = self.paint_index();
             deferred_draw.paint_range = paint_start..paint_end;
         }
@@ -3479,6 +3494,7 @@ impl Window {
                     element_id_stack: deferred_draw.element_id_stack.clone(),
                     text_style_stack: deferred_draw.text_style_stack.clone(),
                     content_mask: deferred_draw.content_mask,
+                    clip_regions: deferred_draw.clip_regions.clone(),
                     rem_size: deferred_draw.rem_size,
                     priority: deferred_draw.priority,
                     element: None,
@@ -3610,6 +3626,38 @@ impl Window {
         } else {
             f(self)
         }
+    }
+
+    // RULOGMAN PATCH: opt-in shaped clipping without changing shader layouts.
+    /// Clips drawing to a union of non-overlapping rectangular regions.
+    ///
+    /// Regions must be disjoint, otherwise translucent content is drawn twice.
+    /// Nested calls intersect their regions. Deferred descendants inherit the
+    /// regions, including across cached-frame replays. This affects painting,
+    /// not layout or hit testing, and is valid during prepaint and paint.
+    pub fn with_content_clip_regions<R>(
+        &mut self,
+        regions: &[Bounds<Pixels>],
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.invalidator.debug_assert_paint_or_prepaint();
+        let regions = regions.iter().map(|region| region.scale(self.scale_factor()));
+        let regions: Arc<[Bounds<ScaledPixels>]> =
+            if let Some(parent) = &self.next_frame.scene.clip_regions {
+                regions
+                    .flat_map(|region| {
+                        parent.iter()
+                            .map(move |parent| region.intersect(parent))
+                            .filter(|bounds| !bounds.is_empty())
+                    })
+                    .collect()
+            } else {
+                regions.collect()
+            };
+        let previous = self.next_frame.scene.clip_regions.replace(regions);
+        let result = f(self);
+        self.next_frame.scene.clip_regions = previous;
+        result
     }
 
     /// Updates the global element offset relative to the current offset. This is used to implement
@@ -3978,6 +4026,7 @@ impl Window {
             element_id_stack: self.element_id_stack.clone(),
             text_style_stack: self.text_style_stack.clone(),
             content_mask,
+            clip_regions: self.next_frame.scene.clip_regions.clone(),
             rem_size: self.rem_size(),
             priority,
             element: Some(element),
@@ -6959,6 +7008,73 @@ mod tests {
     };
 
     struct EmptyView;
+
+    // RULOGMAN PATCH: nested overlays must retain the clip after normal paint ends.
+    #[test]
+    fn clip_regions_follow_nested_deferred_overlays() {
+        struct ClippedOverlays;
+        impl Render for ClippedOverlays {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                canvas(
+                    |_, window, cx| {
+                        let region = Bounds::new(point(px(10.), px(10.)), size(px(80.), px(80.)));
+                        window.with_content_clip_regions(&[region], |window| {
+                            let mut overlay = div()
+                                .size(px(100.))
+                                .bg(crate::red())
+                                .child(crate::deferred(div().size(px(100.)).bg(crate::blue())))
+                                .into_any_element();
+                            overlay.layout_as_root(
+                                size(
+                                    crate::AvailableSpace::Definite(px(100.)),
+                                    crate::AvailableSpace::Definite(px(100.)),
+                                ),
+                                window,
+                                cx,
+                            );
+                            window.defer_draw(overlay, point(px(0.), px(0.)), 0, None);
+                        });
+                    },
+                    |_, (), window, _| {
+                        let bounds = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(100.)));
+                        window.paint_quad(crate::fill(bounds, crate::green()));
+                    },
+                )
+                .size(px(100.))
+            }
+        }
+
+        let mut cx = TestAppContext::single();
+        let handle = cx.add_window(|_, _| ClippedOverlays);
+        cx.update_window(handle.into(), |_, window, cx| {
+            for _ in 0..2 {
+                let scale = window.scale_factor();
+                let clipped = Bounds::new(point(px(10.), px(10.)), size(px(80.), px(80.))).scale(scale);
+                let full = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(100.))).scale(scale);
+                for color in [crate::red(), crate::blue()] {
+                    let quads: Vec<_> = window
+                        .rendered_frame
+                        .scene
+                        .quads
+                        .iter()
+                        .filter(|quad| quad.background.solid == color)
+                        .collect();
+                    assert_eq!(quads.len(), 1);
+                    assert_eq!(quads[0].content_mask.bounds.intersect(&full), clipped);
+                }
+                let unmasked = window
+                    .rendered_frame
+                    .scene
+                    .quads
+                    .iter()
+                    .find(|quad| quad.background.solid == crate::green())
+                    .unwrap();
+                assert_eq!(unmasked.content_mask.bounds.intersect(&full), full);
+                window.draw(cx).clear(cx);
+            }
+        })
+        .unwrap();
+    }
 
     impl Render for EmptyView {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
