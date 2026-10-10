@@ -34,6 +34,9 @@ use gpui::{
 use rugpui::{WindowControlIcons, WindowControls, window_controls};
 use serde::{Deserialize, Serialize};
 
+mod rounded_clip;
+use rounded_clip::RoundedClip;
+
 /// Width of the transparent band around a self-decorated window.
 ///
 /// The band carries the drop shadow the compositor no longer draws once the
@@ -178,38 +181,31 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
 
 /// Frames a Linux client-decorated window, including its content and overlays.
 ///
-/// GPUI's overflow mask is rectangular. A background-colored rim keeps that
-/// rectangle inside the outer curve, while a separate one-pixel outline supplies
-/// the visible border. Only the rim is filled, preserving translucent content.
-/// The outline is deferred above overlays so dialog backdrops cannot cover it.
-/// An edge touching a neighbour has neither an inset nor a border; both corners
-/// on that edge are square. Windows and macOS keep their native frames instead.
-pub fn render_client_frame(
-    content: Div,
-    tiling: gpui::Tiling,
-    background: Hsla,
-    border: Hsla,
-    active: bool,
-) -> Div {
-    // The corner of an inset rectangle meets a quarter circle at 45 degrees.
-    // This clearance can grow with the radius without thickening the outline.
-    let content_inset = (WINDOW_CORNER_RADIUS * (1. - std::f32::consts::FRAC_1_SQRT_2))
-        .ceil()
-        .max(WINDOW_BORDER_WIDTH);
-    let content = frame_shape(
-        content.overflow_hidden().border_color(background),
+/// Content fills the frame up to its one-pixel outline. Rounded clipping trims
+/// the corners without reserving a background-colored rim. The shadow is drawn
+/// outside that clip, and the outline is deferred above dialog backdrops.
+/// Tiled edges have no border or rounding. Windows and macOS use native frames.
+pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, active: bool) -> Div {
+    let shadow =
+        frame_shape(div().absolute().inset_0(), tiling, 0.).when(!tiling.is_tiled(), |frame| {
+            frame.shadow(vec![gpui::BoxShadow {
+                color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
+                blur_radius: px(if active { 14. } else { 10. }),
+                spread_radius: px(0.),
+                offset: gpui::point(px(0.), px(3.)),
+                inset: false,
+            }])
+        });
+    let content = RoundedClip::new(
+        frame_shape(
+            content
+                .overflow_hidden()
+                .border_color(gpui::transparent_black()),
+            tiling,
+            WINDOW_BORDER_WIDTH,
+        ),
         tiling,
-        content_inset,
-    )
-    .when(!tiling.is_tiled(), |content| {
-        content.shadow(vec![gpui::BoxShadow {
-            color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
-            blur_radius: px(if active { 14. } else { 10. }),
-            spread_radius: px(0.),
-            offset: gpui::point(px(0.), px(3.)),
-            inset: false,
-        }])
-    });
+    );
     let outline = frame_shape(
         div().absolute().inset_0().border_color(border),
         tiling,
@@ -218,6 +214,7 @@ pub fn render_client_frame(
     let frame = div()
         .size_full()
         .relative()
+        .child(shadow)
         .child(content)
         .child(gpui::deferred(outline).with_priority(usize::MAX));
 

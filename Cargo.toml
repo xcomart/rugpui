@@ -36,6 +36,10 @@ exclude = [
 # own take them from here, so a fix made once is a fix everywhere. Nothing here
 # is specific to any one of those applications, and nothing here may become so.
 #
+#   * `gpui/src/scene.rs` and `gpui/src/window.rs` — disjoint content clip
+#     regions, inherited by deferred overlays and cached draws. The shell uses
+#     pixel-row strips to clip rounded window corners without adding padding.
+#     GPU primitive layouts and the platform renderers remain unchanged.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
 #     tab stops, and default Tab traversal for dialogs without host bindings.

@@ -13,6 +13,7 @@ use std::{
     iter::Peekable,
     ops::{Add, Range, Sub},
     slice,
+    sync::Arc,
 };
 
 #[allow(non_camel_case_types, unused)]
@@ -42,6 +43,8 @@ pub struct Scene {
     pub(crate) paint_operations: Vec<PaintOperation>,
     primitive_bounds: BoundsTree<ScaledPixels>,
     layer_stack: Vec<DrawOrder>,
+    // RULOGMAN PATCH: CPU clip regions leave the GPU primitive ABI unchanged.
+    pub(crate) clip_regions: Option<Arc<[Bounds<ScaledPixels>]>>,
     pub shadows: Vec<Shadow>,
     pub quads: Vec<Quad>,
     pub paths: Vec<Path<ScaledPixels>>,
@@ -58,6 +61,7 @@ impl Scene {
         self.paint_operations.clear();
         self.primitive_bounds.clear();
         self.layer_stack.clear();
+        self.clip_regions = None;
         self.paths.clear();
         self.shadows.clear();
         self.quads.clear();
@@ -85,7 +89,32 @@ impl Scene {
     }
 
     pub fn insert_primitive(&mut self, primitive: impl Into<Primitive>) {
-        let mut primitive = primitive.into();
+        // RULOGMAN PATCH: apply shaped clips before recording cacheable draws.
+        let primitive = primitive.into();
+        if let Some(regions) = self.clip_regions.clone() {
+            let visible = primitive
+                .bounds()
+                .intersect(&primitive.content_mask().bounds);
+            // The first region covers the straight middle of a rounded frame.
+            // Almost all primitives take this path without copying or splitting.
+            if regions.iter().any(|region| region.intersect(&visible) == visible) {
+                self.insert_clipped_primitive(primitive);
+                return;
+            }
+            for region in regions.iter() {
+                let bounds = region.intersect(&visible);
+                if !bounds.is_empty() {
+                    let mut part = primitive.clone();
+                    part.content_mask_mut().bounds = bounds;
+                    self.insert_clipped_primitive(part);
+                }
+            }
+        } else {
+            self.insert_clipped_primitive(primitive);
+        }
+    }
+
+    fn insert_clipped_primitive(&mut self, mut primitive: Primitive) {
         let clipped_bounds = primitive
             .bounds()
             .intersect(&primitive.content_mask().bounds);
@@ -191,6 +220,71 @@ impl Scene {
     }
 }
 
+// RULOGMAN PATCH: exercise clipping with real scene primitives and cached draws.
+#[cfg(test)]
+mod clip_region_tests {
+    use super::*;
+    use crate::{px, size};
+
+    fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<ScaledPixels> {
+        Bounds::new(point(px(x), px(y)), size(px(width), px(height))).scale(1.)
+    }
+
+    #[test]
+    fn clips_and_replays_without_duplicate_blending() {
+        let full = bounds(0., 0., 100., 100.);
+        let regions: Arc<[_]> = vec![bounds(0., 10., 100., 80.), bounds(10., 0., 80., 10.)].into();
+        let mut scene = Scene {
+            clip_regions: Some(regions.clone()),
+            ..Scene::default()
+        };
+        scene.insert_primitive(Quad {
+            bounds: full,
+            content_mask: ContentMask { bounds: full },
+            background: crate::hsla(0., 0., 0., 0.5).into(),
+            ..Quad::default()
+        });
+        assert_eq!(scene.quads.len(), 2);
+        for (quad, region) in scene.quads.iter().zip(regions.iter()) {
+            assert_eq!(quad.content_mask.bounds, *region);
+            assert_eq!(quad.bounds, full);
+        }
+        let mut replay = Scene {
+            clip_regions: Some(regions),
+            ..Scene::default()
+        };
+        replay.replay(0..scene.len(), &scene);
+        assert_eq!(replay.quads.len(), 2);
+        assert_eq!(replay.len(), scene.len());
+    }
+
+    #[test]
+    fn middle_primitives_and_unclipped_drawing_are_not_split() {
+        let middle = bounds(0., 10., 100., 80.);
+        let mut scene = Scene {
+            clip_regions: Some(vec![middle].into()),
+            ..Scene::default()
+        };
+        scene.insert_primitive(Quad {
+            bounds: bounds(20., 20., 10., 10.),
+            content_mask: ContentMask { bounds: middle },
+            ..Quad::default()
+        });
+        assert_eq!(scene.quads.len(), 1);
+        scene.clip_regions = None;
+        let outside = bounds(-24., -24., 148., 148.);
+        scene.insert_primitive(Quad {
+            bounds: outside,
+            content_mask: ContentMask { bounds: outside },
+            ..Quad::default()
+        });
+        assert_eq!(scene.quads[1].content_mask.bounds, outside);
+        scene.clear();
+        assert!(scene.clip_regions.is_none());
+        assert!(scene.quads.is_empty());
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Default)]
 #[cfg_attr(
     all(
@@ -255,6 +349,20 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.content_mask,
             Primitive::PolychromeSprite(sprite) => &sprite.content_mask,
             Primitive::Surface(surface) => &surface.content_mask,
+        }
+    }
+
+    // RULOGMAN PATCH: each disjoint clip strip reuses the original geometry.
+    fn content_mask_mut(&mut self) -> &mut ContentMask<ScaledPixels> {
+        match self {
+            Primitive::Shadow(shadow) => &mut shadow.content_mask,
+            Primitive::Quad(quad) => &mut quad.content_mask,
+            Primitive::Path(path) => &mut path.content_mask,
+            Primitive::Underline(underline) => &mut underline.content_mask,
+            Primitive::MonochromeSprite(sprite) => &mut sprite.content_mask,
+            Primitive::SubpixelSprite(sprite) => &mut sprite.content_mask,
+            Primitive::PolychromeSprite(sprite) => &mut sprite.content_mask,
+            Primitive::Surface(surface) => &mut surface.content_mask,
         }
     }
 }
