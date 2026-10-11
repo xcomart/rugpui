@@ -922,6 +922,148 @@ fn the_thumb_follows_the_scroll(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn wheel_scrolls_report_progress_and_linked_updates_do_not_echo(cx: &mut TestAppContext) {
+    use crate::EditorScrollEvent;
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point};
+    use rugpui::scrollbar::ScrollbarAxis;
+
+    let (editor, mut cx) = open(&long_script(1_000), cx);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let observed = events.clone();
+    let _subscription = cx.update(|_, cx| {
+        cx.subscribe(&editor.editor, move |_, event: &EditorScrollEvent, _| {
+            observed.borrow_mut().push(*event);
+        })
+    });
+    let position = editor.read(&mut cx, |editor| editor.layout.bounds.unwrap().center());
+    cx.simulate_mouse_move(position, None, Modifiers::none());
+    cx.simulate_event(ScrollWheelEvent {
+        position,
+        delta: ScrollDelta::Lines(point(0., -3.)),
+        modifiers: Modifiers::none(),
+        touch_phase: TouchPhase::Moved,
+    });
+    cx.run_until_parked();
+    let progress = editor.read(&mut cx, |editor| {
+        editor.scroll_progress(ScrollbarAxis::Vertical)
+    });
+    assert!(progress > 0. && progress < 1.);
+    assert_eq!(
+        *events.borrow(),
+        vec![EditorScrollEvent {
+            axis: ScrollbarAxis::Vertical,
+            progress
+        }]
+    );
+
+    let selection = editor.read(&mut cx, EditorView::selection);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_scroll_progress(ScrollbarAxis::Vertical, 2., cx);
+        editor.set_scroll_progress(ScrollbarAxis::Vertical, f32::NAN, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor
+            .scroll_progress(ScrollbarAxis::Vertical)),
+        1.
+    );
+    assert_eq!(
+        events.borrow().len(),
+        1,
+        "a linked update echoed a scroll event"
+    );
+    assert_eq!(editor.read(&mut cx, EditorView::selection), selection);
+    assert!(!editor.read(&mut cx, EditorView::is_dirty));
+}
+
+#[gpui::test]
+fn dragging_a_thumb_only_scrolls_its_own_editor(cx: &mut TestAppContext) {
+    use crate::EditorScrollEvent;
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, point};
+    use rugpui::scrollbar::ScrollbarAxis;
+
+    struct SplitHarness {
+        editors: [Entity<EditorView>; 2],
+    }
+    impl Render for SplitHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().flex().children(
+                self.editors
+                    .iter()
+                    .map(|editor| div().flex_1().min_w_0().h_full().child(editor.clone())),
+            )
+        }
+    }
+    cx.update(rugpui::init);
+    cx.update(crate::init);
+    let window = cx.add_window(|_, cx| SplitHarness {
+        editors: std::array::from_fn(|_| {
+            cx.new(|cx| {
+                let mut editor = EditorView::new(cx);
+                editor.set_text(&long_script(1_000), cx);
+                editor
+            })
+        }),
+    });
+    let editors = window
+        .update(cx, |view, _, _| view.editors.clone())
+        .unwrap();
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    draw(&mut cx);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let observed = events.clone();
+    let _subscription = cx.update(|_, cx| {
+        cx.subscribe(&editors[0], move |_, event: &EditorScrollEvent, _| {
+            observed.borrow_mut().push(*event);
+        })
+    });
+    let (start, end) = cx.update(|_, cx| {
+        let bounds = editors[0].read(cx).layout.bounds.unwrap();
+        (
+            point(bounds.right() - px(3.), bounds.top() + px(5.)),
+            point(bounds.right() - px(3.), bounds.center().y),
+        )
+    });
+    cx.simulate_mouse_move(start, None, Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_event(MouseDownEvent {
+        position: start,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_mouse_move(
+        start + point(px(0.), px(12.)),
+        Some(MouseButton::Left),
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::none());
+    cx.simulate_event(MouseUpEvent {
+        position: end,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        let progress = editors[0].read(cx).scroll_progress(ScrollbarAxis::Vertical);
+        assert!(progress > 0.1);
+        assert_eq!(
+            events.borrow().last(),
+            Some(&EditorScrollEvent {
+                axis: ScrollbarAxis::Vertical,
+                progress,
+            })
+        );
+        assert_eq!(
+            editors[1].read(cx).scroll_progress(ScrollbarAxis::Vertical),
+            0.
+        );
+    });
+}
+
+#[gpui::test]
 fn one_keystroke_in_a_hundred_thousand_lines_relexes_a_constant_number(cx: &mut TestAppContext) {
     let (editor, mut cx) = open(&long_script(100_000), cx);
     editor.update(&mut cx, |editor, cx| {

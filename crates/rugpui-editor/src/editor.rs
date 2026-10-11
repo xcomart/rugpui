@@ -61,10 +61,10 @@ use std::sync::Arc;
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, DragMoveEvent, Entity, EntityInputHandler, EventEmitter,
-    FocusHandle, Focusable, Font, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, ScrollWheelEvent, SharedString, UTF16Selection, Window,
-    WrappedLine, actions, div, point, prelude::*, px,
+    App, Bounds, ClipboardItem, Context, DragMoveEvent, Entity, EntityId, EntityInputHandler,
+    EventEmitter, FocusHandle, Focusable, Font, KeyBinding, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent, SharedString, UTF16Selection,
+    Window, WrappedLine, actions, div, point, prelude::*, px,
 };
 use rugpui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now,
@@ -253,6 +253,18 @@ pub enum EditorEvent {
     },
 }
 
+/// A wheel or scrollbar drag moved one axis of an editor.
+///
+/// Subscribe separately from buffer events when linking two views. Applying
+/// this with [`EditorView::set_scroll_progress`] does not emit another event.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditorScrollEvent {
+    /// The axis that moved.
+    pub axis: ScrollbarAxis,
+    /// Position within the scrollable range, from zero to one.
+    pub progress: f32,
+}
+
 /// One of the keys a host may ask for with [`EditorView::set_intercept`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavKey {
@@ -351,6 +363,8 @@ impl Layout {
 /// .detach();
 /// ```
 pub struct EditorView {
+    /// Scopes drag payloads to this editor even when several share a window.
+    id: EntityId,
     focus_handle: FocusHandle,
     buffer: Buffer,
     syntax: SyntaxCache,
@@ -514,6 +528,7 @@ impl EditorView {
         let buffer = Buffer::new("");
         let syntax = SyntaxCache::new(&buffer, None);
         Self {
+            id: cx.entity_id(),
             focus_handle: cx.focus_handle(),
             buffer,
             syntax,
@@ -1076,6 +1091,57 @@ impl EditorView {
     /// The scroll offset, in pixels.
     pub(crate) const fn scroll_offset(&self) -> Point<Pixels> {
         self.scroll
+    }
+
+    /// Position within one axis's scrollable range, from zero to one.
+    pub fn scroll_progress(&self, axis: ScrollbarAxis) -> f32 {
+        let limit = self.scrollable();
+        let (offset, extent) = match axis {
+            ScrollbarAxis::Vertical => (self.scroll.y, limit.y),
+            ScrollbarAxis::Horizontal => (self.scroll.x, limit.x),
+        };
+        if extent <= px(0.) {
+            0.
+        } else {
+            (f32::from(offset) / f32::from(extent)).clamp(0., 1.)
+        }
+    }
+
+    /// Scrolls a linked view without moving its caret or emitting a scroll event.
+    pub fn set_scroll_progress(
+        &mut self,
+        axis: ScrollbarAxis,
+        progress: f32,
+        cx: &mut Context<Self>,
+    ) {
+        if !progress.is_finite() {
+            return;
+        }
+        let limit = self.scrollable();
+        let (offset, extent) = match axis {
+            ScrollbarAxis::Vertical => (&mut self.scroll.y, limit.y),
+            ScrollbarAxis::Horizontal => (&mut self.scroll.x, limit.x),
+        };
+        let next = extent * progress.clamp(0., 1.);
+        if *offset != next {
+            *offset = next;
+            self.wake_bars(cx);
+            cx.notify();
+        }
+    }
+
+    fn emit_scroll_changes(&self, before: Point<Pixels>, cx: &mut Context<Self>) {
+        for (axis, changed) in [
+            (ScrollbarAxis::Vertical, before.y != self.scroll.y),
+            (ScrollbarAxis::Horizontal, before.x != self.scroll.x),
+        ] {
+            if changed {
+                cx.emit(EditorScrollEvent {
+                    axis,
+                    progress: self.scroll_progress(axis),
+                });
+            }
+        }
     }
 
     /// How far the content extends past the viewport, in pixels, per axis.
@@ -2131,7 +2197,9 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         let delta = event.delta.pixel_delta(self.layout.line_height);
+        let before = self.scroll;
         self.scroll_by(point(-delta.x, -delta.y));
+        self.emit_scroll_changes(before, cx);
         self.wake_bars(cx);
         cx.notify();
     }
@@ -2187,10 +2255,13 @@ impl EditorView {
         }
         Some(
             Scrollbar::new(
-                match axis {
-                    ScrollbarAxis::Vertical => "editor-v-bar",
-                    ScrollbarAxis::Horizontal => "editor-h-bar",
-                },
+                (
+                    match axis {
+                        ScrollbarAxis::Vertical => "editor-v-bar",
+                        ScrollbarAxis::Horizontal => "editor-h-bar",
+                    },
+                    self.id,
+                ),
                 axis,
                 bounds,
                 f32::from(visible),
@@ -2248,6 +2319,7 @@ impl EditorView {
 
     /// Moves the surface to where a dragged thumb says it should be.
     fn on_thumb_drag(&mut self, event: &DragMoveEvent<DraggedThumb>, cx: &mut Context<Self>) {
+        let before = self.scroll;
         for axis in [ScrollbarAxis::Vertical, ScrollbarAxis::Horizontal] {
             let Some(bar) = self.scrollbar(axis) else {
                 continue;
@@ -2268,6 +2340,7 @@ impl EditorView {
             }
             cx.notify();
         }
+        self.emit_scroll_changes(before, cx);
     }
 
     // --- what the element reads ---------------------------------------------
@@ -2315,6 +2388,7 @@ fn outdent_width(text: &str) -> usize {
 }
 
 impl EventEmitter<EditorEvent> for EditorView {}
+impl EventEmitter<EditorScrollEvent> for EditorView {}
 
 impl Focusable for EditorView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
