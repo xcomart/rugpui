@@ -67,6 +67,16 @@ impl<S: GridSource> GridView<S> {
         if !self.source.cell_editable(row, column) {
             return false;
         }
+        let editor = self.source.cell_editor(row, column);
+        if matches!(editor, CellEditor::External) {
+            self.commit_edit(cx);
+            let cell = CellAddress::new(row, display);
+            self.selection.replace(cell);
+            self.reveal(cell);
+            cx.emit(GridEvent::CellActivated { row, column });
+            cx.notify();
+            return true;
+        }
         let (seeded, was_null) = match self.source.cell(row, column) {
             // A cell the server is going to fill in seeds the same empty field
             // a null does, and for the same reason: leaving it as it was found
@@ -77,11 +87,6 @@ impl<S: GridSource> GridView<S> {
             GridCell::Lob { .. } => return false,
         };
 
-        // Asked only now, after the cell has been found and agreed to take an
-        // edit at all — so a source may build its option list here rather than
-        // keeping one for every cell of the result.
-        let editor = self.source.cell_editor(row, column);
-
         self.commit_edit(cx);
 
         let cell = CellAddress::new(row, display);
@@ -89,6 +94,7 @@ impl<S: GridSource> GridView<S> {
         self.reveal(cell);
 
         let (editor, handle) = match editor {
+            CellEditor::External => unreachable!("external editor handled before seeding"),
             CellEditor::Text => {
                 let grid = cx.entity().downgrade();
                 let content = seeded.clone();

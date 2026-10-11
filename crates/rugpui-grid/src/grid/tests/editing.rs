@@ -1,5 +1,33 @@
 use super::*;
 
+#[gpui::test]
+fn tab_hands_external_editors_to_the_host_without_a_single_line_field(cx: &mut TestAppContext) {
+    let mut source = Staged::new();
+    source.external = Some(2);
+    source.rows[1][2] = Some("first\nsecond");
+    let (grid, mut cx) = open(source, cx);
+    grid.update_in(&mut cx, |grid, window, cx| {
+        grid.begin_edit(1, 1, window, cx)
+    });
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+    assert_eq!(
+        grid.drain(),
+        vec![
+            GridEvent::EditCommitted {
+                row: 1,
+                column: 1,
+                value: EditValue::Text("typed".into())
+            },
+            GridEvent::CellActivated { row: 1, column: 2 },
+        ]
+    );
+    grid.read(&mut cx, |grid| {
+        assert_eq!(grid.source().cell(1, 2), GridCell::Text("first\nsecond"))
+    });
+}
+
 /// The `NULL` row of a nullable dropdown stages `EditValue::Null`, which is
 /// the gesture that clears a cell rather than emptying it — the distinction
 /// the crate is built around, now with a way for a user to reach it.

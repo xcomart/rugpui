@@ -181,6 +181,7 @@ struct Staged {
     status: Vec<RowStatus>,
     dirty: Vec<(usize, usize)>,
     editable: Vec<usize>,
+    external: Option<usize>,
 }
 
 impl Staged {
@@ -193,6 +194,7 @@ impl Staged {
             status: vec![RowStatus::Unchanged, RowStatus::Unchanged],
             dirty: Vec::new(),
             editable: vec![1, 2],
+            external: None,
         }
     }
 }
@@ -228,6 +230,14 @@ impl GridSource for Staged {
 
     fn cell_editable(&self, _row: usize, column: usize) -> bool {
         self.editable.contains(&column)
+    }
+
+    fn cell_editor(&self, _row: usize, column: usize) -> CellEditor {
+        if self.external == Some(column) {
+            CellEditor::External
+        } else {
+            CellEditor::Text
+        }
     }
 }
 

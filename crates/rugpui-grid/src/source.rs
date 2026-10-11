@@ -364,9 +364,8 @@ pub type CellEditorBuilder = Rc<dyn Fn(&CellEditorContext, &mut Window, &mut App
 
 /// What opens over a cell when it is edited.
 ///
-/// Three, and only three, because they are the three shapes of *where the value
-/// comes from*: the user types it, the user picks it out of a list the source
-/// knows, or the host has something better than either. There is deliberately
+/// The user types a value, picks from a list, or uses an editor provided by the
+/// host, either inside the cell or in a separate view. There is deliberately
 /// no `Boolean` variant — a truth column is
 /// `Choice { options: vec!["true".into(), "false".into()], nullable }`, which
 /// spells the two values the way the server will read them back and lets a
@@ -376,6 +375,10 @@ pub enum CellEditor {
     /// A one-line field seeded with the cell's text. The default, and what
     /// every source got before this existed.
     Text,
+    /// The host opens a separate editor, such as a multiline dialog.
+    /// `begin_edit` selects the cell and emits `GridEvent::CellActivated`, also
+    /// when reached by Tab. Handle that event without calling `begin_edit` again.
+    External,
     /// A dropdown over a fixed list, opened at once over the cell.
     ///
     /// Picking a row stages it there and then — there is no `Enter` to press,
@@ -405,6 +408,7 @@ impl std::fmt::Debug for CellEditor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CellEditor::Text => f.write_str("Text"),
+            CellEditor::External => f.write_str("External"),
             CellEditor::Choice { options, nullable } => f
                 .debug_struct("Choice")
                 .field("options", options)
@@ -591,7 +595,7 @@ pub fn cell_label(cell: &GridCell<'_>) -> CellLabel {
             muted: true,
         },
         GridCell::Text(text) => CellLabel {
-            text: SharedString::from(text.to_string()),
+            text: SharedString::from(single_line_text(text).into_owned()),
             muted: false,
         },
         GridCell::Lob { size } => CellLabel {
@@ -601,9 +605,38 @@ pub fn cell_label(cell: &GridCell<'_>) -> CellLabel {
     }
 }
 
+/// Presentation only: keep every line, including leading/trailing empty lines,
+/// while the source retains the original value for copying and editing.
+pub(crate) fn single_line_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains(['\r', '\n']) {
+        text.replace("\r\n", "\n")
+            .replace(['\r', '\n'], "\\n")
+            .into()
+    } else {
+        text.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multiline_values_draw_from_the_first_line_without_losing_empty_lines() {
+        for (raw, shown) in [
+            ("first\nsecond\n", "first\\nsecond\\n"),
+            ("\r\nfirst\r\n\r\nlast\r", "\\nfirst\\n\\nlast\\n"),
+            ("한🙂\n글", "한🙂\\n글"),
+            (r"literal\ntext", r"literal\ntext"),
+            ("", ""),
+        ] {
+            let cell = GridCell::Text(raw);
+            let label = cell_label(&cell);
+            assert_eq!(label.text, shown);
+            assert!(!label.muted);
+            assert_eq!(cell, GridCell::Text(raw));
+        }
+    }
 
     /// The distinction the whole crate exists to keep: a cell with no value and
     /// a cell with an empty value do not draw the same thing.
