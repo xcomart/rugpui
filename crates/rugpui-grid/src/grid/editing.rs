@@ -70,6 +70,9 @@ impl<S: GridSource> GridView<S> {
         let editor = self.source.cell_editor(row, column);
         if matches!(editor, CellEditor::External) {
             self.commit_edit(cx);
+            // The host will focus its editor. Do not reclaim focus on the
+            // next frame after closing the field Tab just came from.
+            self.refocus = false;
             let cell = CellAddress::new(row, display);
             self.selection.replace(cell);
             self.reveal(cell);
