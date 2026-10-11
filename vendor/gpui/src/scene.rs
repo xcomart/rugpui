@@ -93,7 +93,7 @@ impl Scene {
         let primitive = primitive.into();
         if let Some(regions) = self.clip_regions.clone() {
             let visible = primitive
-                .bounds()
+                .paint_bounds()
                 .intersect(&primitive.content_mask().bounds);
             // The first region covers the straight middle of a rounded frame.
             // Almost all primitives take this path without copying or splitting.
@@ -116,7 +116,7 @@ impl Scene {
 
     fn insert_clipped_primitive(&mut self, mut primitive: Primitive) {
         let clipped_bounds = primitive
-            .bounds()
+            .paint_bounds()
             .intersect(&primitive.content_mask().bounds);
 
         if clipped_bounds.is_empty() {
@@ -283,6 +283,48 @@ mod clip_region_tests {
         assert!(scene.clip_regions.is_none());
         assert!(scene.quads.is_empty());
     }
+
+    #[test]
+    fn shadow_clips_keep_the_blur_tail_and_inset_element_on_replay() {
+        let element = bounds(24., 24., 100., 100.);
+        let full = bounds(0., 0., 148., 148.);
+        for inset in [0, 1] {
+            let region = if inset == 0 {
+                bounds(4., 50., 10., 20.)
+            } else {
+                bounds(25., 50., 4., 20.)
+            };
+            let shadow = Shadow {
+                order: 0,
+                blur_radius: px(10.).scale(1.),
+                bounds: if inset == 0 {
+                    element
+                } else {
+                    bounds(40., 40., 68., 68.)
+                },
+                corner_radii: Corners::all(px(9.).scale(1.)),
+                content_mask: ContentMask { bounds: full },
+                color: crate::hsla(0., 0., 0., 0.5),
+                element_bounds: element,
+                element_corner_radii: Corners::all(px(9.).scale(1.)),
+                inset,
+                pad: 0,
+            };
+            let mut scene = Scene {
+                clip_regions: Some(vec![region].into()),
+                ..Scene::default()
+            };
+            scene.insert_primitive(shadow);
+            assert_eq!(scene.shadows.len(), 1);
+            assert_eq!(scene.shadows[0].content_mask.bounds, region);
+            assert_eq!(scene.shadows[0].bounds, shadow.bounds);
+            let mut replay = Scene::default();
+            replay.replay(0..scene.len(), &scene);
+            assert_eq!(replay.shadows.len(), 1);
+            assert_eq!(replay.shadows[0].content_mask.bounds, region);
+            assert_eq!(replay.shadows[0].bounds, shadow.bounds);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Default)]
@@ -336,6 +378,16 @@ impl Primitive {
             Primitive::SubpixelSprite(sprite) => &sprite.bounds,
             Primitive::PolychromeSprite(sprite) => &sprite.bounds,
             Primitive::Surface(surface) => &surface.bounds,
+        }
+    }
+
+    // RULOGMAN PATCH: clip/cull the geometry emitted by the vertex shader,
+    // while keeping the original shadow box unchanged for blur calculation.
+    fn paint_bounds(&self) -> Bounds<ScaledPixels> {
+        match self {
+            Primitive::Shadow(shadow) if shadow.inset != 0 => shadow.element_bounds,
+            Primitive::Shadow(shadow) => shadow.bounds.dilate(shadow.blur_radius * 3.),
+            _ => *self.bounds(),
         }
     }
 

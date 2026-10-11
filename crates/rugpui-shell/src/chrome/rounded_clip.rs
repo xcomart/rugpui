@@ -204,7 +204,64 @@ fn rounded_regions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::size;
+    use gpui::{Context, Render, Styled, TestAppContext, VisualTestContext, div, hsla, size};
+    use std::ops::Deref;
+
+    struct ShadowFrame {
+        active: bool,
+        tiling: Tiling,
+    }
+
+    impl Render for ShadowFrame {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            super::super::render_client_frame(
+                div().size_full().bg(hsla(0.6, 0.5, 0.5, 0.5)),
+                self.tiling,
+                hsla(0., 0., 0.5, 1.),
+                self.active,
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn painted_shadows_reach_every_edge_without_filling_the_content(cx: &mut TestAppContext) {
+        for active in [false, true] {
+            let window = cx.open_window(size(px(248.), px(148.)), |_, _| ShadowFrame {
+                active,
+                tiling: Tiling::default(),
+            });
+            let cx = &mut VisualTestContext::from_window(*window.deref(), cx);
+            cx.run_until_parked();
+            cx.update(|window, _| {
+                let scale = window.scale_factor();
+                let shadows = window.painted_shadows();
+                let frame = Bounds::new(point(px(24.), px(24.)), size(px(200.), px(100.)));
+                for (x, y) in [(124., 16.), (124., 132.), (16., 74.), (232., 74.)] {
+                    let sample = point(px(x), px(y)).scale(scale);
+                    assert_eq!(
+                        shadows
+                            .iter()
+                            .filter(|s| s.content_mask.bounds.contains(&sample))
+                            .count(),
+                        1,
+                        "shadow missing or blended twice at {x},{y} (active={active})"
+                    );
+                }
+                let interior = rounded_regions(frame, Tiling::default(), scale, 0.);
+                assert!(shadows.iter().all(|shadow| interior.iter().all(|region| {
+                    shadow
+                        .content_mask
+                        .bounds
+                        .intersect(&region.scale(scale))
+                        .is_empty()
+                })));
+                assert!(shadows.iter().all(|shadow| {
+                    shadow.bounds == (frame + point(px(0.), px(3.))).scale(scale)
+                        && shadow.color.a == if active { 0.72 } else { 0.40 }
+                }));
+            });
+        }
+    }
 
     #[test]
     fn corners_are_cut_without_insetting_the_straight_edges() {

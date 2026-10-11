@@ -39,6 +39,7 @@ exclude = [
 #   * `gpui/src/scene.rs` and `gpui/src/window.rs` — disjoint content clip
 #     regions, inherited by deferred overlays and cached draws. The shell uses
 #     pixel-row strips to clip rounded window corners without adding padding.
+#     Shadow clipping and culling include the shader's full blur extent.
 #     GPU primitive layouts and the platform renderers remain unchanged.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
