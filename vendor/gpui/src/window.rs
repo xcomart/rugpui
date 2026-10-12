@@ -5522,10 +5522,9 @@ impl Window {
             return;
         }
 
-        // RULOGMAN PATCH: dialogs need Tab even when their owner only bound Escape.
+        // RULOGMAN PATCH: forms need Tab even without an explicit host binding.
         // Run after bindings/listeners, preserving editor indentation and host actions.
-        if self.rendered_frame.tab_stops.focus_trap.is_some()
-            && !self.default_prevented
+        if !self.default_prevented
             && let Some(event) = event.downcast_ref::<KeyDownEvent>()
         {
             let stroke = &event.keystroke;

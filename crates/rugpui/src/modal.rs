@@ -182,31 +182,40 @@ mod tests {
         top_overlay: bool,
         top_field: Entity<TextInput>,
         clicks: usize,
+        tab_handling: u8,
     }
 
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let owner = cx.entity();
+            let tab_handling = self.tab_handling;
+            let form = div()
+                .child(self.first.clone())
+                .child(self.disabled.clone())
+                .child(self.second.clone())
+                .child(Button::new("disabled-button", "Disabled").disabled(true))
+                .child(Button::new("accept", "Accept").on_click(move |_, _, cx| {
+                    owner.update(cx, |harness, _| harness.clicks += 1);
+                }));
             div()
                 .relative()
                 .size_full()
                 .track_focus(&self.root)
+                .on_key_down(move |event, window, cx| {
+                    if event.keystroke.key == "tab" {
+                        match tab_handling {
+                            1 => cx.stop_propagation(),
+                            2 => window.prevent_default(),
+                            _ => {}
+                        }
+                    }
+                })
                 .child(self.background.clone())
-                .when(self.show_dialog, |root| {
-                    root.child(modal(
-                        "test-modal",
-                        "Dialog",
-                        px(400.),
-                        div()
-                            .child(self.first.clone())
-                            .child(self.disabled.clone())
-                            .child(self.second.clone())
-                            .child(Button::new("disabled-button", "Disabled").disabled(true))
-                            .child(Button::new("accept", "Accept").on_click(move |_, _, cx| {
-                                owner.update(cx, |harness, _| harness.clicks += 1);
-                            })),
-                        |_, _| {},
-                    ))
+                .map(|root| {
+                    if !self.show_dialog {
+                        return root.child(form);
+                    }
+                    root.child(modal("test-modal", "Dialog", px(400.), form, |_, _| {}))
                 })
                 .when(self.top_overlay, |root| {
                     root.child(modal(
@@ -243,6 +252,7 @@ mod tests {
             top_overlay: false,
             top_field: cx.new(TextInput::new),
             clicks: 0,
+            tab_handling: 0,
         });
         let mut cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
@@ -335,6 +345,49 @@ mod tests {
         window
             .update(&mut cx, |harness, window, cx| {
                 window.focus_next(cx);
+                assert!(harness.first.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn tab_traverses_nonmodal_forms_without_host_bindings(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, cx| Harness {
+            root: cx.focus_handle(),
+            background: cx.new(TextInput::new),
+            first: cx.new(TextInput::new),
+            second: cx.new(TextInput::new),
+            disabled: cx.new(|cx| TextInput::new(cx).disabled(true)),
+            show_dialog: false,
+            top_overlay: false,
+            top_field: cx.new(TextInput::new),
+            clicks: 0,
+            tab_handling: 0,
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        window
+            .update(&mut cx, |harness, window, cx| {
+                harness.root.focus(window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        for field in [0, 1, 2] {
+            cx.simulate_keystrokes("tab");
+            window
+                .update(&mut cx, |harness, window, cx| {
+                    let input = [&harness.background, &harness.first, &harness.second][field];
+                    assert!(input.read(cx).focus_handle(cx).is_focused(window));
+                })
+                .unwrap();
+        }
+        cx.simulate_keystrokes("tab");
+        activate(&mut cx);
+        cx.simulate_keystrokes("tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert_eq!(harness.clicks, 1);
                 assert!(
                     harness
                         .background
@@ -344,5 +397,36 @@ mod tests {
                 );
             })
             .unwrap();
+        cx.simulate_keystrokes("shift-tab");
+        activate(&mut cx);
+        cx.simulate_keystrokes("shift-tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert_eq!(harness.clicks, 2);
+                assert!(harness.second.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        cx.simulate_keystrokes("ctrl-tab alt-tab");
+        window
+            .update(&mut cx, |harness, window, cx| {
+                assert!(harness.second.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+        // Editors and terminals can consume Tab before the fallback runs.
+        for tab_handling in [1, 2] {
+            window
+                .update(&mut cx, |harness, _, cx| {
+                    harness.tab_handling = tab_handling;
+                    cx.notify();
+                })
+                .unwrap();
+            cx.run_until_parked();
+            cx.simulate_keystrokes("tab shift-tab");
+            window
+                .update(&mut cx, |harness, window, cx| {
+                    assert!(harness.second.read(cx).focus_handle(cx).is_focused(window));
+                })
+                .unwrap();
+        }
     }
 }

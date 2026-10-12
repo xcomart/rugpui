@@ -43,7 +43,7 @@ exclude = [
 #     GPU primitive layouts and the platform renderers remain unchanged.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
-#     tab stops, and default Tab traversal for dialogs without host bindings.
+#     tab stops, and default Tab traversal for forms without host bindings.
 #     Background controls remain in the frame but are skipped by traversal.
 #   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
 #     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
