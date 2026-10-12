@@ -10,15 +10,9 @@ use super::*;
 /// truncate the value the user was trying to read — and a fit that truncates is
 /// the fault it was meant to cure.
 pub(super) fn shaped_width(text: &str, font: &Font, size: Pixels, window: &Window) -> f32 {
-    // `shape_line` shapes one line and *panics* on a newline, which a value out
-    // of a database is entirely entitled to contain. A space is near enough what
-    // a one-line cell draws it as, and one byte for one byte keeps the run's
-    // length right.
-    let text = if text.contains(['\n', '\r']) {
-        SharedString::from(text.replace(['\n', '\r'], " "))
-    } else {
-        SharedString::from(text.to_string())
-    };
+    // Measure the same escaped line breaks the cell paints. `shape_line`
+    // accepts a single line only, including when fitting a multiline heading.
+    let text = SharedString::from(crate::source::single_line_text(text).into_owned());
     let run = TextRun {
         len: text.len(),
         font: font.clone(),
@@ -369,8 +363,15 @@ impl<S: GridSource> GridView<S> {
             let cells = match self.source.cell(row, column) {
                 GridCell::Null => NULL_TEXT.width(),
                 GridCell::Default => DEFAULT_TEXT.width(),
-                GridCell::Text(text) => text.width(),
-                GridCell::Lob { size } => lob_label(size).width(),
+                GridCell::Text(text)
+                | GridCell::Lob {
+                    preview: Some(text),
+                    ..
+                } => crate::source::single_line_text(text).width(),
+                GridCell::Lob {
+                    size,
+                    preview: None,
+                } => lob_label(size).width(),
             };
             widest = widest.max(cells);
             let floor = widest.saturating_sub(FIT_SPREAD);

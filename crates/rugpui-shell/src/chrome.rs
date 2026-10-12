@@ -183,7 +183,7 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
 ///
 /// Content fills the frame up to its one-pixel outline. Rounded clipping trims
 /// the corners without reserving a background-colored rim. The shadow is drawn
-/// outside that clip, and the outline is deferred above dialog backdrops.
+/// only outside the frame, and the outline is deferred above dialog backdrops.
 /// Tiled edges have no border or rounding. Windows and macOS use native frames.
 pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, active: bool) -> Div {
     let shadow =
@@ -214,7 +214,7 @@ pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, act
     let frame = div()
         .size_full()
         .relative()
-        .child(shadow)
+        .child(RoundedClip::shadow(shadow, tiling))
         .child(content)
         .child(gpui::deferred(outline).with_priority(usize::MAX));
 

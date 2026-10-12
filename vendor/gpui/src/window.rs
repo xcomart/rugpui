@@ -2493,6 +2493,13 @@ impl Window {
         self.rendered_frame.scene.quads.clone()
     }
 
+    // RULOGMAN PATCH: inspect the actual shadow clips in headless render tests.
+    /// Returns the shadows recorded in the most recently rendered frame.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn painted_shadows(&self) -> Vec<Shadow> {
+        self.rendered_frame.scene.shadows.clone()
+    }
+
     /// Set the content size of the window.
     pub fn resize(&mut self, size: Size<Pixels>) {
         self.platform_window.resize(size);
@@ -5515,10 +5522,9 @@ impl Window {
             return;
         }
 
-        // RULOGMAN PATCH: dialogs need Tab even when their owner only bound Escape.
+        // RULOGMAN PATCH: forms need Tab even without an explicit host binding.
         // Run after bindings/listeners, preserving editor indentation and host actions.
-        if self.rendered_frame.tab_stops.focus_trap.is_some()
-            && !self.default_prevented
+        if !self.default_prevented
             && let Some(event) = event.downcast_ref::<KeyDownEvent>()
         {
             let stroke = &event.keystroke;

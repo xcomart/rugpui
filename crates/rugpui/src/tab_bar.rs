@@ -66,6 +66,8 @@ pub struct TabItem {
     pub id: ElementId,
     /// Label shown to the user.
     pub title: SharedString,
+    /// Whether this tab offers a close button when the bar has a close handler.
+    pub closable: bool,
     /// Connection state dot. `None` renders no dot at all.
     pub status: Option<TabStatus>,
     /// Dot colour chosen by the owner, overriding the one [`TabItem::status`]
@@ -86,10 +88,17 @@ impl TabItem {
         Self {
             id: id.into(),
             title: title.into(),
+            closable: true,
             status: None,
             dot: None,
             mark: None,
         }
+    }
+
+    /// Hides the close button for a permanent tab. Tabs are closable by default.
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
+        self
     }
 
     /// Attaches a status dot to the tab.
@@ -369,6 +378,7 @@ impl RenderOnce for TabBar {
             let group = SharedString::from(format!("rugpui-tab-{index}"));
             let close_id = ElementId::from((tab.id.clone(), "close"));
             let mark_id = ElementId::from((tab.id.clone(), "mark"));
+            let on_close = on_close.clone().filter(|_| tab.closable);
 
             div()
                 .id(tab.id)
@@ -490,7 +500,7 @@ impl RenderOnce for TabBar {
                             ),
                     )
                 })
-                .when_some(on_close.clone(), |this, handler| {
+                .when_some(on_close, |this, handler| {
                     this.child(
                         div()
                             .id(close_id)
@@ -993,6 +1003,30 @@ mod tests {
         assert!(
             answers.contains(&Answer::Select),
             "no column of the tab selected it: {answers:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn a_permanent_tab_can_be_selected_but_has_no_close_target(cx: &mut TestAppContext) {
+        let (handles, mut cx) = open(
+            cx,
+            vec![TabItem::new("generate", "Generate").closable(false)],
+        );
+
+        for x in 0..SWEEP_WIDTH {
+            let position = point(px(x as f32), px(ROW_MIDDLE));
+            cx.simulate_mouse_move(position, None, Modifiers::none());
+            cx.simulate_click(position, Modifiers::none());
+        }
+
+        assert!(
+            handles.tally.selected.get() > 0,
+            "the permanent tab is selectable"
+        );
+        assert_eq!(
+            handles.tally.closed.get(),
+            0,
+            "the permanent tab has no close target"
         );
     }
 

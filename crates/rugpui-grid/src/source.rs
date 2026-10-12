@@ -213,15 +213,18 @@ pub enum GridCell<'a> {
     Default,
     /// The value, already a string. May be empty, and an empty one is not null.
     Text(&'a str),
-    /// A large object, whose body is not here.
+    /// A large object, whose complete body is not here.
     ///
-    /// Only the size travels with the row; the bytes are fetched in chunks when
-    /// the cell is opened, which is what [`GridEvent::CellActivated`] is for.
+    /// An optional bounded preview is for display only. Opening the complete
+    /// value still uses [`GridEvent::CellActivated`].
     ///
     /// [`GridEvent::CellActivated`]: crate::GridEvent::CellActivated
     Lob {
         /// How many bytes the object runs to, when the driver said.
         size: Option<u64>,
+        /// A cached display prefix, including an ellipsis if it was truncated.
+        /// `None` falls back to the size marker; `Some("")` is an empty LOB.
+        preview: Option<&'a str>,
     },
 }
 
@@ -364,9 +367,8 @@ pub type CellEditorBuilder = Rc<dyn Fn(&CellEditorContext, &mut Window, &mut App
 
 /// What opens over a cell when it is edited.
 ///
-/// Three, and only three, because they are the three shapes of *where the value
-/// comes from*: the user types it, the user picks it out of a list the source
-/// knows, or the host has something better than either. There is deliberately
+/// The user types a value, picks from a list, or uses an editor provided by the
+/// host, either inside the cell or in a separate view. There is deliberately
 /// no `Boolean` variant — a truth column is
 /// `Choice { options: vec!["true".into(), "false".into()], nullable }`, which
 /// spells the two values the way the server will read them back and lets a
@@ -376,6 +378,10 @@ pub enum CellEditor {
     /// A one-line field seeded with the cell's text. The default, and what
     /// every source got before this existed.
     Text,
+    /// The host opens a separate editor, such as a multiline dialog.
+    /// `begin_edit` selects the cell and emits `GridEvent::CellActivated`, also
+    /// when reached by Tab. Handle that event without calling `begin_edit` again.
+    External,
     /// A dropdown over a fixed list, opened at once over the cell.
     ///
     /// Picking a row stages it there and then — there is no `Enter` to press,
@@ -405,6 +411,7 @@ impl std::fmt::Debug for CellEditor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CellEditor::Text => f.write_str("Text"),
+            CellEditor::External => f.write_str("External"),
             CellEditor::Choice { options, nullable } => f
                 .debug_struct("Choice")
                 .field("options", options)
@@ -590,20 +597,56 @@ pub fn cell_label(cell: &GridCell<'_>) -> CellLabel {
             text: SharedString::new_static(DEFAULT_TEXT),
             muted: true,
         },
-        GridCell::Text(text) => CellLabel {
-            text: SharedString::from(text.to_string()),
+        GridCell::Text(text)
+        | GridCell::Lob {
+            preview: Some(text),
+            ..
+        } => CellLabel {
+            text: SharedString::from(single_line_text(text).into_owned()),
             muted: false,
         },
-        GridCell::Lob { size } => CellLabel {
+        GridCell::Lob {
+            size,
+            preview: None,
+        } => CellLabel {
             text: SharedString::from(lob_label(*size)),
             muted: true,
         },
     }
 }
 
+/// Presentation only: keep every line, including leading/trailing empty lines,
+/// while the source retains the original value for copying and editing.
+pub(crate) fn single_line_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains(['\r', '\n']) {
+        text.replace("\r\n", "\n")
+            .replace(['\r', '\n'], "\\n")
+            .into()
+    } else {
+        text.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multiline_values_draw_from_the_first_line_without_losing_empty_lines() {
+        for (raw, shown) in [
+            ("first\nsecond\n", "first\\nsecond\\n"),
+            ("\r\nfirst\r\n\r\nlast\r", "\\nfirst\\n\\nlast\\n"),
+            ("한🙂\n글", "한🙂\\n글"),
+            (r"literal\ntext", r"literal\ntext"),
+            ("", ""),
+        ] {
+            let cell = GridCell::Text(raw);
+            let label = cell_label(&cell);
+            assert_eq!(label.text, shown);
+            assert!(!label.muted);
+            assert_eq!(cell, GridCell::Text(raw));
+        }
+    }
 
     /// The distinction the whole crate exists to keep: a cell with no value and
     /// a cell with an empty value do not draw the same thing.
@@ -644,15 +687,49 @@ mod tests {
         assert_ne!(marker, text);
     }
 
-    /// A LOB says how big it is and nothing else, because nothing else came.
+    /// A source without a preview still has the size marker as a fallback.
     #[test]
     fn a_lob_shows_its_size() {
         assert_eq!(
-            cell_label(&GridCell::Lob { size: Some(4096) }).text,
+            cell_label(&GridCell::Lob {
+                size: Some(4096),
+                preview: None
+            })
+            .text,
             "[LOB 4096]"
         );
-        assert_eq!(cell_label(&GridCell::Lob { size: None }).text, "[LOB]");
-        assert!(cell_label(&GridCell::Lob { size: None }).muted);
+        assert_eq!(
+            cell_label(&GridCell::Lob {
+                size: None,
+                preview: None
+            })
+            .text,
+            "[LOB]"
+        );
+        assert!(
+            cell_label(&GridCell::Lob {
+                size: None,
+                preview: None
+            })
+            .muted
+        );
+    }
+
+    #[test]
+    fn lob_previews_draw_as_values_including_empty_and_multiline_text() {
+        for (preview, expected) in [
+            ("앞부분🙂…", "앞부분🙂…"),
+            ("00FF80…", "00FF80…"),
+            ("first\r\nsecond", "first\\nsecond"),
+            ("", ""),
+        ] {
+            let label = cell_label(&GridCell::Lob {
+                size: Some(4096),
+                preview: Some(preview),
+            });
+            assert_eq!(label.text, expected);
+            assert!(!label.muted);
+        }
     }
 
     /// Numbers line up on the right and are written bare into SQL; everything

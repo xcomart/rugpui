@@ -3,12 +3,13 @@ use gpui::{
     LayoutId, Pixels, Tiling, Window, point, px,
 };
 
-use super::{WINDOW_BORDER_WIDTH, WINDOW_CORNER_RADIUS};
+use super::{SHADOW_BAND, WINDOW_BORDER_WIDTH, WINDOW_CORNER_RADIUS};
 
 /// Keeps layout flush with the outline and clips painting at the curved corners.
 pub(super) struct RoundedClip {
     child: AnyElement,
     tiling: Tiling,
+    exterior: bool,
 }
 
 impl RoundedClip {
@@ -16,6 +17,16 @@ impl RoundedClip {
         Self {
             child: child.into_any_element(),
             tiling,
+            exterior: false,
+        }
+    }
+
+    /// A drop shadow must never fill the translucent window it surrounds.
+    pub(super) fn shadow(child: impl IntoElement, tiling: Tiling) -> Self {
+        Self {
+            child: child.into_any_element(),
+            tiling,
+            exterior: true,
         }
     }
 }
@@ -59,7 +70,11 @@ impl Element for RoundedClip {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let regions = clip_regions(bounds, self.tiling, window.scale_factor());
+        let regions = if self.exterior {
+            shadow_regions(bounds, self.tiling, window.scale_factor())
+        } else {
+            clip_regions(bounds, self.tiling, window.scale_factor())
+        };
         window.with_content_clip_regions(&regions, |window| self.child.prepaint(window, cx));
         regions
     }
@@ -82,7 +97,38 @@ impl Element for RoundedClip {
 /// never painted twice at a seam. The middle rectangle comes first for the
 /// scene's fast path; only the corner rows need splitting.
 fn clip_regions(bounds: Bounds<Pixels>, tiling: Tiling, scale: f32) -> Vec<Bounds<Pixels>> {
-    let edge = |tiled| if tiled { 0. } else { WINDOW_BORDER_WIDTH };
+    rounded_regions(bounds, tiling, scale, WINDOW_BORDER_WIDTH)
+}
+
+/// Disjoint strips outside the frame, including the transparent rounded corners.
+/// Using the outer curve also keeps shadow alpha out from under the outline.
+fn shadow_regions(bounds: Bounds<Pixels>, tiling: Tiling, scale: f32) -> Vec<Bounds<Pixels>> {
+    let outer = bounds.dilate(px(SHADOW_BAND));
+    let mut regions = vec![
+        Bounds::from_corners(outer.origin, point(outer.right(), bounds.top())),
+        Bounds::from_corners(point(outer.left(), bounds.bottom()), outer.bottom_right()),
+    ];
+    for hole in rounded_regions(bounds, tiling, scale, 0.) {
+        regions.push(Bounds::from_corners(
+            point(outer.left(), hole.top()),
+            point(hole.left(), hole.bottom()),
+        ));
+        regions.push(Bounds::from_corners(
+            point(hole.right(), hole.top()),
+            point(outer.right(), hole.bottom()),
+        ));
+    }
+    regions.retain(|region| !region.is_empty());
+    regions
+}
+
+fn rounded_regions(
+    bounds: Bounds<Pixels>,
+    tiling: Tiling,
+    scale: f32,
+    border: f32,
+) -> Vec<Bounds<Pixels>> {
+    let edge = |tiled| if tiled { 0. } else { border };
     let left = f32::from(bounds.left()) + edge(tiling.left);
     let right = f32::from(bounds.right()) - edge(tiling.right);
     let top = f32::from(bounds.top()) + edge(tiling.top);
@@ -91,7 +137,7 @@ fn clip_regions(bounds: Bounds<Pixels>, tiling: Tiling, scale: f32) -> Vec<Bound
         return Vec::new();
     }
 
-    let radius = (WINDOW_CORNER_RADIUS - WINDOW_BORDER_WIDTH)
+    let radius = (WINDOW_CORNER_RADIUS - border)
         .min((right - left) / 2.)
         .min((bottom - top) / 2.);
     let top_left = !tiling.top && !tiling.left;
@@ -158,7 +204,64 @@ fn clip_regions(bounds: Bounds<Pixels>, tiling: Tiling, scale: f32) -> Vec<Bound
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::size;
+    use gpui::{Context, Render, Styled, TestAppContext, VisualTestContext, div, hsla, size};
+    use std::ops::Deref;
+
+    struct ShadowFrame {
+        active: bool,
+        tiling: Tiling,
+    }
+
+    impl Render for ShadowFrame {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            super::super::render_client_frame(
+                div().size_full().bg(hsla(0.6, 0.5, 0.5, 0.5)),
+                self.tiling,
+                hsla(0., 0., 0.5, 1.),
+                self.active,
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn painted_shadows_reach_every_edge_without_filling_the_content(cx: &mut TestAppContext) {
+        for active in [false, true] {
+            let window = cx.open_window(size(px(248.), px(148.)), |_, _| ShadowFrame {
+                active,
+                tiling: Tiling::default(),
+            });
+            let cx = &mut VisualTestContext::from_window(*window.deref(), cx);
+            cx.run_until_parked();
+            cx.update(|window, _| {
+                let scale = window.scale_factor();
+                let shadows = window.painted_shadows();
+                let frame = Bounds::new(point(px(24.), px(24.)), size(px(200.), px(100.)));
+                for (x, y) in [(124., 16.), (124., 132.), (16., 74.), (232., 74.)] {
+                    let sample = point(px(x), px(y)).scale(scale);
+                    assert_eq!(
+                        shadows
+                            .iter()
+                            .filter(|s| s.content_mask.bounds.contains(&sample))
+                            .count(),
+                        1,
+                        "shadow missing or blended twice at {x},{y} (active={active})"
+                    );
+                }
+                let interior = rounded_regions(frame, Tiling::default(), scale, 0.);
+                assert!(shadows.iter().all(|shadow| interior.iter().all(|region| {
+                    shadow
+                        .content_mask
+                        .bounds
+                        .intersect(&region.scale(scale))
+                        .is_empty()
+                })));
+                assert!(shadows.iter().all(|shadow| {
+                    shadow.bounds == (frame + point(px(0.), px(3.))).scale(scale)
+                        && shadow.color.a == if active { 0.72 } else { 0.40 }
+                }));
+            });
+        }
+    }
 
     #[test]
     fn corners_are_cut_without_insetting_the_straight_edges() {
@@ -220,5 +323,42 @@ mod tests {
         let regions = clip_regions(bounds, left, 1.);
         assert!(regions.iter().all(|r| r.left() == px(0.)));
         assert!(regions.iter().any(|r| r.contains(&point(px(0.), px(1.1)))));
+    }
+
+    #[test]
+    fn shadows_never_change_content_alpha_and_keep_the_exterior_covered_once() {
+        for scale in [1., 1.25, 1.5, 2.] {
+            for width in [3., 12., 200.] {
+                let bounds = Bounds::new(point(px(24.2), px(24.3)), size(px(width), px(width)));
+                let interior = rounded_regions(bounds, Tiling::default(), scale, 0.);
+                let shadow = shadow_regions(bounds, Tiling::default(), scale);
+                let body = clip_regions(bounds, Tiling::default(), scale);
+                for (index, a) in shadow.iter().enumerate() {
+                    assert!(interior.iter().all(|b| a.intersect(b).is_empty()));
+                    assert!(body.iter().all(|b| a.intersect(b).is_empty()));
+                    assert!(
+                        shadow[index + 1..]
+                            .iter()
+                            .all(|b| a.intersect(b).is_empty())
+                    );
+                }
+                let area = |rect: &Bounds<Pixels>| {
+                    f32::from(rect.size.width) * f32::from(rect.size.height)
+                };
+                let covered: f32 = shadow.iter().chain(&interior).map(area).sum();
+                let expected = area(&bounds.dilate(px(SHADOW_BAND)));
+                assert!((covered - expected).abs() < expected * 0.00001);
+                // Alpha 0.5 remains 0.5 for both active/inactive shadow strengths.
+                for alpha in [0.40, 0.72] {
+                    let point = bounds.center();
+                    let shadow_alpha = if shadow.iter().any(|r| r.contains(&point)) {
+                        alpha
+                    } else {
+                        0.
+                    };
+                    assert_eq!(0.5 + shadow_alpha * (1. - 0.5), 0.5);
+                }
+            }
+        }
     }
 }

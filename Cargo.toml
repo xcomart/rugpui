@@ -39,10 +39,11 @@ exclude = [
 #   * `gpui/src/scene.rs` and `gpui/src/window.rs` — disjoint content clip
 #     regions, inherited by deferred overlays and cached draws. The shell uses
 #     pixel-row strips to clip rounded window corners without adding padding.
+#     Shadow clipping and culling include the shader's full blur extent.
 #     GPU primitive layouts and the platform renderers remain unchanged.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
-#     tab stops, and default Tab traversal for dialogs without host bindings.
+#     tab stops, and default Tab traversal for forms without host bindings.
 #     Background controls remain in the frame but are skipped by traversal.
 #   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
 #     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
@@ -109,7 +110,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]

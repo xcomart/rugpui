@@ -347,10 +347,7 @@ impl Element for EditorElement {
 
             // 3. find matches, 4. the selection: both are byte ranges cut on
             // the row boundaries, one quad per row they touch.
-            for found in editor.find_matches() {
-                if found.end < start || found.start > end {
-                    continue;
-                }
+            for found in editor.find_matches(start..end) {
                 let color = if current_match.as_ref() == Some(found) {
                     palette.warning.opacity(0.45)
                 } else {

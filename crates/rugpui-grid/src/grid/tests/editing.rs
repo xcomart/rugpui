@@ -1,5 +1,46 @@
 use super::*;
 
+#[gpui::test]
+fn tab_hands_external_editors_to_the_host_without_a_single_line_field(cx: &mut TestAppContext) {
+    let mut source = Staged::new();
+    source.external = Some(2);
+    source.rows[1][2] = Some("first\nsecond");
+    let (grid, mut cx) = open(source, cx);
+    let external_focus = cx.update(|_, cx| cx.focus_handle());
+    grid.update_in(&mut cx, |grid, window, cx| {
+        let focus = external_focus.clone();
+        cx.subscribe_in(
+            &cx.entity(),
+            window,
+            move |_, _, event: &GridEvent, window, cx| {
+                if matches!(event, GridEvent::CellActivated { .. }) {
+                    focus.focus(window, cx);
+                }
+            },
+        )
+        .detach();
+        grid.begin_edit(1, 1, window, cx)
+    });
+    cx.simulate_input("typed");
+    cx.simulate_keystrokes("tab");
+    assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+    cx.update(|window, _| assert!(external_focus.is_focused(window)));
+    assert_eq!(
+        grid.drain(),
+        vec![
+            GridEvent::EditCommitted {
+                row: 1,
+                column: 1,
+                value: EditValue::Text("typed".into())
+            },
+            GridEvent::CellActivated { row: 1, column: 2 },
+        ]
+    );
+    grid.read(&mut cx, |grid| {
+        assert_eq!(grid.source().cell(1, 2), GridCell::Text("first\nsecond"))
+    });
+}
+
 /// The `NULL` row of a nullable dropdown stages `EditValue::Null`, which is
 /// the gesture that clears a cell rather than emptying it — the distinction
 /// the crate is built around, now with a way for a user to reach it.
