@@ -169,7 +169,8 @@ where
         // truth.
         GridCell::Null | GridCell::Default => Copied::Null,
         GridCell::Text(text) => Copied::Text(Cow::Borrowed(text)),
-        GridCell::Lob { size } => Copied::Text(Cow::Owned(lob_label(size))),
+        // A display prefix must never be mistaken for a complete value.
+        GridCell::Lob { size, .. } => Copied::Text(Cow::Owned(lob_label(size))),
     }
 }
 
@@ -669,8 +670,8 @@ mod tests {
         );
     }
 
-    /// A LOB has no body to copy, so every format gets the placeholder rather
-    /// than something that could pass for data.
+    /// A display preview is not the complete body. Copying must not silently
+    /// substitute a truncated value in a TSV or SQL export.
     #[test]
     fn a_lob_copies_as_a_placeholder() {
         struct Lobs;
@@ -685,7 +686,10 @@ mod tests {
                 1
             }
             fn cell(&self, _: usize, _: usize) -> GridCell<'_> {
-                GridCell::Lob { size: Some(1024) }
+                GridCell::Lob {
+                    size: Some(1024),
+                    preview: Some("DEADBEEF…"),
+                }
             }
         }
 

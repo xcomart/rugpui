@@ -363,8 +363,15 @@ impl<S: GridSource> GridView<S> {
             let cells = match self.source.cell(row, column) {
                 GridCell::Null => NULL_TEXT.width(),
                 GridCell::Default => DEFAULT_TEXT.width(),
-                GridCell::Text(text) => crate::source::single_line_text(text).width(),
-                GridCell::Lob { size } => lob_label(size).width(),
+                GridCell::Text(text)
+                | GridCell::Lob {
+                    preview: Some(text),
+                    ..
+                } => crate::source::single_line_text(text).width(),
+                GridCell::Lob {
+                    size,
+                    preview: None,
+                } => lob_label(size).width(),
             };
             widest = widest.max(cells);
             let floor = widest.saturating_sub(FIT_SPREAD);

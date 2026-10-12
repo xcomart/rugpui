@@ -213,15 +213,18 @@ pub enum GridCell<'a> {
     Default,
     /// The value, already a string. May be empty, and an empty one is not null.
     Text(&'a str),
-    /// A large object, whose body is not here.
+    /// A large object, whose complete body is not here.
     ///
-    /// Only the size travels with the row; the bytes are fetched in chunks when
-    /// the cell is opened, which is what [`GridEvent::CellActivated`] is for.
+    /// An optional bounded preview is for display only. Opening the complete
+    /// value still uses [`GridEvent::CellActivated`].
     ///
     /// [`GridEvent::CellActivated`]: crate::GridEvent::CellActivated
     Lob {
         /// How many bytes the object runs to, when the driver said.
         size: Option<u64>,
+        /// A cached display prefix, including an ellipsis if it was truncated.
+        /// `None` falls back to the size marker; `Some("")` is an empty LOB.
+        preview: Option<&'a str>,
     },
 }
 
@@ -594,11 +597,18 @@ pub fn cell_label(cell: &GridCell<'_>) -> CellLabel {
             text: SharedString::new_static(DEFAULT_TEXT),
             muted: true,
         },
-        GridCell::Text(text) => CellLabel {
+        GridCell::Text(text)
+        | GridCell::Lob {
+            preview: Some(text),
+            ..
+        } => CellLabel {
             text: SharedString::from(single_line_text(text).into_owned()),
             muted: false,
         },
-        GridCell::Lob { size } => CellLabel {
+        GridCell::Lob {
+            size,
+            preview: None,
+        } => CellLabel {
             text: SharedString::from(lob_label(*size)),
             muted: true,
         },
@@ -677,15 +687,49 @@ mod tests {
         assert_ne!(marker, text);
     }
 
-    /// A LOB says how big it is and nothing else, because nothing else came.
+    /// A source without a preview still has the size marker as a fallback.
     #[test]
     fn a_lob_shows_its_size() {
         assert_eq!(
-            cell_label(&GridCell::Lob { size: Some(4096) }).text,
+            cell_label(&GridCell::Lob {
+                size: Some(4096),
+                preview: None
+            })
+            .text,
             "[LOB 4096]"
         );
-        assert_eq!(cell_label(&GridCell::Lob { size: None }).text, "[LOB]");
-        assert!(cell_label(&GridCell::Lob { size: None }).muted);
+        assert_eq!(
+            cell_label(&GridCell::Lob {
+                size: None,
+                preview: None
+            })
+            .text,
+            "[LOB]"
+        );
+        assert!(
+            cell_label(&GridCell::Lob {
+                size: None,
+                preview: None
+            })
+            .muted
+        );
+    }
+
+    #[test]
+    fn lob_previews_draw_as_values_including_empty_and_multiline_text() {
+        for (preview, expected) in [
+            ("앞부분🙂…", "앞부분🙂…"),
+            ("00FF80…", "00FF80…"),
+            ("first\r\nsecond", "first\\nsecond"),
+            ("", ""),
+        ] {
+            let label = cell_label(&GridCell::Lob {
+                size: Some(4096),
+                preview: Some(preview),
+            });
+            assert_eq!(label.text, expected);
+            assert!(!label.muted);
+        }
     }
 
     /// Numbers line up on the right and are written bare into SQL; everything

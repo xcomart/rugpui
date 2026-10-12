@@ -462,6 +462,7 @@ impl GridSource for Shapes {
         if column == 4 {
             return GridCell::Lob {
                 size: Some(4096 * (row as u64 + 1)),
+                preview: None,
             };
         }
         match (row, column) {
