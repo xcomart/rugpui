@@ -92,6 +92,19 @@ pub struct FindState {
 }
 
 impl FindState {
+    /// Matches overlapping a byte range, without scanning results outside it.
+    /// Search and replacement preserve their non-overlapping document order.
+    pub fn matches_in(&self, range: Range<usize>) -> &[Range<usize>] {
+        if range.is_empty() {
+            return &[];
+        }
+        let first = self
+            .matches
+            .partition_point(|found| found.end <= range.start);
+        let count = self.matches[first..].partition_point(|found| found.start < range.end);
+        &self.matches[first..first + count]
+    }
+
     /// Recomputes [`Self::matches`] for `query` over `text`.
     ///
     /// Keeps the current match pointing at the nearest match at or after
@@ -222,5 +235,29 @@ mod tests {
         assert_eq!(state.current(), Some(12..14));
         assert_eq!(state.advance(), Some(0..2), "and wraps");
         assert_eq!(state.retreat(), Some(12..14));
+    }
+    #[test]
+    fn visible_matches_include_spanning_results_but_not_touching_boundaries() {
+        let find = FindState {
+            matches: vec![0..2, 4..8, 10..20, 22..25],
+            ..FindState::default()
+        };
+        assert_eq!(find.matches_in(8..22), &find.matches[2..3]);
+        assert_eq!(find.matches_in(6..12), &[4..8, 10..20]);
+        assert!(find.matches_in(8..10).is_empty());
+        assert!(find.matches_in(15..15).is_empty());
+        assert!(find.matches_in(30..40).is_empty());
+    }
+
+    #[test]
+    fn a_late_viewport_selects_only_its_matches_in_a_large_document() {
+        let find = FindState {
+            matches: (0..100_000).map(|i| i * 4..i * 4 + 2).collect(),
+            ..FindState::default()
+        };
+        assert_eq!(
+            find.matches_in(399_990..400_000),
+            &[399_992..399_994, 399_996..399_998]
+        );
     }
 }

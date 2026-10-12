@@ -2074,8 +2074,8 @@ impl EditorView {
     }
 
     /// What the renderer paints a highlight behind.
-    pub(crate) fn find_matches(&self) -> &[Range<usize>] {
-        &self.find.matches
+    pub(crate) fn find_matches(&self, visible: Range<usize>) -> &[Range<usize>] {
+        self.find.matches_in(visible)
     }
 
     /// Which match is the current one.
