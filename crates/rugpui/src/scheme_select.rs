@@ -25,6 +25,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::scrollbar::Scrollbar;
+use crate::select_keyboard::SelectKeyboard;
 use crate::theme::{Theme, theme};
 
 /// Height of the trigger, matching [`Select`](crate::Select) so a form that
@@ -190,10 +191,10 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
     }
 }
 
-/// A stateless one-of-many dropdown over color schemes.
+/// A one-of-many dropdown over color schemes with a parent-controlled selection.
 ///
-/// The control owns no state: the parent view passes the entries, the selected
-/// id, the open flag and the list's [`ScrollHandle`] on every render, and reacts
+/// The parent view passes the entries, selected id, open flag and optionally
+/// the list's [`ScrollHandle`] on every render, and reacts
 /// to [`SchemeSelect::on_select`] and [`SchemeSelect::on_open_change`].
 ///
 /// The control takes a single tab stop. `Enter` and `Space` toggle the list, as
@@ -201,6 +202,8 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
 /// arrow keys move the selection without wrapping. Closing on `Escape` is left
 /// to the parent, so that a dialog can decide whether the key belongs to the
 /// dropdown or to itself.
+/// Typing searches the displayed names, using the same case-insensitive prefix
+/// search, one-second timeout and repeated-character cycling as [`Select`](crate::Select).
 ///
 /// ```ignore
 /// SchemeSelect::new("scheme")
@@ -324,7 +327,7 @@ impl SchemeSelect {
     ///
     /// Passed in rather than built here, and only while it should be on screen,
     /// for the same reason the handle above is: a bar comes and goes with the
-    /// scrolling, and this control keeps no state between renders. The owner
+    /// scrolling. The owner
     /// answers drags of it too, since the id it built the bar with is what tells
     /// that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
@@ -393,7 +396,11 @@ impl RenderOnce for SchemeSelect {
         let selected = self.selected;
         let on_select = self.on_select;
         let on_open_change = self.on_open_change;
-        let scroll_handle = self.scroll_handle;
+        let keyboard = SelectKeyboard::state(id.clone(), open, window, cx);
+        let focus = keyboard.read(cx).focus.clone();
+        let scroll_handle = self
+            .scroll_handle
+            .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
         let chevron_icon = self.chevron_icon;
 
@@ -440,37 +447,30 @@ impl RenderOnce for SchemeSelect {
                     .hover(|style| style.bg(theme.surface_hover))
                     .when_some(self.tab_index, |this, index| {
                         let accent = theme.accent;
-                        this.tab_index(index)
+                        this.track_focus(&focus.clone().tab_stop(true).tab_index(index))
                             .focus(move |style| style.border_color(accent))
                     })
                     .when_some(on_open_change.clone(), |this, handler| {
                         this.on_click(move |_, window, cx| handler(!open, window, cx))
                     })
-                    .on_key_down({
+                    // Consume search text before Space can arm the trigger's click.
+                    .capture_key_down({
                         let ids = ids.clone();
                         let on_select = on_select.clone();
                         let scroll_handle = scroll_handle.clone();
                         move |event, window, cx| {
-                            if !open || event.keystroke.modifiers.modified() || ids.is_empty() {
+                            let now = cx.background_executor().now();
+                            let next = keyboard.update(cx, |keyboard, _| {
+                                keyboard.navigate(event, current, ids.len(), |i| &ids[i].name, now)
+                            });
+                            let Some(next) = next else {
                                 return;
-                            }
-                            let delta: isize = match event.keystroke.key.as_str() {
-                                "up" => -1,
-                                "down" => 1,
-                                _ => return,
-                            };
-                            let last = ids.len() - 1;
-                            let next = match current {
-                                Some(current) => {
-                                    (current as isize + delta).clamp(0, last as isize) as usize
-                                }
-                                None if delta > 0 => 0,
-                                None => last,
                             };
                             cx.stop_propagation();
-                            if let Some(handle) = scroll_handle.as_ref() {
-                                handle.scroll_to_item(next);
-                            }
+                            window.prevent_default();
+                            let Some(next) = next else { return };
+                            scroll_handle.scroll_to_item(next);
+                            window.refresh();
                             if Some(next) != current
                                 && let Some(handler) = on_select.as_ref()
                             {
@@ -597,9 +597,7 @@ impl RenderOnce for SchemeSelect {
             .rounded_lg()
             .shadow_lg()
             .text_color(theme.text)
-            .when_some(scroll_handle.as_ref(), |this, handle| {
-                this.track_scroll(handle)
-            })
+            .track_scroll(&scroll_handle)
             .children(rows);
 
         // The bar cannot go inside the list, whose children are what scroll

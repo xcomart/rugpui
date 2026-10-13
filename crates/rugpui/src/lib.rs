@@ -64,6 +64,7 @@ pub mod scroll;
 pub mod scrollbar;
 pub mod segmented;
 pub mod select;
+mod select_keyboard;
 pub mod slider;
 pub mod spinner;
 pub mod splitter;

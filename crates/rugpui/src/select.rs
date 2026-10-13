@@ -1,9 +1,10 @@
 //! A dropdown that picks one string out of a list.
 //!
-//! Like every other widget here the control is stateless: the parent view owns
-//! the selected value, the open flag and the list's [`ScrollHandle`], passes
-//! them in on every render, and reacts to [`Select::on_select`] and
-//! [`Select::on_open_change`].
+//! The parent view supplies the selected value and open flag on every render,
+//! and reacts to [`Select::on_select`] and [`Select::on_open_change`]. It may
+//! also supply the list's [`ScrollHandle`].
+//! Focus and the short-lived keyboard search prefix are retained per element.
+//! Typing selects a case-insensitive prefix match, even with the list closed.
 //!
 //! The list is drawn with [`deferred`] rather than inline, for the same reason
 //! [`MenuButton`](crate::MenuButton) does it: a trigger that sits inside a
@@ -18,6 +19,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::scrollbar::Scrollbar;
+use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
 
 /// Height of the trigger, matching [`TextInput`](crate::TextInput) so the two
@@ -147,7 +149,7 @@ impl From<String> for SelectOption {
     }
 }
 
-/// A stateless one-of-many dropdown.
+/// A one-of-many dropdown with a parent-controlled selection.
 ///
 /// The text of an option is also its identity, which keeps the widget usable
 /// for lists the caller discovers at runtime — font families, for one —
@@ -159,6 +161,10 @@ impl From<String> for SelectOption {
 /// arrow keys move the selection without wrapping. Closing on `Escape` is left
 /// to the parent, so that a dialog can decide whether the key belongs to the
 /// dropdown or to itself.
+/// Typing searches labels without case sensitivity. Consecutive characters
+/// refine the prefix; a one-second pause starts a new search, and repeating
+/// one character cycles through matching entries. The matched row is revealed
+/// in the list. This also works while a closed trigger has focus.
 ///
 /// ```ignore
 /// Select::new("font")
@@ -276,7 +282,7 @@ impl Select {
     ///
     /// Passed in rather than built here, and only while it should be on screen,
     /// for the same reason the handle above is: a bar comes and goes with the
-    /// scrolling, and this control keeps no state between renders. The owner
+    /// scrolling. The owner
     /// answers drags of it too, since the id it built the bar with is what tells
     /// that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
@@ -291,8 +297,8 @@ impl Select {
     /// leading "no choice" row, say — because the text is translated and
     /// comparing against it would break in every language but one.
     ///
-    /// Fired by a click on a row and by the arrow keys; the list closes itself
-    /// after a click, so the callback does not have to.
+    /// Fired by a click, the arrow keys, or typing a label prefix. The list
+    /// closes itself after a click, so the callback does not have to.
     pub fn on_select(
         mut self,
         handler: impl Fn(usize, &str, &mut Window, &mut App) + 'static,
@@ -340,7 +346,11 @@ impl RenderOnce for Select {
         let selected = self.selected;
         let on_select = self.on_select;
         let on_open_change = self.on_open_change;
-        let scroll_handle = self.scroll_handle;
+        let keyboard = SelectKeyboard::state(id.clone(), open, window, cx);
+        let focus = keyboard.read(cx).focus.clone();
+        let scroll_handle = self
+            .scroll_handle
+            .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
         let chevron_icon = self.chevron_icon;
 
@@ -385,37 +395,30 @@ impl RenderOnce for Select {
             .hover(|style| style.bg(theme.surface_hover))
             .when_some(self.tab_index, |this, index| {
                 let accent = theme.accent;
-                this.tab_index(index)
+                this.track_focus(&focus.clone().tab_stop(true).tab_index(index))
                     .focus(move |style| style.border_color(accent))
             })
             .when_some(on_open_change.clone(), |this, handler| {
                 this.on_click(move |_, window, cx| handler(!open, window, cx))
             })
-            .on_key_down({
+            // Consume search text before Space can arm the trigger's click.
+            .capture_key_down({
                 let options = options.clone();
                 let on_select = on_select.clone();
                 let scroll_handle = scroll_handle.clone();
                 move |event, window, cx| {
-                    if !open || event.keystroke.modifiers.modified() || options.is_empty() {
+                    let now = cx.background_executor().now();
+                    let next = keyboard.update(cx, |keyboard, _| {
+                        keyboard.navigate(event, current, options.len(), |i| &options[i].label, now)
+                    });
+                    let Some(next) = next else {
                         return;
-                    }
-                    let delta: isize = match event.keystroke.key.as_str() {
-                        "up" => -1,
-                        "down" => 1,
-                        _ => return,
-                    };
-                    let last = options.len() - 1;
-                    let next = match current {
-                        Some(current) => {
-                            (current as isize + delta).clamp(0, last as isize) as usize
-                        }
-                        None if delta > 0 => 0,
-                        None => last,
                     };
                     cx.stop_propagation();
-                    if let Some(handle) = scroll_handle.as_ref() {
-                        handle.scroll_to_item(next);
-                    }
+                    window.prevent_default();
+                    let Some(next) = next else { return };
+                    scroll_handle.scroll_to_item(next);
+                    window.refresh();
                     if Some(next) != current
                         && let Some(handler) = on_select.as_ref()
                     {
@@ -570,9 +573,7 @@ impl RenderOnce for Select {
             .rounded_lg()
             .shadow_lg()
             .text_color(theme.text)
-            .when_some(scroll_handle.as_ref(), |this, handle| {
-                this.track_scroll(handle)
-            })
+            .track_scroll(&scroll_handle)
             .children(rows);
 
         // The bar cannot go inside the list, whose children are what scroll
