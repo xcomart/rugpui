@@ -127,6 +127,7 @@ use gpui::App;
 /// fully opaque for the same reason: a view drawn before the shell has said what
 /// the window looks like still has an answer, and it is the one that paints.
 pub fn init(cx: &mut App) {
+    select_keyboard::init(cx);
     ThemeRegistry::init(cx);
     EditorThemeRegistry::init(cx);
     set_theme(Theme::dark(), cx);

@@ -2,7 +2,19 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{App, ElementId, Entity, FocusHandle, KeyDownEvent, ScrollHandle, Subscription, Window};
+use gpui::{
+    App, ElementId, Entity, FocusHandle, KeyBinding, KeyDownEvent, ScrollHandle, Subscription,
+    Window, actions,
+};
+
+pub(crate) const KEY_CONTEXT: &str = "RugpuiSelect";
+
+actions!(rugpui_select, [Dismiss]);
+
+pub(crate) fn init(cx: &mut App) {
+    // Bind at the focused dropdown: host actions run before raw key listeners.
+    cx.bind_keys([KeyBinding::new("escape", Dismiss, Some(KEY_CONTEXT))]);
+}
 
 const TYPEAHEAD_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -158,6 +170,8 @@ mod tests {
     use gpui::{Context, Render, TestAppContext, VisualTestContext, div, prelude::*, px, size};
     use std::ops::Deref;
 
+    actions!(select_keyboard_test, [DismissDialog]);
+
     #[test]
     fn prefixes_refine_cycle_wrap_and_expire() {
         let labels = ["Alpha", "Alpine", "Beta", "Betamax", "Éclair", "가나다"];
@@ -204,6 +218,7 @@ mod tests {
         options: Vec<String>,
         scroll: ScrollHandle,
         changes: Vec<usize>,
+        dialog_dismissals: usize,
     }
 
     impl Render for Harness {
@@ -254,6 +269,17 @@ mod tests {
             };
             div()
                 .size_full()
+                .key_context("SelectTestDialog")
+                .on_action(cx.listener(|this, _: &DismissDialog, _, cx| {
+                    this.dialog_dismissals += 1;
+                    cx.stop_propagation();
+                }))
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                    if event.keystroke.key == "escape" {
+                        this.dialog_dismissals += 1;
+                        cx.stop_propagation();
+                    }
+                }))
                 .child(control)
                 .child(div().id("other-focus").tab_index(0).size(px(20.)))
         }
@@ -281,6 +307,7 @@ mod tests {
             .collect(),
             scroll: ScrollHandle::new(),
             changes: Vec::new(),
+            dialog_dismissals: 0,
         });
         let entity = window.root(cx).unwrap();
         let mut cx = VisualTestContext::from_window(*window.deref(), cx);
@@ -373,6 +400,45 @@ mod tests {
         cx.run_until_parked();
         keys(&mut cx, "b");
         assert_eq!(selected(&entity, &mut cx), 0);
+    }
+
+    #[gpui::test]
+    fn escape_closes_only_the_dropdown_before_reaching_the_dialog(cx: &mut TestAppContext) {
+        for scheme in [false, true] {
+            let (entity, mut cx) = open(cx, scheme);
+            keys(&mut cx, "b escape");
+            entity.read_with(&cx, |this, _| {
+                assert!(!this.open);
+                assert_eq!(this.selected, 2);
+                assert_eq!(this.changes, [2]);
+                assert_eq!(this.dialog_dismissals, 0);
+            });
+            keys(&mut cx, "escape");
+            assert_eq!(entity.read_with(&cx, |this, _| this.dialog_dismissals), 1);
+        }
+    }
+
+    #[gpui::test]
+    fn escape_in_an_open_dropdown_precedes_a_host_key_binding(cx: &mut TestAppContext) {
+        for scheme in [false, true] {
+            let (entity, mut cx) = open(cx, scheme);
+            // Register the host binding last, as the applications do. A raw
+            // key listener cannot stop this action from dismissing the dialog.
+            cx.update(|_, cx| {
+                cx.bind_keys([KeyBinding::new(
+                    "escape",
+                    DismissDialog,
+                    Some("SelectTestDialog"),
+                )]);
+            });
+            keys(&mut cx, "escape");
+            entity.read_with(&cx, |this, _| {
+                assert!(!this.open);
+                assert_eq!(this.dialog_dismissals, 0);
+            });
+            keys(&mut cx, "escape");
+            assert_eq!(entity.read_with(&cx, |this, _| this.dialog_dismissals), 1);
+        }
     }
 
     #[gpui::test]

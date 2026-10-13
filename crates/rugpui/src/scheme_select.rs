@@ -199,9 +199,9 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
 ///
 /// The control takes a single tab stop. `Enter` and `Space` toggle the list, as
 /// they do for any focusable element in gpui, and while the list is open the
-/// arrow keys move the selection without wrapping. Closing on `Escape` is left
-/// to the parent, so that a dialog can decide whether the key belongs to the
-/// dropdown or to itself.
+/// arrow keys move the selection without wrapping. `Escape` closes an open
+/// dropdown without reaching the dialog around it. When the dropdown is
+/// closed, `Escape` is left to the parent.
 /// Typing searches the displayed names, using the same case-insensitive prefix
 /// search, one-second timeout and repeated-character cycling as [`Select`](crate::Select).
 ///
@@ -348,8 +348,8 @@ impl SchemeSelect {
     /// Called with the open state the control would like to be in.
     ///
     /// Fires with `true` when the trigger is activated while closed, and with
-    /// `false` when it is activated again, when a row is clicked, or when the
-    /// pointer goes down anywhere outside the list.
+    /// `false` when it is activated again, when a row is clicked, when `Escape`
+    /// closes the list, or when the pointer goes down anywhere outside it.
     pub fn on_open_change(
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
@@ -452,6 +452,16 @@ impl RenderOnce for SchemeSelect {
                     })
                     .when_some(on_open_change.clone(), |this, handler| {
                         this.on_click(move |_, window, cx| handler(!open, window, cx))
+                    })
+                    .when(open, |this| {
+                        let on_open_change = on_open_change.clone();
+                        this.key_context(crate::select_keyboard::KEY_CONTEXT)
+                            .on_action(move |_: &crate::select_keyboard::Dismiss, window, cx| {
+                                cx.stop_propagation();
+                                if let Some(handler) = &on_open_change {
+                                    handler(false, window, cx);
+                                }
+                            })
                     })
                     // Consume search text before Space can arm the trigger's click.
                     .capture_key_down({
