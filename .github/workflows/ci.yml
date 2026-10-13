@@ -48,6 +48,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # This std-only helper also runs on Linux, where AppKit is unavailable.
+      - name: macOS relaunch helper regression tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          rustc --edition=2024 --test vendor/gpui_macos/src/restart.rs -o "$RUNNER_TEMP/macos-restart-tests"
+          "$RUNNER_TEMP/macos-restart-tests"
+
       # Formatting is platform-independent; checking it once is enough.
       - name: rustfmt
         if: runner.os == 'Linux'

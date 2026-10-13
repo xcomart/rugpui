@@ -87,6 +87,10 @@ exclude = [
 #     a blurred window there is see-through over an unblurred backdrop. From 26
 #     on the patch asks the WindowServer for the blur directly, through the
 #     legacy private API gpui used before the effect view.
+#   * `gpui_macos/src/platform.rs` and `gpui_macos/src/restart.rs` — after an
+#     update, wait for the old process and request a new instance of the exact
+#     bundle with `open -n -a`. Retry transient LaunchServices failures and
+#     detach the helper's streams and working directory from the exiting app.
 #
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but a consumer still has to name it in its own
