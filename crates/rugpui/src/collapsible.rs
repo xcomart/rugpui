@@ -283,6 +283,9 @@ impl RenderOnce for Collapsible {
             div()
                 .flex()
                 .flex_col()
+                // Expanded forms can be deep; inherit the column width
+                // without repeatedly measuring their intrinsic width.
+                .w_full()
                 .gap(px(BODY_GAP))
                 .pt(px(BODY_GAP))
                 .when(self.indent, |this| this.pl(px(ARROW_WIDTH)))
@@ -292,6 +295,7 @@ impl RenderOnce for Collapsible {
         div()
             .flex()
             .flex_col()
+            .w_full()
             .child(
                 div()
                     .flex()

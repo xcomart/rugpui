@@ -116,6 +116,7 @@ impl RenderOnce for Modal {
                         div()
                             .flex()
                             .flex_col()
+                            .w_full()
                             .min_h_0()
                             .gap(px(12.))
                             .p(px(16.))
@@ -150,6 +151,9 @@ impl RenderOnce for FormRow {
         div()
             .flex()
             .flex_row()
+            // The containing form supplies the width. Avoid measuring the
+            // control subtree again just to discover the row's intrinsic width.
+            .w_full()
             .items_center()
             .gap(px(12.))
             .child(
@@ -183,6 +187,62 @@ mod tests {
         top_field: Entity<TextInput>,
         clicks: usize,
         tab_handling: u8,
+    }
+
+    struct FormLayout {
+        body: gpui::ScrollHandle,
+        controls: [gpui::ScrollHandle; 2],
+    }
+
+    impl Render for FormLayout {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let body = div()
+                .id("form-body")
+                .track_scroll(&self.body)
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .children(self.controls.iter().enumerate().map(|(index, bounds)| {
+                    form_row(
+                        "Label",
+                        div()
+                            .id(("form-control", index))
+                            .track_scroll(bounds)
+                            .h(px(28.)),
+                    )
+                }));
+            div()
+                .size_full()
+                .child(modal("form", "Form", px(420.), body, |_, _| {}))
+        }
+    }
+
+    #[gpui::test]
+    fn form_rows_share_the_padded_body_width(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, _| FormLayout {
+            body: gpui::ScrollHandle::new(),
+            controls: [gpui::ScrollHandle::new(), gpui::ScrollHandle::new()],
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        for (width, height) in [(800., 600.), (500., 400.)] {
+            cx.simulate_resize(gpui::size(px(width), px(height)));
+            cx.run_until_parked();
+            window
+                .update(&mut cx, |form, _, _| {
+                    let body = form.body.bounds();
+                    let first = form.controls[0].bounds();
+                    let second = form.controls[1].bounds();
+                    // The modal's border and padding stay outside the form.
+                    assert_eq!(body.size.width, px(420. - 2. - 32.));
+                    assert_eq!(first.left(), body.left() + px(96. + 12.));
+                    assert_eq!(first.right(), body.right());
+                    assert_eq!(first.size.width, second.size.width);
+                    assert_eq!(first.left(), second.left());
+                    assert!(second.top() >= first.bottom() + px(8.));
+                })
+                .unwrap();
+        }
     }
 
     impl Render for Harness {
