@@ -150,9 +150,15 @@ focused on one behavior or API change, with its tests and documentation.
 
 `dev` is the integration branch. Fork if needed, branch from the latest upstream
 `dev`, and open a pull request targeting `dev`. Maintainers working directly in
-this workspace validate and commit on `dev`, then push to `origin/dev`. Match
-the existing imperative commit style, for example `Fix grid focus after editing`
-or `Add contribution guide`.
+this workspace validate and commit on `dev`, then push to `origin/dev`.
+
+Use `type: summary` for new commit subjects, with a concise imperative summary.
+Choose `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `build`, `ci` or `chore`
+to describe the change, for example `fix: preserve grid focus after editing`
+or `docs: add contribution guide`. Release and merge commits also use a prefix,
+such as `chore: release <version>` or `chore: merge dev into main`. This convention
+applies across all five repositories; do not rewrite existing history to rename
+older commits.
 
 Explain the problem, new behavior, compatibility impact and validation in the
 pull request. Include gallery screenshots for visible changes, list consumer
