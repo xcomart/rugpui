@@ -17,7 +17,10 @@ pub fn section<E: IntoElement>(
     body: E,
 ) -> impl IntoElement + use<E> {
     let chrome = theme(cx);
+    // Resolve the card width before measuring its nested rows. Leaving it
+    // intrinsic makes flex layout repeatedly measure the entire settings form.
     div()
+        .w_full()
         .flex()
         .flex_col()
         .gap(px(10.))
