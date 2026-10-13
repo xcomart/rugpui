@@ -350,6 +350,11 @@ thing that needs the libraries a backend links: on a Debian-like Linux,
 `libxkbcommon-dev`, `libxkbcommon-x11-dev`, `libwayland-dev` and
 `libfontconfig1-dev`.
 
+## Contributing
+
+See the [contribution guide](CONTRIBUTING.md) for development setup, gallery and
+feature checks, local consumer integration and the workflow for submitting changes.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
