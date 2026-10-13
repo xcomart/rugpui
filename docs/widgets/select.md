@@ -171,3 +171,10 @@ The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a c
 - **`Escape` is yours to handle.**
 - **Icons do not affect matching.** `.selected` and `on_select` see the label alone; two options with the same label and different icons are the same option as far as this widget is concerned.
 - **`.selected` is a value, not an index.** Passing a string no option matches is legal and shows on the trigger; that is how a stale setting stays visible instead of looking like nothing was chosen.
+
+## Rendering and reusable options
+
+Closed dropdowns build only their trigger. Option rows and their overlays are
+created when the list opens. Use `options_shared(Rc<[SelectOption]>)` for a list that
+changes infrequently; keep the shared list in the owning view and replace it
+when fonts, language or a palette catalogue changes.

@@ -214,7 +214,7 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
 #[derive(IntoElement)]
 pub struct SchemeSelect {
     id: ElementId,
-    options: Vec<SchemeSwatch>,
+    options: Rc<[SchemeSwatch]>,
     selected: Option<SharedString>,
     open: bool,
     disabled: bool,
@@ -234,7 +234,7 @@ impl SchemeSelect {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            options: Vec::new(),
+            options: Rc::from([]),
             selected: None,
             open: false,
             disabled: false,
@@ -246,6 +246,12 @@ impl SchemeSelect {
             on_open_change: None,
             chevron_icon: None,
         }
+    }
+
+    /// Reuse an immutable option list without copying it on each render.
+    pub fn options_shared(mut self, options: Rc<[SchemeSwatch]>) -> Self {
+        self.options = options;
+        self
     }
 
     /// Sets the entries, in display order.
@@ -391,10 +397,10 @@ impl RenderOnce for SchemeSelect {
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
         let chevron_icon = self.chevron_icon;
 
-        let ids: Rc<[SharedString]> = options.iter().map(|entry| entry.id.clone()).collect();
+        let ids = options.clone();
         let current = selected
             .as_ref()
-            .and_then(|id| ids.iter().position(|candidate| candidate == id));
+            .and_then(|id| ids.iter().position(|candidate| &candidate.id == id));
 
         // With no entry answering to the selected id there is no name to show,
         // so the id stands in for it and the pill is left off entirely.
@@ -468,7 +474,7 @@ impl RenderOnce for SchemeSelect {
                             if Some(next) != current
                                 && let Some(handler) = on_select.as_ref()
                             {
-                                handler(&ids[next], window, cx);
+                                handler(&ids[next].id, window, cx);
                             }
                         }
                     })
@@ -501,6 +507,17 @@ impl RenderOnce for SchemeSelect {
                     .text_color(theme.text_muted),
             );
 
+        let root = div()
+            .id(id.clone())
+            .flex()
+            .flex_col()
+            .w_full()
+            .when_some(self.width, |this, width| this.w(width));
+        // Closed pickers must not build and discard every option on each frame.
+        if !shows_list {
+            return root.child(trigger);
+        }
+
         // A full-window sheet under the list: a pointer press anywhere it can
         // see closes the dropdown. It is deferred so that it covers the whole
         // window rather than just the row the trigger sits in.
@@ -516,48 +533,52 @@ impl RenderOnce for SchemeSelect {
             });
 
         let row_theme = theme.clone();
-        let rows = options.into_iter().enumerate().map(move |(index, entry)| {
-            let theme = &row_theme;
-            let is_current = Some(index) == current;
-            let on_select = on_select.clone().filter(|_| !is_current);
-            let on_open_change = on_open_change.clone();
-            let value = entry.id.clone();
+        let rows = options
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(move |(index, entry)| {
+                let theme = &row_theme;
+                let is_current = Some(index) == current;
+                let on_select = on_select.clone().filter(|_| !is_current);
+                let on_open_change = on_open_change.clone();
+                let value = entry.id.clone();
 
-            div()
-                .id(ElementId::from(("scheme-option", index)))
-                .flex()
-                .flex_row()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .h(px(ROW_HEIGHT))
-                .px(px(10.))
-                .mx(px(4.))
-                .rounded_sm()
-                .text_size(px(13.))
-                .text_color(if is_current { theme.accent } else { theme.text })
-                .bg(if is_current {
-                    theme.surface_active
-                } else {
-                    transparent_black()
-                })
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.surface_hover))
-                .on_click(move |_, window, cx| {
-                    if let Some(handler) = on_select.as_ref() {
-                        handler(&value, window, cx);
-                    }
-                    if let Some(handler) = on_open_change.as_ref() {
-                        handler(false, window, cx);
-                    }
-                })
-                .child(div().flex_1().min_w_0().truncate().child(entry.name))
-                .child(preview_pill(
-                    entry.preview.as_ref(),
-                    entry.placeholder_label,
-                    theme,
-                ))
-        });
+                div()
+                    .id(ElementId::from(("scheme-option", index)))
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(ROW_HEIGHT))
+                    .px(px(10.))
+                    .mx(px(4.))
+                    .rounded_sm()
+                    .text_size(px(13.))
+                    .text_color(if is_current { theme.accent } else { theme.text })
+                    .bg(if is_current {
+                        theme.surface_active
+                    } else {
+                        transparent_black()
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover))
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = on_select.as_ref() {
+                            handler(&value, window, cx);
+                        }
+                        if let Some(handler) = on_open_change.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    })
+                    .child(div().flex_1().min_w_0().truncate().child(entry.name))
+                    .child(preview_pill(
+                        entry.preview.as_ref(),
+                        entry.placeholder_label,
+                        theme,
+                    ))
+            });
 
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
@@ -623,14 +644,7 @@ impl RenderOnce for SchemeSelect {
                 .with_priority(LIST_PRIORITY),
             );
 
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .w_full()
-            .when_some(self.width, |this, width| this.w(width))
-            .children(shows_list.then_some(overlays))
-            .child(trigger)
+        root.child(overlays).child(trigger)
     }
 }
 

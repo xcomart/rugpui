@@ -92,6 +92,10 @@ exclude = [
 #     bundle with `open -n -a`. Retry transient LaunchServices failures and
 #     detach the helper's streams and working directory from the exiting app.
 #
+#   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
+#     handlers, so reverse-order bubbling lets a wheel handler consume the event
+#     before the default offset update. Used by smooth form scrolling.
+#
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but a consumer still has to name it in its own
 # dependency table at this same revision, because it is what resolves

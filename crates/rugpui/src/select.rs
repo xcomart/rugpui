@@ -173,7 +173,7 @@ impl From<String> for SelectOption {
 #[derive(IntoElement)]
 pub struct Select {
     id: ElementId,
-    options: Vec<SelectOption>,
+    options: Rc<[SelectOption]>,
     selected: Option<SharedString>,
     placeholder: SharedString,
     open: bool,
@@ -193,7 +193,7 @@ impl Select {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            options: Vec::new(),
+            options: Rc::from([]),
             selected: None,
             placeholder: SharedString::default(),
             open: false,
@@ -205,6 +205,12 @@ impl Select {
             on_open_change: None,
             chevron_icon: None,
         }
+    }
+
+    /// Reuse an immutable option list without copying it on each render.
+    pub fn options_shared(mut self, options: Rc<[SelectOption]>) -> Self {
+        self.options = options;
+        self
     }
 
     /// Sets the options, in display order.
@@ -454,6 +460,17 @@ impl RenderOnce for Select {
                     .text_color(theme.text_muted),
             );
 
+        let root = div()
+            .id(id.clone())
+            .flex()
+            .flex_col()
+            .w_full()
+            .when_some(self.width, |this, width| this.w(width));
+        // Closed pickers must not build and discard every option on each frame.
+        if !open {
+            return root.child(trigger);
+        }
+
         // A full-window sheet under the list: a pointer press anywhere it can
         // see closes the dropdown. It is deferred so that it covers the whole
         // window rather than just the row the trigger sits in.
@@ -469,68 +486,72 @@ impl RenderOnce for Select {
             });
 
         let row_theme = theme.clone();
-        let rows = options.into_iter().enumerate().map(move |(index, option)| {
-            let theme = &row_theme;
-            let is_current = Some(index) == current;
-            let on_select = on_select.clone();
-            let on_open_change = on_open_change.clone();
-            let SelectOption {
-                label,
-                leading,
-                trailing,
-            } = option;
-            let value = label.clone();
+        let rows = options
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(move |(index, option)| {
+                let theme = &row_theme;
+                let is_current = Some(index) == current;
+                let on_select = on_select.clone();
+                let on_open_change = on_open_change.clone();
+                let SelectOption {
+                    label,
+                    leading,
+                    trailing,
+                } = option;
+                let value = label.clone();
 
-            // An svg takes no colour from the box around it, so the row's own
-            // tint has to be handed to each icon: the marks then go accent with
-            // the label when this is the current row, instead of staying grey
-            // beside highlighted text.
-            let icon_color = if is_current { theme.accent } else { theme.icon };
+                // An svg takes no colour from the box around it, so the row's own
+                // tint has to be handed to each icon: the marks then go accent with
+                // the label when this is the current row, instead of staying grey
+                // beside highlighted text.
+                let icon_color = if is_current { theme.accent } else { theme.icon };
 
-            div()
-                .id(ElementId::from(("select-option", index)))
-                .flex()
-                .flex_row()
-                .flex_none()
-                .items_center()
-                .gap(px(OPTION_ICON_GAP))
-                .h(px(ROW_HEIGHT))
-                .px(px(10.))
-                .mx(px(4.))
-                .rounded_sm()
-                .text_size(px(13.))
-                .text_color(if is_current { theme.accent } else { theme.text })
-                .bg(if is_current {
-                    theme.surface_active
-                } else {
-                    transparent_black()
-                })
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.surface_hover))
-                .on_click(move |_, window, cx| {
-                    if let Some(handler) = on_select.as_ref() {
-                        handler(index, &value, window, cx);
-                    }
-                    if let Some(handler) = on_open_change.as_ref() {
-                        handler(false, window, cx);
-                    }
-                })
-                .children(leading.map(|path| {
-                    svg()
-                        .size(px(OPTION_ICON_SIZE))
-                        .flex_none()
-                        .path(path)
-                        .text_color(icon_color)
-                }))
-                .child(div().flex_1().min_w_0().truncate().child(label))
-                .children(trailing.map(|path| {
-                    svg()
-                        .size(px(OPTION_ICON_SIZE))
-                        .flex_none()
-                        .path(path)
-                        .text_color(icon_color)
-                }))
-        });
+                div()
+                    .id(ElementId::from(("select-option", index)))
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(OPTION_ICON_GAP))
+                    .h(px(ROW_HEIGHT))
+                    .px(px(10.))
+                    .mx(px(4.))
+                    .rounded_sm()
+                    .text_size(px(13.))
+                    .text_color(if is_current { theme.accent } else { theme.text })
+                    .bg(if is_current {
+                        theme.surface_active
+                    } else {
+                        transparent_black()
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover))
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = on_select.as_ref() {
+                            handler(index, &value, window, cx);
+                        }
+                        if let Some(handler) = on_open_change.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    })
+                    .children(leading.map(|path| {
+                        svg()
+                            .size(px(OPTION_ICON_SIZE))
+                            .flex_none()
+                            .path(path)
+                            .text_color(icon_color)
+                    }))
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .children(trailing.map(|path| {
+                        svg()
+                            .size(px(OPTION_ICON_SIZE))
+                            .flex_none()
+                            .path(path)
+                            .text_color(icon_color)
+                    }))
+            });
 
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
@@ -596,14 +617,7 @@ impl RenderOnce for Select {
                 .with_priority(LIST_PRIORITY),
             );
 
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .w_full()
-            .when_some(self.width, |this, width| this.w(width))
-            .children(open.then_some(overlays))
-            .child(trigger)
+        root.child(overlays).child(trigger)
     }
 }
 
