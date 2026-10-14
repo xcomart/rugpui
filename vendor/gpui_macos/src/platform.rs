@@ -36,7 +36,7 @@ use gpui::{
     PlatformWindow, Result, ServiceRequest, SystemMenuType, Task, ThermalState, WindowAppearance,
     WindowKind, WindowParams, popup::PopupNotSupportedError,
 };
-use gpui_util::ResultExt;
+use gpui_util::{ResultExt, new_std_command};
 use itertools::Itertools;
 use objc::{
     class,
