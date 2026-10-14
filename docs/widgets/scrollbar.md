@@ -225,3 +225,34 @@ gpui's scroll listener folds a wheel's delta on the axis a container does *not* 
 - **`for_handle` trails a resize by one frame.** The handle reports bounds as of the last layout pass; the bar corrects itself on the next, which is the frame the resize is drawn in.
 - **`hide_later` must be armed from inside the render that noticed the movement**, with the epoch `moved()` returned — arming with a stale epoch does nothing, which is the point.
 - **`ElementId` uniqueness matters across the whole view.** Two trees in one window would answer each other's drags; `TreeView` keys its bar id by `cx.entity_id()` for exactly that reason.
+
+## Smooth form scrolling
+
+For ordinary vertical forms, opt in to wheel interpolation with
+`SmoothScrollExt`. Use the same persistent handle for both methods:
+
+```rust
+use rugpui::SmoothScrollExt;
+
+let body = div()
+    .id("settings-body")
+    .track_scroll(&self.body_scroll)
+    .overflow_y_scroll()
+    .smooth_scroll(&self.body_scroll)
+    .restrict_scroll_to_axis()
+    .children(rows);
+```
+
+Wheel steps ease to their destination over 120 ms. Further steps accumulate;
+reverse input changes direction immediately. Precise touchpad input and reduced
+motion use native scrolling. Thumb dragging, focus reveal and other explicit
+position changes cancel pending wheel motion. The overlay scrollbar continues
+to read the same handle. Do not apply this helper to terminal emulation or other
+surfaces that interpret wheel events themselves.
+
+A pane behind a modal can use `rugpui::cached_view(entity)` inside a parent with
+a definite size. This reuses rendering on unrelated scroll frames while still
+responding to entity notifications, descendant changes, resizing and window
+refreshes. It fills its parent, so it is not suitable for content-sized form
+rows. Keep live data updates notifying their entities; opening a modal does not
+pause them.

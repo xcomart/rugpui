@@ -143,3 +143,10 @@ The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a c
 - **Set a width** unless the trigger genuinely fills its parent — the anchored list cannot measure it.
 - **The placeholder label defaults to English.** Every localized caller should override it.
 - **Rebuild the swatches when the registry changes.** `ThemeRegistry::all` is read at render time; after `theme_store::reload` writes new custom themes, the next render picks them up, but a vector you cached will not.
+
+## Rendering and reusable options
+
+Closed dropdowns build only their trigger. Option rows and their overlays are
+created when the list opens. Use `options_shared(Rc<[SchemeSwatch]>)` for a list that
+changes infrequently; keep the shared list in the owning view and replace it
+when fonts, language or a palette catalogue changes.

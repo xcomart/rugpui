@@ -10,6 +10,8 @@ mod display_link;
 mod events;
 mod keyboard;
 mod pasteboard;
+// RULOGMAN PATCH: detached relaunch of the updated application bundle.
+mod restart;
 mod system_notifications;
 
 #[cfg(feature = "screen-capture")]

@@ -25,6 +25,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::scrollbar::Scrollbar;
+use crate::select_keyboard::SelectKeyboard;
 use crate::theme::{Theme, theme};
 
 /// Height of the trigger, matching [`Select`](crate::Select) so a form that
@@ -190,17 +191,19 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
     }
 }
 
-/// A stateless one-of-many dropdown over color schemes.
+/// A one-of-many dropdown over color schemes with a parent-controlled selection.
 ///
-/// The control owns no state: the parent view passes the entries, the selected
-/// id, the open flag and the list's [`ScrollHandle`] on every render, and reacts
+/// The parent view passes the entries, selected id, open flag and optionally
+/// the list's [`ScrollHandle`] on every render, and reacts
 /// to [`SchemeSelect::on_select`] and [`SchemeSelect::on_open_change`].
 ///
 /// The control takes a single tab stop. `Enter` and `Space` toggle the list, as
 /// they do for any focusable element in gpui, and while the list is open the
-/// arrow keys move the selection without wrapping. Closing on `Escape` is left
-/// to the parent, so that a dialog can decide whether the key belongs to the
-/// dropdown or to itself.
+/// arrow keys move the selection without wrapping. `Escape` closes an open
+/// dropdown without reaching the dialog around it. When the dropdown is
+/// closed, `Escape` is left to the parent.
+/// Typing searches the displayed names, using the same case-insensitive prefix
+/// search, one-second timeout and repeated-character cycling as [`Select`](crate::Select).
 ///
 /// ```ignore
 /// SchemeSelect::new("scheme")
@@ -214,7 +217,7 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
 #[derive(IntoElement)]
 pub struct SchemeSelect {
     id: ElementId,
-    options: Vec<SchemeSwatch>,
+    options: Rc<[SchemeSwatch]>,
     selected: Option<SharedString>,
     open: bool,
     disabled: bool,
@@ -234,7 +237,7 @@ impl SchemeSelect {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            options: Vec::new(),
+            options: Rc::from([]),
             selected: None,
             open: false,
             disabled: false,
@@ -246,6 +249,12 @@ impl SchemeSelect {
             on_open_change: None,
             chevron_icon: None,
         }
+    }
+
+    /// Reuse an immutable option list without copying it on each render.
+    pub fn options_shared(mut self, options: Rc<[SchemeSwatch]>) -> Self {
+        self.options = options;
+        self
     }
 
     /// Sets the entries, in display order.
@@ -318,7 +327,7 @@ impl SchemeSelect {
     ///
     /// Passed in rather than built here, and only while it should be on screen,
     /// for the same reason the handle above is: a bar comes and goes with the
-    /// scrolling, and this control keeps no state between renders. The owner
+    /// scrolling. The owner
     /// answers drags of it too, since the id it built the bar with is what tells
     /// that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
@@ -339,8 +348,8 @@ impl SchemeSelect {
     /// Called with the open state the control would like to be in.
     ///
     /// Fires with `true` when the trigger is activated while closed, and with
-    /// `false` when it is activated again, when a row is clicked, or when the
-    /// pointer goes down anywhere outside the list.
+    /// `false` when it is activated again, when a row is clicked, when `Escape`
+    /// closes the list, or when the pointer goes down anywhere outside it.
     pub fn on_open_change(
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
@@ -387,14 +396,18 @@ impl RenderOnce for SchemeSelect {
         let selected = self.selected;
         let on_select = self.on_select;
         let on_open_change = self.on_open_change;
-        let scroll_handle = self.scroll_handle;
+        let keyboard = SelectKeyboard::state(id.clone(), open, window, cx);
+        let focus = keyboard.read(cx).focus.clone();
+        let scroll_handle = self
+            .scroll_handle
+            .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
         let chevron_icon = self.chevron_icon;
 
-        let ids: Rc<[SharedString]> = options.iter().map(|entry| entry.id.clone()).collect();
+        let ids = options.clone();
         let current = selected
             .as_ref()
-            .and_then(|id| ids.iter().position(|candidate| candidate == id));
+            .and_then(|id| ids.iter().position(|candidate| &candidate.id == id));
 
         // With no entry answering to the selected id there is no name to show,
         // so the id stands in for it and the pill is left off entirely.
@@ -434,41 +447,44 @@ impl RenderOnce for SchemeSelect {
                     .hover(|style| style.bg(theme.surface_hover))
                     .when_some(self.tab_index, |this, index| {
                         let accent = theme.accent;
-                        this.tab_index(index)
+                        this.track_focus(&focus.clone().tab_stop(true).tab_index(index))
                             .focus(move |style| style.border_color(accent))
                     })
                     .when_some(on_open_change.clone(), |this, handler| {
                         this.on_click(move |_, window, cx| handler(!open, window, cx))
                     })
-                    .on_key_down({
+                    .when(open, |this| {
+                        let on_open_change = on_open_change.clone();
+                        this.key_context(crate::select_keyboard::KEY_CONTEXT)
+                            .on_action(move |_: &crate::select_keyboard::Dismiss, window, cx| {
+                                cx.stop_propagation();
+                                if let Some(handler) = &on_open_change {
+                                    handler(false, window, cx);
+                                }
+                            })
+                    })
+                    // Consume search text before Space can arm the trigger's click.
+                    .capture_key_down({
                         let ids = ids.clone();
                         let on_select = on_select.clone();
                         let scroll_handle = scroll_handle.clone();
                         move |event, window, cx| {
-                            if !open || event.keystroke.modifiers.modified() || ids.is_empty() {
+                            let now = cx.background_executor().now();
+                            let next = keyboard.update(cx, |keyboard, _| {
+                                keyboard.navigate(event, current, ids.len(), |i| &ids[i].name, now)
+                            });
+                            let Some(next) = next else {
                                 return;
-                            }
-                            let delta: isize = match event.keystroke.key.as_str() {
-                                "up" => -1,
-                                "down" => 1,
-                                _ => return,
-                            };
-                            let last = ids.len() - 1;
-                            let next = match current {
-                                Some(current) => {
-                                    (current as isize + delta).clamp(0, last as isize) as usize
-                                }
-                                None if delta > 0 => 0,
-                                None => last,
                             };
                             cx.stop_propagation();
-                            if let Some(handle) = scroll_handle.as_ref() {
-                                handle.scroll_to_item(next);
-                            }
+                            window.prevent_default();
+                            let Some(next) = next else { return };
+                            scroll_handle.scroll_to_item(next);
+                            window.refresh();
                             if Some(next) != current
                                 && let Some(handler) = on_select.as_ref()
                             {
-                                handler(&ids[next], window, cx);
+                                handler(&ids[next].id, window, cx);
                             }
                         }
                     })
@@ -501,6 +517,17 @@ impl RenderOnce for SchemeSelect {
                     .text_color(theme.text_muted),
             );
 
+        let root = div()
+            .id(id.clone())
+            .flex()
+            .flex_col()
+            .w_full()
+            .when_some(self.width, |this, width| this.w(width));
+        // Closed pickers must not build and discard every option on each frame.
+        if !shows_list {
+            return root.child(trigger);
+        }
+
         // A full-window sheet under the list: a pointer press anywhere it can
         // see closes the dropdown. It is deferred so that it covers the whole
         // window rather than just the row the trigger sits in.
@@ -516,48 +543,52 @@ impl RenderOnce for SchemeSelect {
             });
 
         let row_theme = theme.clone();
-        let rows = options.into_iter().enumerate().map(move |(index, entry)| {
-            let theme = &row_theme;
-            let is_current = Some(index) == current;
-            let on_select = on_select.clone().filter(|_| !is_current);
-            let on_open_change = on_open_change.clone();
-            let value = entry.id.clone();
+        let rows = options
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(move |(index, entry)| {
+                let theme = &row_theme;
+                let is_current = Some(index) == current;
+                let on_select = on_select.clone().filter(|_| !is_current);
+                let on_open_change = on_open_change.clone();
+                let value = entry.id.clone();
 
-            div()
-                .id(ElementId::from(("scheme-option", index)))
-                .flex()
-                .flex_row()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .h(px(ROW_HEIGHT))
-                .px(px(10.))
-                .mx(px(4.))
-                .rounded_sm()
-                .text_size(px(13.))
-                .text_color(if is_current { theme.accent } else { theme.text })
-                .bg(if is_current {
-                    theme.surface_active
-                } else {
-                    transparent_black()
-                })
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.surface_hover))
-                .on_click(move |_, window, cx| {
-                    if let Some(handler) = on_select.as_ref() {
-                        handler(&value, window, cx);
-                    }
-                    if let Some(handler) = on_open_change.as_ref() {
-                        handler(false, window, cx);
-                    }
-                })
-                .child(div().flex_1().min_w_0().truncate().child(entry.name))
-                .child(preview_pill(
-                    entry.preview.as_ref(),
-                    entry.placeholder_label,
-                    theme,
-                ))
-        });
+                div()
+                    .id(ElementId::from(("scheme-option", index)))
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(ROW_HEIGHT))
+                    .px(px(10.))
+                    .mx(px(4.))
+                    .rounded_sm()
+                    .text_size(px(13.))
+                    .text_color(if is_current { theme.accent } else { theme.text })
+                    .bg(if is_current {
+                        theme.surface_active
+                    } else {
+                        transparent_black()
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover))
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = on_select.as_ref() {
+                            handler(&value, window, cx);
+                        }
+                        if let Some(handler) = on_open_change.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    })
+                    .child(div().flex_1().min_w_0().truncate().child(entry.name))
+                    .child(preview_pill(
+                        entry.preview.as_ref(),
+                        entry.placeholder_label,
+                        theme,
+                    ))
+            });
 
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
@@ -576,9 +607,7 @@ impl RenderOnce for SchemeSelect {
             .rounded_lg()
             .shadow_lg()
             .text_color(theme.text)
-            .when_some(scroll_handle.as_ref(), |this, handle| {
-                this.track_scroll(handle)
-            })
+            .track_scroll(&scroll_handle)
             .children(rows);
 
         // The bar cannot go inside the list, whose children are what scroll
@@ -623,14 +652,7 @@ impl RenderOnce for SchemeSelect {
                 .with_priority(LIST_PRIORITY),
             );
 
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .w_full()
-            .when_some(self.width, |this, width| this.w(width))
-            .children(shows_list.then_some(overlays))
-            .child(trigger)
+        root.child(overlays).child(trigger)
     }
 }
 

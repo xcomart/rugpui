@@ -31,6 +31,7 @@
 //! out, and a button beside the field puts a slot that has been given a colour
 //! back to automatic. A required slot has neither.
 
+use rugpui::SmoothScrollExt;
 use std::sync::Arc;
 
 use gpui::{
@@ -700,6 +701,7 @@ impl Render for ThemeEditor {
             .gap(px(8.))
             .max_h(px(BODY_MAX_HEIGHT))
             .overflow_y_scroll()
+            .smooth_scroll(&self.scroll)
             .restrict_scroll_to_axis()
             .child(preview)
             .child(form_row(name_label, self.name_input.clone()))

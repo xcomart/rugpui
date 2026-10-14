@@ -60,9 +60,11 @@ pub mod progress;
 pub mod range_slider;
 pub mod resize_handle;
 pub mod scheme_select;
+pub mod scroll;
 pub mod scrollbar;
 pub mod segmented;
 pub mod select;
+mod select_keyboard;
 pub mod slider;
 pub mod spinner;
 pub mod splitter;
@@ -73,6 +75,7 @@ pub mod theme;
 pub mod theme_store;
 pub mod tooltip;
 pub mod tree;
+pub mod view;
 pub mod window_controls;
 
 pub use button::{Button, ButtonVariant};
@@ -91,6 +94,7 @@ pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
 pub use resize_handle::ResizeHandle;
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
+pub use scroll::SmoothScrollExt;
 pub use scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
@@ -110,6 +114,7 @@ pub use theme::{
 pub use theme_store::ThemeDirs;
 pub use tooltip::{Tooltip, tooltip_frame, tooltip_label, tooltip_with};
 pub use tree::{ChildState, TreeEvent, TreeRow, TreeRowInfo, TreeSource, TreeView};
+pub use view::cached_view;
 pub use window_controls::{WindowControlIcons, WindowControls};
 
 use gpui::App;
@@ -122,6 +127,7 @@ use gpui::App;
 /// fully opaque for the same reason: a view drawn before the shell has said what
 /// the window looks like still has an answer, and it is the one that paints.
 pub fn init(cx: &mut App) {
+    select_keyboard::init(cx);
     ThemeRegistry::init(cx);
     EditorThemeRegistry::init(cx);
     set_theme(Theme::dark(), cx);

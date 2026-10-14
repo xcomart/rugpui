@@ -2482,13 +2482,15 @@ impl Interactivity {
                                                 );
                                             }
 
+                                            // RULOGMAN PATCH: bubble dispatch is reversed. Custom
+                                            // wheel handlers must be able to prevent native scrolling.
+                                            self.paint_scroll_listener(hitbox, &style, window, cx);
                                             self.paint_mouse_listeners(
                                                 hitbox,
                                                 element_state.as_mut(),
                                                 window,
                                                 cx,
                                             );
-                                            self.paint_scroll_listener(hitbox, &style, window, cx);
                                         }
 
                                         self.paint_keyboard_listeners(window, cx);

@@ -559,9 +559,6 @@ impl Platform for MacPlatform {
     }
 
     fn restart(&self, binary_path: Option<PathBuf>, arguments: Vec<std::ffi::OsString>) {
-        use std::os::unix::process::CommandExt as _;
-
-        let app_pid = std::process::id().to_string();
         let app_path = binary_path
             .or_else(|| {
                 self.app_path()
@@ -573,32 +570,10 @@ impl Platform for MacPlatform {
             })
             .unwrap_or_else(|| std::env::current_exe().unwrap());
 
-        // Wait until this process has exited and then re-open this path.
-        let script = r#"
-            while kill -0 $0 2> /dev/null; do
-                sleep 0.1
-            done
-            app_path="$1"
-            shift
-            if (($# > 0)); then
-                open "$app_path" --args "$@"
-            else
-                open "$app_path"
-            fi
-        "#;
-
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "We are restarting ourselves, using std command thus is fine"
-        )]
-        let restart_process = new_std_command("/bin/bash")
-            .arg("-c")
-            .arg(script)
-            .arg(app_pid)
-            .arg(app_path)
-            .args(arguments)
-            .process_group(0)
-            .spawn();
+        // RULOGMAN PATCH: ordinary `open` can target the exiting instance
+        // while LaunchServices still holds its registration after an update.
+        let restart_process =
+            crate::restart::command(std::process::id(), &app_path, &arguments).spawn();
 
         match restart_process {
             Ok(_) => self.quit(),

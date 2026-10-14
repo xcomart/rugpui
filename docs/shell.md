@@ -501,6 +501,25 @@ renamed-away old build; on macOS gpui's restart shells out to `open`, which
 needs the `.app` bundle and not the executable inside it, so the answer is
 adjusted to the bundle root.
 
+The macOS backend waits for the old PID to exit, then uses `open -n -a` with
+that exact bundle path. The new-instance flag prevents a stale LaunchServices
+registration from turning the restart into activation of the exiting app.
+Failed launch requests are retried up to five times, 200 ms apart. The helper
+has its own process group, null standard streams and `/` as its working
+directory so it can outlive the old app and its renamed bundle. Bare development
+executables are executed directly. Arguments are passed without shell expansion.
+
+The helper's process tests run on Linux and macOS without AppKit:
+
+```sh
+rustc --edition=2024 --test vendor/gpui_macos/src/restart.rs -o /tmp/macos-restart-tests
+/tmp/macos-restart-tests
+```
+
+These tests substitute an `open` executable to exercise process exit, stale
+registration, retry and argument handling. Native verification still requires
+updating an installed macOS bundle and checking that the new version reopens.
+
 ### The dialog
 
 [`UpdateDialog`](../crates/rugpui-shell/src/update_dialog.rs) is a state machine

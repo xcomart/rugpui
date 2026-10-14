@@ -1,9 +1,10 @@
 //! A dropdown that picks one string out of a list.
 //!
-//! Like every other widget here the control is stateless: the parent view owns
-//! the selected value, the open flag and the list's [`ScrollHandle`], passes
-//! them in on every render, and reacts to [`Select::on_select`] and
-//! [`Select::on_open_change`].
+//! The parent view supplies the selected value and open flag on every render,
+//! and reacts to [`Select::on_select`] and [`Select::on_open_change`]. It may
+//! also supply the list's [`ScrollHandle`].
+//! Focus and the short-lived keyboard search prefix are retained per element.
+//! Typing selects a case-insensitive prefix match, even with the list closed.
 //!
 //! The list is drawn with [`deferred`] rather than inline, for the same reason
 //! [`MenuButton`](crate::MenuButton) does it: a trigger that sits inside a
@@ -18,6 +19,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::scrollbar::Scrollbar;
+use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
 
 /// Height of the trigger, matching [`TextInput`](crate::TextInput) so the two
@@ -147,7 +149,7 @@ impl From<String> for SelectOption {
     }
 }
 
-/// A stateless one-of-many dropdown.
+/// A one-of-many dropdown with a parent-controlled selection.
 ///
 /// The text of an option is also its identity, which keeps the widget usable
 /// for lists the caller discovers at runtime — font families, for one —
@@ -156,9 +158,13 @@ impl From<String> for SelectOption {
 ///
 /// The control takes a single tab stop. `Enter` and `Space` toggle the list, as
 /// they do for any focusable element in gpui, and while the list is open the
-/// arrow keys move the selection without wrapping. Closing on `Escape` is left
-/// to the parent, so that a dialog can decide whether the key belongs to the
-/// dropdown or to itself.
+/// arrow keys move the selection without wrapping. `Escape` closes an open
+/// dropdown without reaching the dialog around it. When the dropdown is
+/// closed, `Escape` is left to the parent.
+/// Typing searches labels without case sensitivity. Consecutive characters
+/// refine the prefix; a one-second pause starts a new search, and repeating
+/// one character cycles through matching entries. The matched row is revealed
+/// in the list. This also works while a closed trigger has focus.
 ///
 /// ```ignore
 /// Select::new("font")
@@ -173,7 +179,7 @@ impl From<String> for SelectOption {
 #[derive(IntoElement)]
 pub struct Select {
     id: ElementId,
-    options: Vec<SelectOption>,
+    options: Rc<[SelectOption]>,
     selected: Option<SharedString>,
     placeholder: SharedString,
     open: bool,
@@ -193,7 +199,7 @@ impl Select {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            options: Vec::new(),
+            options: Rc::from([]),
             selected: None,
             placeholder: SharedString::default(),
             open: false,
@@ -205,6 +211,12 @@ impl Select {
             on_open_change: None,
             chevron_icon: None,
         }
+    }
+
+    /// Reuse an immutable option list without copying it on each render.
+    pub fn options_shared(mut self, options: Rc<[SelectOption]>) -> Self {
+        self.options = options;
+        self
     }
 
     /// Sets the options, in display order.
@@ -270,7 +282,7 @@ impl Select {
     ///
     /// Passed in rather than built here, and only while it should be on screen,
     /// for the same reason the handle above is: a bar comes and goes with the
-    /// scrolling, and this control keeps no state between renders. The owner
+    /// scrolling. The owner
     /// answers drags of it too, since the id it built the bar with is what tells
     /// that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
@@ -285,8 +297,8 @@ impl Select {
     /// leading "no choice" row, say — because the text is translated and
     /// comparing against it would break in every language but one.
     ///
-    /// Fired by a click on a row and by the arrow keys; the list closes itself
-    /// after a click, so the callback does not have to.
+    /// Fired by a click, the arrow keys, or typing a label prefix. The list
+    /// closes itself after a click, so the callback does not have to.
     pub fn on_select(
         mut self,
         handler: impl Fn(usize, &str, &mut Window, &mut App) + 'static,
@@ -298,8 +310,8 @@ impl Select {
     /// Called with the open state the control would like to be in.
     ///
     /// Fires with `true` when the trigger is activated while closed, and with
-    /// `false` when it is activated again, when a row is clicked, or when the
-    /// pointer goes down anywhere outside the list.
+    /// `false` when it is activated again, when a row is clicked, when `Escape`
+    /// closes the list, or when the pointer goes down anywhere outside it.
     pub fn on_open_change(
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
@@ -334,7 +346,11 @@ impl RenderOnce for Select {
         let selected = self.selected;
         let on_select = self.on_select;
         let on_open_change = self.on_open_change;
-        let scroll_handle = self.scroll_handle;
+        let keyboard = SelectKeyboard::state(id.clone(), open, window, cx);
+        let focus = keyboard.read(cx).focus.clone();
+        let scroll_handle = self
+            .scroll_handle
+            .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
         let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
         let chevron_icon = self.chevron_icon;
 
@@ -379,37 +395,40 @@ impl RenderOnce for Select {
             .hover(|style| style.bg(theme.surface_hover))
             .when_some(self.tab_index, |this, index| {
                 let accent = theme.accent;
-                this.tab_index(index)
+                this.track_focus(&focus.clone().tab_stop(true).tab_index(index))
                     .focus(move |style| style.border_color(accent))
             })
             .when_some(on_open_change.clone(), |this, handler| {
                 this.on_click(move |_, window, cx| handler(!open, window, cx))
             })
-            .on_key_down({
+            .when(open, |this| {
+                let on_open_change = on_open_change.clone();
+                this.key_context(crate::select_keyboard::KEY_CONTEXT)
+                    .on_action(move |_: &crate::select_keyboard::Dismiss, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(handler) = &on_open_change {
+                            handler(false, window, cx);
+                        }
+                    })
+            })
+            // Consume search text before Space can arm the trigger's click.
+            .capture_key_down({
                 let options = options.clone();
                 let on_select = on_select.clone();
                 let scroll_handle = scroll_handle.clone();
                 move |event, window, cx| {
-                    if !open || event.keystroke.modifiers.modified() || options.is_empty() {
+                    let now = cx.background_executor().now();
+                    let next = keyboard.update(cx, |keyboard, _| {
+                        keyboard.navigate(event, current, options.len(), |i| &options[i].label, now)
+                    });
+                    let Some(next) = next else {
                         return;
-                    }
-                    let delta: isize = match event.keystroke.key.as_str() {
-                        "up" => -1,
-                        "down" => 1,
-                        _ => return,
-                    };
-                    let last = options.len() - 1;
-                    let next = match current {
-                        Some(current) => {
-                            (current as isize + delta).clamp(0, last as isize) as usize
-                        }
-                        None if delta > 0 => 0,
-                        None => last,
                     };
                     cx.stop_propagation();
-                    if let Some(handle) = scroll_handle.as_ref() {
-                        handle.scroll_to_item(next);
-                    }
+                    window.prevent_default();
+                    let Some(next) = next else { return };
+                    scroll_handle.scroll_to_item(next);
+                    window.refresh();
                     if Some(next) != current
                         && let Some(handler) = on_select.as_ref()
                     {
@@ -454,6 +473,17 @@ impl RenderOnce for Select {
                     .text_color(theme.text_muted),
             );
 
+        let root = div()
+            .id(id.clone())
+            .flex()
+            .flex_col()
+            .w_full()
+            .when_some(self.width, |this, width| this.w(width));
+        // Closed pickers must not build and discard every option on each frame.
+        if !open {
+            return root.child(trigger);
+        }
+
         // A full-window sheet under the list: a pointer press anywhere it can
         // see closes the dropdown. It is deferred so that it covers the whole
         // window rather than just the row the trigger sits in.
@@ -469,68 +499,72 @@ impl RenderOnce for Select {
             });
 
         let row_theme = theme.clone();
-        let rows = options.into_iter().enumerate().map(move |(index, option)| {
-            let theme = &row_theme;
-            let is_current = Some(index) == current;
-            let on_select = on_select.clone();
-            let on_open_change = on_open_change.clone();
-            let SelectOption {
-                label,
-                leading,
-                trailing,
-            } = option;
-            let value = label.clone();
+        let rows = options
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(move |(index, option)| {
+                let theme = &row_theme;
+                let is_current = Some(index) == current;
+                let on_select = on_select.clone();
+                let on_open_change = on_open_change.clone();
+                let SelectOption {
+                    label,
+                    leading,
+                    trailing,
+                } = option;
+                let value = label.clone();
 
-            // An svg takes no colour from the box around it, so the row's own
-            // tint has to be handed to each icon: the marks then go accent with
-            // the label when this is the current row, instead of staying grey
-            // beside highlighted text.
-            let icon_color = if is_current { theme.accent } else { theme.icon };
+                // An svg takes no colour from the box around it, so the row's own
+                // tint has to be handed to each icon: the marks then go accent with
+                // the label when this is the current row, instead of staying grey
+                // beside highlighted text.
+                let icon_color = if is_current { theme.accent } else { theme.icon };
 
-            div()
-                .id(ElementId::from(("select-option", index)))
-                .flex()
-                .flex_row()
-                .flex_none()
-                .items_center()
-                .gap(px(OPTION_ICON_GAP))
-                .h(px(ROW_HEIGHT))
-                .px(px(10.))
-                .mx(px(4.))
-                .rounded_sm()
-                .text_size(px(13.))
-                .text_color(if is_current { theme.accent } else { theme.text })
-                .bg(if is_current {
-                    theme.surface_active
-                } else {
-                    transparent_black()
-                })
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.surface_hover))
-                .on_click(move |_, window, cx| {
-                    if let Some(handler) = on_select.as_ref() {
-                        handler(index, &value, window, cx);
-                    }
-                    if let Some(handler) = on_open_change.as_ref() {
-                        handler(false, window, cx);
-                    }
-                })
-                .children(leading.map(|path| {
-                    svg()
-                        .size(px(OPTION_ICON_SIZE))
-                        .flex_none()
-                        .path(path)
-                        .text_color(icon_color)
-                }))
-                .child(div().flex_1().min_w_0().truncate().child(label))
-                .children(trailing.map(|path| {
-                    svg()
-                        .size(px(OPTION_ICON_SIZE))
-                        .flex_none()
-                        .path(path)
-                        .text_color(icon_color)
-                }))
-        });
+                div()
+                    .id(ElementId::from(("select-option", index)))
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(OPTION_ICON_GAP))
+                    .h(px(ROW_HEIGHT))
+                    .px(px(10.))
+                    .mx(px(4.))
+                    .rounded_sm()
+                    .text_size(px(13.))
+                    .text_color(if is_current { theme.accent } else { theme.text })
+                    .bg(if is_current {
+                        theme.surface_active
+                    } else {
+                        transparent_black()
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.surface_hover))
+                    .on_click(move |_, window, cx| {
+                        if let Some(handler) = on_select.as_ref() {
+                            handler(index, &value, window, cx);
+                        }
+                        if let Some(handler) = on_open_change.as_ref() {
+                            handler(false, window, cx);
+                        }
+                    })
+                    .children(leading.map(|path| {
+                        svg()
+                            .size(px(OPTION_ICON_SIZE))
+                            .flex_none()
+                            .path(path)
+                            .text_color(icon_color)
+                    }))
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .children(trailing.map(|path| {
+                        svg()
+                            .size(px(OPTION_ICON_SIZE))
+                            .flex_none()
+                            .path(path)
+                            .text_color(icon_color)
+                    }))
+            });
 
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
@@ -549,9 +583,7 @@ impl RenderOnce for Select {
             .rounded_lg()
             .shadow_lg()
             .text_color(theme.text)
-            .when_some(scroll_handle.as_ref(), |this, handle| {
-                this.track_scroll(handle)
-            })
+            .track_scroll(&scroll_handle)
             .children(rows);
 
         // The bar cannot go inside the list, whose children are what scroll
@@ -596,14 +628,7 @@ impl RenderOnce for Select {
                 .with_priority(LIST_PRIORITY),
             );
 
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .w_full()
-            .when_some(self.width, |this, width| this.w(width))
-            .children(open.then_some(overlays))
-            .child(trigger)
+        root.child(overlays).child(trigger)
     }
 }
 

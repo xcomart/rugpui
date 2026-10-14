@@ -87,6 +87,14 @@ exclude = [
 #     a blurred window there is see-through over an unblurred backdrop. From 26
 #     on the patch asks the WindowServer for the blur directly, through the
 #     legacy private API gpui used before the effect view.
+#   * `gpui_macos/src/platform.rs` and `gpui_macos/src/restart.rs` — after an
+#     update, wait for the old process and request a new instance of the exact
+#     bundle with `open -n -a`. Retry transient LaunchServices failures and
+#     detach the helper's streams and working directory from the exiting app.
+#
+#   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
+#     handlers, so reverse-order bubbling lets a wheel handler consume the event
+#     before the default offset update. Used by smooth form scrolling.
 #
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but a consumer still has to name it in its own
@@ -110,7 +118,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]
