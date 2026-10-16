@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ElementId, Hsla, IsZero, MouseButton, Pixels, Point, ScrollHandle, SharedString, Window,
-    div, prelude::*, px, svg, transparent_black,
+    App, Context, ElementId, Hsla, IsZero, MouseButton, Pixels, Point, Render, ScrollHandle,
+    SharedString, Window, div, prelude::*, px, svg, transparent_black,
 };
 
 use crate::menu::{MenuButton, MenuEntry};
@@ -148,6 +148,56 @@ type PlainHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 /// Callback fired when the tab dropdown wants to open or close itself.
 type OpenChangeHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
+/// Callback receiving a tab drop: what was dragged, and where it landed.
+///
+/// The index names the tab the dragged one was dropped on — the dragged tab
+/// is tucked in before it — or the strip's length for a drop over the empty
+/// stretch past the last tab, which appends. The owner turns the pair into a
+/// move, telling a same-strip drop (the payload's source is this bar's own
+/// tag) from a foreign one by comparing tags.
+type ReorderHandler = Rc<dyn Fn(DraggedTab, usize, &mut Window, &mut App)>;
+
+/// A tab mid-drag, whether over its own strip or another one.
+///
+/// The bar knows nothing about what a tab *is* — and in particular nothing
+/// about panes — so the source is the opaque tag the owner handed
+/// [`TabBar::drag_source`]: whatever identifies the strip that built the bar.
+/// Two bars whose tags compare equal are the same strip; anything else is a
+/// foreign tab being moved in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DraggedTab {
+    /// Tag of the strip the drag started on.
+    pub source: u64,
+    /// Index of the dragged tab in that strip, as drawn when the drag began.
+    pub index: usize,
+}
+
+/// What follows the pointer while a tab is dragged.
+///
+/// The tab's own title on the active fill with an accent edge, so the ghost
+/// reads as the tab it came from rather than as a bare rectangle.
+struct DragGhost {
+    /// Title of the tab being dragged.
+    title: SharedString,
+    /// Palette the ghost is drawn with.
+    theme: Theme,
+}
+
+impl Render for DragGhost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(4.))
+            .bg(self.theme.surface_active)
+            .border_1()
+            .border_color(self.theme.accent)
+            .rounded_md()
+            .text_size(px(13.))
+            .text_color(self.theme.text)
+            .child(self.title.clone())
+    }
+}
+
 /// A stateless tab strip.
 ///
 /// The bar owns no selection state: the parent view passes the current tabs and
@@ -172,6 +222,8 @@ pub struct TabBar {
     on_context_menu: Option<ContextHandler>,
     on_new: Option<PlainHandler>,
     on_menu_open_change: Option<OpenChangeHandler>,
+    drag_source: Option<u64>,
+    on_reorder: Option<ReorderHandler>,
     scrollbar: Option<Scrollbar>,
     menu_icon: Option<SharedString>,
     new_icon: Option<SharedString>,
@@ -195,6 +247,8 @@ impl TabBar {
             on_context_menu: None,
             on_new: None,
             on_menu_open_change: None,
+            drag_source: None,
+            on_reorder: None,
             menu_icon: None,
             new_icon: None,
             menu_tooltip: None,
@@ -320,6 +374,39 @@ impl TabBar {
         self.on_menu_open_change = Some(Rc::new(handler));
         self
     }
+
+    /// Tags this bar as a drag source, which is what makes its tabs draggable.
+    ///
+    /// Without a tag the strip neither starts drags nor answers drops; every
+    /// other handler keeps working exactly as before, so bars that do not opt
+    /// in — the connection strip, for one — are untouched. The tag is what a
+    /// drop carries home in [`DraggedTab::source`], so the owner can tell its
+    /// own tabs from foreign ones: pass whatever identifies the strip, such
+    /// as the pane id behind it.
+    pub fn drag_source(mut self, source: u64) -> Self {
+        self.drag_source = Some(source);
+        self
+    }
+
+    /// Called when a dragged tab is dropped on a tab of this bar or on its
+    /// empty stretch.
+    ///
+    /// Setting this handler is what makes the bar a drop target. The index is
+    /// the tab the dragged one landed on, or the strip's length for the empty
+    /// stretch past the last tab. Dropping a tab on itself is reported like
+    /// any other drop and left to the owner to ignore.
+    ///
+    /// To see it work: drag a tab along its own strip — the tabs reorder —
+    /// then across to another pane's strip, its empty stretch, or the pane
+    /// body below it, where the tab moves panes and the accent frame follows
+    /// it. The ghost trailing the pointer carries the dragged tab's title.
+    pub fn on_reorder(
+        mut self,
+        handler: impl Fn(DraggedTab, usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_reorder = Some(Rc::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for TabBar {
@@ -332,6 +419,9 @@ impl RenderOnce for TabBar {
         let on_context_menu = self.on_context_menu;
         let close_tooltip = self.close_tooltip;
         let scroll_handle = self.scroll_handle.clone();
+        let drag_source = self.drag_source;
+        let on_reorder = self.on_reorder;
+        let tab_count = self.tabs.len();
         // Read here rather than inside the wheel handler below. gpui pushes an
         // element's text style around its children's layout, so this is the
         // line height the scrolling row itself is laid out with — the very one
@@ -372,6 +462,7 @@ impl RenderOnce for TabBar {
         });
 
         let tab_theme = theme.clone();
+        let on_reorder_tabs = on_reorder.clone();
         let tabs = self.tabs.into_iter().enumerate().map(move |(index, tab)| {
             let theme = &tab_theme;
             let is_active = index == active;
@@ -379,6 +470,7 @@ impl RenderOnce for TabBar {
             let close_id = ElementId::from((tab.id.clone(), "close"));
             let mark_id = ElementId::from((tab.id.clone(), "mark"));
             let on_close = on_close.clone().filter(|_| tab.closable);
+            let ghost_title = tab.title.clone();
 
             div()
                 .id(tab.id)
@@ -428,6 +520,27 @@ impl RenderOnce for TabBar {
                         // underneath the strip.
                         cx.stop_propagation();
                         handler(index, event.position, window, cx);
+                    })
+                })
+                // A drag starts on a left press held past gpui's threshold,
+                // so an ordinary click still selects and a right press still
+                // opens the menu: neither gesture travels far enough to count.
+                .when_some(drag_source, |this, source| {
+                    let ghost_title = ghost_title.clone();
+                    this.on_drag(DraggedTab { source, index }, move |_, _, _, cx| {
+                        let theme = crate::theme::theme(cx);
+                        cx.new(|_| DragGhost {
+                            title: ghost_title.clone(),
+                            theme,
+                        })
+                    })
+                })
+                .when_some(on_reorder_tabs.clone(), |this, handler| {
+                    // Innermost first: a drop on a tab stops here and never
+                    // reaches the strip's own target below, so the two cannot
+                    // both answer one gesture.
+                    this.on_drop::<DraggedTab>(move |dragged, window, cx| {
+                        handler(*dragged, index, window, cx)
                     })
                 })
                 .when_some(scroll_handle.clone(), |this, handle| {
@@ -571,6 +684,13 @@ impl RenderOnce for TabBar {
                             .overflow_x_scroll()
                             .when_some(self.scroll_handle.as_ref(), |this, handle| {
                                 this.track_scroll(handle)
+                            })
+                            // Past the last tab, where there is no tab to land
+                            // on: the strip's length, which the owner appends at.
+                            .when_some(on_reorder.clone(), |this, handler| {
+                                this.on_drop::<DraggedTab>(move |dragged, window, cx| {
+                                    handler(*dragged, tab_count, window, cx)
+                                })
                             })
                             .children(tabs),
                     )
