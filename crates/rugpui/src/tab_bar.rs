@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Context, ElementId, Hsla, IsZero, MouseButton, Pixels, Point, Render, ScrollHandle,
-    SharedString, Window, div, prelude::*, px, svg, transparent_black,
+    AnyElement, App, Context, DragMoveEvent, ElementId, Hsla, IsZero, MouseButton, Pixels, Point,
+    Render, ScrollHandle, SharedString, Window, div, prelude::*, px, svg, transparent_black,
 };
 
 use crate::menu::{MenuButton, MenuEntry};
@@ -135,6 +135,14 @@ impl TabItem {
     }
 }
 
+/// Callback receiving a drag hover: what is dragged, and where it would land.
+///
+/// The index is the insertion point the pointer is over — the gap before the
+/// tab under its left half, after it under its right half, or the strip's
+/// length over the empty stretch — or `None` once the pointer has left the
+/// strip. The owner keeps the latest one as its drop indicator.
+type DragOverHandler = Rc<dyn Fn(DraggedTab, Option<usize>, &mut Window, &mut App)>;
+
 /// Callback receiving the index of the tab that was acted upon.
 type IndexHandler = Rc<dyn Fn(usize, &mut Window, &mut App)>;
 
@@ -224,6 +232,8 @@ pub struct TabBar {
     on_menu_open_change: Option<OpenChangeHandler>,
     drag_source: Option<u64>,
     on_reorder: Option<ReorderHandler>,
+    drop_indicator: Option<usize>,
+    on_drag_over: Option<DragOverHandler>,
     scrollbar: Option<Scrollbar>,
     menu_icon: Option<SharedString>,
     new_icon: Option<SharedString>,
@@ -249,6 +259,8 @@ impl TabBar {
             on_menu_open_change: None,
             drag_source: None,
             on_reorder: None,
+            drop_indicator: None,
+            on_drag_over: None,
             menu_icon: None,
             new_icon: None,
             menu_tooltip: None,
@@ -407,6 +419,33 @@ impl TabBar {
         self.on_reorder = Some(Rc::new(handler));
         self
     }
+
+    /// Draws the insertion bar at `index` while a tab is dragged over the strip.
+    ///
+    /// `None` draws no bar. `Some(index)` draws a 2 px accent bar in the gap
+    /// before the tab at `index`, or past the last tab when it names the
+    /// strip's length. The owner keeps the latest index its
+    /// [`TabBar::on_drag_over`] reported; the bar is what makes the drop land
+    /// where the pointer says it will.
+    pub fn drop_indicator(mut self, index: Option<usize>) -> Self {
+        self.drop_indicator = index;
+        self
+    }
+
+    /// Called while a tab is dragged over the strip with where it would land.
+    ///
+    /// Each tab reports the gap its halves name while the pointer is over it,
+    /// the empty stretch past the last tab reports the strip's length, and the
+    /// strip's own box reports `None` once the pointer has left it. Unset, the
+    /// strip reports nothing and draws no bar — the bars that do not opt in
+    /// keep working exactly as before.
+    pub fn on_drag_over(
+        mut self,
+        handler: impl Fn(DraggedTab, Option<usize>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_drag_over = Some(Rc::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for TabBar {
@@ -421,6 +460,9 @@ impl RenderOnce for TabBar {
         let scroll_handle = self.scroll_handle.clone();
         let drag_source = self.drag_source;
         let on_reorder = self.on_reorder;
+        let drop_indicator = self.drop_indicator;
+        let on_drag_over = self.on_drag_over;
+        let indicator_color = theme.accent;
         let tab_count = self.tabs.len();
         // Read here rather than inside the wheel handler below. gpui pushes an
         // element's text style around its children's layout, so this is the
@@ -463,195 +505,250 @@ impl RenderOnce for TabBar {
 
         let tab_theme = theme.clone();
         let on_reorder_tabs = on_reorder.clone();
-        let tabs = self.tabs.into_iter().enumerate().map(move |(index, tab)| {
-            let theme = &tab_theme;
-            let is_active = index == active;
-            let group = SharedString::from(format!("rugpui-tab-{index}"));
-            let close_id = ElementId::from((tab.id.clone(), "close"));
-            let mark_id = ElementId::from((tab.id.clone(), "mark"));
-            let on_close = on_close.clone().filter(|_| tab.closable);
-            let ghost_title = tab.title.clone();
+        let on_drag_over_tabs = on_drag_over.clone();
+        let on_drag_over_row = on_drag_over.clone();
+        let on_drag_over_outer = on_drag_over.clone();
+        let tabs: Vec<_> = self
+            .tabs
+            .into_iter()
+            .enumerate()
+            .map(move |(index, tab)| {
+                let theme = &tab_theme;
+                let is_active = index == active;
+                let group = SharedString::from(format!("rugpui-tab-{index}"));
+                let close_id = ElementId::from((tab.id.clone(), "close"));
+                let mark_id = ElementId::from((tab.id.clone(), "mark"));
+                let on_close = on_close.clone().filter(|_| tab.closable);
+                let ghost_title = tab.title.clone();
 
-            div()
-                .id(tab.id)
-                // The strip may sit inside a drag area when the toolbar
-                // doubles as the title bar; occluding is what keeps a click on
-                // a tab from being read as "move the window" instead.
-                .occlude()
-                .group(group.clone())
-                .flex()
-                .flex_row()
-                .flex_none()
-                .items_center()
-                .gap(px(6.))
-                .h_full()
-                .px(px(10.))
-                .border_b_2()
-                .border_color(if is_active {
-                    theme.accent
-                } else {
-                    transparent_black()
-                })
-                .bg(if is_active {
-                    theme.surface_active
-                } else {
-                    transparent_black()
-                })
-                .text_size(px(13.))
-                .text_color(if is_active {
-                    theme.text
-                } else {
-                    theme.text_muted
-                })
-                .cursor_pointer()
-                .hover(|style| {
-                    style.bg(if is_active {
+                div()
+                    .id(tab.id)
+                    // The strip may sit inside a drag area when the toolbar
+                    // doubles as the title bar; occluding is what keeps a click on
+                    // a tab from being read as "move the window" instead.
+                    .occlude()
+                    .group(group.clone())
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(6.))
+                    .h_full()
+                    .px(px(10.))
+                    .border_b_2()
+                    .border_color(if is_active {
+                        theme.accent
+                    } else {
+                        transparent_black()
+                    })
+                    .bg(if is_active {
                         theme.surface_active
                     } else {
-                        theme.surface_hover
+                        transparent_black()
                     })
-                })
-                .when_some(on_select.clone(), |this, handler| {
-                    this.on_click(move |_, window, cx| handler(index, window, cx))
-                })
-                .when_some(on_context_menu.clone(), |this, handler| {
-                    this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                        // The press belongs to the menu, not to whatever is
-                        // underneath the strip.
-                        cx.stop_propagation();
-                        handler(index, event.position, window, cx);
+                    .text_size(px(13.))
+                    .text_color(if is_active {
+                        theme.text
+                    } else {
+                        theme.text_muted
                     })
-                })
-                // A drag starts on a left press held past gpui's threshold,
-                // so an ordinary click still selects and a right press still
-                // opens the menu: neither gesture travels far enough to count.
-                .when_some(drag_source, |this, source| {
-                    let ghost_title = ghost_title.clone();
-                    this.on_drag(DraggedTab { source, index }, move |_, _, _, cx| {
-                        let theme = crate::theme::theme(cx);
-                        cx.new(|_| DragGhost {
-                            title: ghost_title.clone(),
-                            theme,
+                    .cursor_pointer()
+                    .hover(|style| {
+                        style.bg(if is_active {
+                            theme.surface_active
+                        } else {
+                            theme.surface_hover
                         })
                     })
-                })
-                .when_some(on_reorder_tabs.clone(), |this, handler| {
-                    // Innermost first: a drop on a tab stops here and never
-                    // reaches the strip's own target below, so the two cannot
-                    // both answer one gesture.
-                    this.on_drop::<DraggedTab>(move |dragged, window, cx| {
-                        handler(*dragged, index, window, cx)
+                    .when_some(on_select.clone(), |this, handler| {
+                        this.on_click(move |_, window, cx| handler(index, window, cx))
                     })
-                })
-                .when_some(scroll_handle.clone(), |this, handle| {
-                    // The occlusion above cuts the scrolling row out of the hit
-                    // test wherever a tab covers it, and gpui asks the row's own
-                    // hit box before it scrolls anything — so a wheel turned
-                    // over a tab, which is most of the strip, would move
-                    // nothing. Answering it here puts that back.
-                    //
-                    // Deliberately the same arithmetic gpui applies to the row
-                    // itself, so the two are indistinguishable: a wheel over a
-                    // tab and one over the gap beside it move the strip by the
-                    // same amount. The row scrolls on one axis, which is why a
-                    // vertical wheel — every plain mouse has one, and no
-                    // horizontal one — folds onto it. Nothing is clamped here
-                    // either: gpui pins the offset to the scrollable range on
-                    // the next layout pass, and this writes to the very cell it
-                    // pins.
-                    this.on_scroll_wheel(move |event, window, _cx| {
-                        let delta = event.delta.pixel_delta(line_height);
-                        let delta_x = if delta.x.is_zero() { delta.y } else { delta.x };
-                        if delta_x.is_zero() {
-                            return;
-                        }
-
-                        let mut offset = handle.offset();
-                        offset.x += delta_x;
-                        handle.set_offset(offset);
-                        window.refresh();
+                    .when_some(on_context_menu.clone(), |this, handler| {
+                        this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
+                            // The press belongs to the menu, not to whatever is
+                            // underneath the strip.
+                            cx.stop_propagation();
+                            handler(index, event.position, window, cx);
+                        })
                     })
-                })
-                .when_some(
-                    tab.dot
-                        .or_else(|| tab.status.map(|status| status.color(theme))),
-                    |this, color| {
-                        this.child(div().flex_none().size(px(6.)).rounded_full().bg(color))
-                    },
-                )
-                .child(div().whitespace_nowrap().child(tab.title))
-                .when_some(tab.mark, |this, mark| {
-                    this.child(
-                        // Behind the title rather than in front of it, where
-                        // the dot already is: the dot reports on a state every
-                        // tab has, the mark on something only some tabs are
-                        // doing, and a second symbol before the title would
-                        // push the titles of a strip out of line with one
-                        // another for the sake of the few tabs that carry one.
-                        //
-                        // Identified, and not for the sake of the hit test: a
-                        // tooltip is kept in gpui's element state, which only
-                        // an element with an id of its own is given — an
-                        // unidentified one would simply never appear. Not
-                        // occluding, for the same reason the close button does
-                        // not: this sits inside the tab, whose own occlusion
-                        // already answers for it, and taking the tab out of the
-                        // hit list under the pointer would take the close
-                        // button's `group_hover` with it.
-                        div()
-                            .id(mark_id)
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .tooltip(tooltip_label(mark.tooltip))
-                            .child(
-                                svg()
-                                    .size(px(MARK_SIZE))
-                                    .flex_none()
-                                    .path(mark.icon)
-                                    .text_color(theme.icon),
-                            ),
-                    )
-                })
-                .when_some(on_close, |this, handler| {
-                    this.child(
-                        div()
-                            .id(close_id)
-                            // Deliberately *not* occluding, unlike the tab and
-                            // the "+": this button only ever sits inside a tab,
-                            // whose own occlusion already keeps the drag area
-                            // behind the strip from answering for it. Occluding
-                            // here would be worse than redundant — gpui's hit
-                            // test stops at the first occluding hitbox, so the
-                            // tab's hitbox would drop out of the hit list the
-                            // moment the pointer reached the button, the
-                            // `group_hover` below would read as false, and the
-                            // button would hide itself out from under the
-                            // pointer. A hidden element paints no listeners, so
-                            // the click that followed would land on nothing.
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .justify_center()
-                            .size(px(16.))
-                            .rounded_sm()
-                            .text_size(px(12.))
-                            // The mark on a button, not a word in the title
-                            // beside it, so it takes the icon tint.
-                            .text_color(theme.icon)
-                            .invisible()
-                            .group_hover(group.clone(), |style| style.visible())
-                            .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
-                            // Keep the click from also selecting the tab.
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(move |_, window, cx| handler(index, window, cx))
-                            .when_some(close_tooltip.clone(), |this, tooltip| {
-                                this.tooltip(tooltip_label(tooltip))
+                    // A drag starts on a left press held past gpui's threshold,
+                    // so an ordinary click still selects and a right press still
+                    // opens the menu: neither gesture travels far enough to count.
+                    .when_some(drag_source, |this, source| {
+                        let ghost_title = ghost_title.clone();
+                        this.on_drag(DraggedTab { source, index }, move |_, _, _, cx| {
+                            let theme = crate::theme::theme(cx);
+                            cx.new(|_| DragGhost {
+                                title: ghost_title.clone(),
+                                theme,
                             })
-                            .child("\u{00d7}"),
+                        })
+                    })
+                    .when_some(on_reorder_tabs.clone(), |this, handler| {
+                        // Innermost first: a drop on a tab stops here and never
+                        // reaches the strip's own target below, so the two cannot
+                        // both answer one gesture.
+                        this.on_drop::<DraggedTab>(move |dragged, window, cx| {
+                            handler(*dragged, index, window, cx)
+                        })
+                    })
+                    .when_some(on_drag_over_tabs.clone(), |this, handler| {
+                        // Every move reaches every listener in the capture phase
+                        // with no hover check, so each tab asks its own box
+                        // whether the pointer is over it and only then names the
+                        // gap its halves point at.
+                        this.on_drag_move::<DraggedTab>(
+                            move |event: &DragMoveEvent<DraggedTab>, window, cx| {
+                                if event.bounds.contains(&event.event.position) {
+                                    let at = if event.event.position.x < event.bounds.center().x {
+                                        index
+                                    } else {
+                                        index + 1
+                                    };
+                                    handler(*event.drag(cx), Some(at), window, cx);
+                                }
+                            },
+                        )
+                    })
+                    .when_some(scroll_handle.clone(), |this, handle| {
+                        // The occlusion above cuts the scrolling row out of the hit
+                        // test wherever a tab covers it, and gpui asks the row's own
+                        // hit box before it scrolls anything — so a wheel turned
+                        // over a tab, which is most of the strip, would move
+                        // nothing. Answering it here puts that back.
+                        //
+                        // Deliberately the same arithmetic gpui applies to the row
+                        // itself, so the two are indistinguishable: a wheel over a
+                        // tab and one over the gap beside it move the strip by the
+                        // same amount. The row scrolls on one axis, which is why a
+                        // vertical wheel — every plain mouse has one, and no
+                        // horizontal one — folds onto it. Nothing is clamped here
+                        // either: gpui pins the offset to the scrollable range on
+                        // the next layout pass, and this writes to the very cell it
+                        // pins.
+                        this.on_scroll_wheel(move |event, window, _cx| {
+                            let delta = event.delta.pixel_delta(line_height);
+                            let delta_x = if delta.x.is_zero() { delta.y } else { delta.x };
+                            if delta_x.is_zero() {
+                                return;
+                            }
+
+                            let mut offset = handle.offset();
+                            offset.x += delta_x;
+                            handle.set_offset(offset);
+                            window.refresh();
+                        })
+                    })
+                    .when_some(
+                        tab.dot
+                            .or_else(|| tab.status.map(|status| status.color(theme))),
+                        |this, color| {
+                            this.child(div().flex_none().size(px(6.)).rounded_full().bg(color))
+                        },
                     )
-                })
-        });
+                    .child(div().whitespace_nowrap().child(tab.title))
+                    .when_some(tab.mark, |this, mark| {
+                        this.child(
+                            // Behind the title rather than in front of it, where
+                            // the dot already is: the dot reports on a state every
+                            // tab has, the mark on something only some tabs are
+                            // doing, and a second symbol before the title would
+                            // push the titles of a strip out of line with one
+                            // another for the sake of the few tabs that carry one.
+                            //
+                            // Identified, and not for the sake of the hit test: a
+                            // tooltip is kept in gpui's element state, which only
+                            // an element with an id of its own is given — an
+                            // unidentified one would simply never appear. Not
+                            // occluding, for the same reason the close button does
+                            // not: this sits inside the tab, whose own occlusion
+                            // already answers for it, and taking the tab out of the
+                            // hit list under the pointer would take the close
+                            // button's `group_hover` with it.
+                            div()
+                                .id(mark_id)
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .tooltip(tooltip_label(mark.tooltip))
+                                .child(
+                                    svg()
+                                        .size(px(MARK_SIZE))
+                                        .flex_none()
+                                        .path(mark.icon)
+                                        .text_color(theme.icon),
+                                ),
+                        )
+                    })
+                    .when_some(on_close, |this, handler| {
+                        this.child(
+                            div()
+                                .id(close_id)
+                                // Deliberately *not* occluding, unlike the tab and
+                                // the "+": this button only ever sits inside a tab,
+                                // whose own occlusion already keeps the drag area
+                                // behind the strip from answering for it. Occluding
+                                // here would be worse than redundant — gpui's hit
+                                // test stops at the first occluding hitbox, so the
+                                // tab's hitbox would drop out of the hit list the
+                                // moment the pointer reached the button, the
+                                // `group_hover` below would read as false, and the
+                                // button would hide itself out from under the
+                                // pointer. A hidden element paints no listeners, so
+                                // the click that followed would land on nothing.
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .justify_center()
+                                .size(px(16.))
+                                .rounded_sm()
+                                .text_size(px(12.))
+                                // The mark on a button, not a word in the title
+                                // beside it, so it takes the icon tint.
+                                .text_color(theme.icon)
+                                .invisible()
+                                .group_hover(group.clone(), |style| style.visible())
+                                .hover(|style| style.bg(theme.surface_hover).text_color(theme.text))
+                                // Keep the click from also selecting the tab.
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(move |_, window, cx| handler(index, window, cx))
+                                .when_some(close_tooltip.clone(), |this, tooltip| {
+                                    this.tooltip(tooltip_label(tooltip))
+                                })
+                                .child("\u{00d7}"),
+                        )
+                    })
+            })
+            .collect();
+
+        // The bar the pointer says the drop would land in: a 2 px accent in
+        // the gap before the tab it names, or past the last tab for the
+        // strip's length. Inserted between tabs, so the strip reads where the
+        // drop would put the tab rather than which tab it is over.
+        let mut strip_children: Vec<AnyElement> = Vec::with_capacity(tab_count * 2 + 1);
+        for (index, tab) in tabs.into_iter().enumerate() {
+            if drop_indicator == Some(index) {
+                strip_children.push(
+                    div()
+                        .flex_none()
+                        .w(px(2.))
+                        .h_full()
+                        .bg(indicator_color)
+                        .into_any_element(),
+                );
+            }
+            strip_children.push(tab.into_any_element());
+        }
+        if drop_indicator == Some(tab_count) {
+            strip_children.push(
+                div()
+                    .flex_none()
+                    .w(px(2.))
+                    .h_full()
+                    .bg(indicator_color)
+                    .into_any_element(),
+            );
+        }
 
         div()
             .id(id.clone())
@@ -663,6 +760,18 @@ impl RenderOnce for TabBar {
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
+            .when_some(on_drag_over_outer.clone(), |this, handler| {
+                // Outside the strip: the drag has left it, so whatever gap
+                // was last named no longer applies. Only then — inside, one of
+                // the tab or row listeners above is already answering.
+                this.on_drag_move::<DraggedTab>(
+                    move |event: &DragMoveEvent<DraggedTab>, window, cx| {
+                        if !event.bounds.contains(&event.event.position) {
+                            handler(*event.drag(cx), None, window, cx);
+                        }
+                    },
+                )
+            })
             .child(
                 // The wrapper is what the overlay bar is placed against, and
                 // it exists only for that: the scrolling row cannot hold its
@@ -692,7 +801,21 @@ impl RenderOnce for TabBar {
                                     handler(*dragged, tab_count, window, cx)
                                 })
                             })
-                            .children(tabs),
+                            .when_some(on_drag_over_row.clone(), |this, handler| {
+                                // The empty stretch past the last tab. Its box
+                                // also covers the tabs, so over a tab this and
+                                // the tab's own listener both report — the tab
+                                // paints later and so wins, which is what makes
+                                // the halves name the gap rather than the end.
+                                this.on_drag_move::<DraggedTab>(
+                                    move |event: &DragMoveEvent<DraggedTab>, window, cx| {
+                                        if event.bounds.contains(&event.event.position) {
+                                            handler(*event.drag(cx), Some(tab_count), window, cx);
+                                        }
+                                    },
+                                )
+                            })
+                            .children(strip_children),
                     )
                     .children(self.scrollbar.and_then(|bar| bar.render(&theme))),
             )
