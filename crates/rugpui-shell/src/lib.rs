@@ -114,5 +114,8 @@ pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
 pub use settings::{WindowGeometry, monospace_family, window_bounds, window_geometry, window_tint};
 pub use theme_editor::{ThemeEditor, ThemeEditorEvent};
-pub use update::{Asset, Check, Installed, Progress, Release, restart_path};
+pub use update::{
+    Asset, Check, Installed, Progress, Release, SignedChecksums, require_signed_checksums,
+    restart_path,
+};
 pub use update_dialog::{UpdateDialog, UpdateDialogEvent};

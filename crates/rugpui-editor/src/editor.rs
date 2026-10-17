@@ -41,6 +41,12 @@
 //!   the range it replaces defaults to the existing mark — that is what makes
 //!   `ㅎ`, `하`, `한` overwrite each other instead of accumulating.
 //! * [`EditorView::replace_text_in_range`] commits, clearing the mark.
+//! * [`EditorView::unmark_text`] also commits, but keeps the marked text as it
+//!   stands: it is what macOS's `unmarkText` and the X11 and Wayland backends
+//!   send when a click ends a composition. The text stays in the buffer, so
+//!   the history has to record it too, or every offset an older undo step
+//!   holds is off by the length of the syllable. Any edit, undo or redo that
+//!   lands while a composition is running ends it the same way first.
 //! * [`EditorView::marked_text_range`] answers in UTF-16, because the platform
 //!   uses it to place the candidate window.
 //!
@@ -797,7 +803,11 @@ impl EditorView {
         self.goal_column = None;
         self.dirty = false;
         self.scroll = point(px(0.), px(0.));
-        self.find.matches.clear();
+        if self.find.open {
+            self.refresh_matches(cx);
+        } else {
+            self.find.matches.clear();
+        }
         cx.emit(EditorEvent::Changed);
         cx.notify();
     }
@@ -1020,6 +1030,7 @@ impl EditorView {
         if self.read_only {
             return;
         }
+        self.finish_composition();
         let range = self.clamp(range.start)..self.clamp(range.end);
         let before = self.selection_state();
         let removed = self.buffer.slice(range.clone());
@@ -1045,7 +1056,17 @@ impl EditorView {
     }
 
     /// What every buffer change ends with.
+    ///
+    /// The matches are byte ranges into the text they were found in, so a
+    /// change re-runs the search rather than leave them pointing at whatever
+    /// moved under them — a stale range is a wrong replacement at best and a
+    /// slice off the end of the buffer at worst. The search is the same full
+    /// scan a change of query costs, paid only while there are matches to keep
+    /// or a bar to show them in.
     fn changed(&mut self, cx: &mut Context<Self>) {
+        if self.find.open || !self.find.matches.is_empty() {
+            self.refresh_matches(cx);
+        }
         self.scroll_to_caret();
         cx.emit(EditorEvent::Changed);
         cx.notify();
@@ -1060,6 +1081,7 @@ impl EditorView {
         if self.read_only || edits.is_empty() {
             return;
         }
+        self.finish_composition();
         let before = self.selection_state();
         for edit in &edits {
             self.splice(edit.old_range(), &edit.inserted);
@@ -1071,6 +1093,28 @@ impl EditorView {
         self.history
             .push_transaction(edits, before, self.selection_state());
         self.changed(cx);
+    }
+
+    /// Ends a running IME composition with the marked text as it stands.
+    ///
+    /// The preview is already in the buffer, so ending a composition any way
+    /// but the platform's commit — [`EntityInputHandler::unmark_text`], or an
+    /// edit, undo or redo arriving in the middle of one — has to record it, or
+    /// the buffer and the history disagree by the length of the syllable and
+    /// the next undo splices at the wrong offsets.
+    fn finish_composition(&mut self) {
+        let marked = self.marked_range.take();
+        if !self.history.in_composition() {
+            return;
+        }
+        let inserted = marked
+            .map(|range| {
+                self.buffer
+                    .slice(self.clamp(range.start)..self.clamp(range.end))
+            })
+            .unwrap_or_default();
+        self.history
+            .end_composition(inserted, self.selection_state());
     }
 
     /// Deletes the selection, or `fallback` when there is none.
@@ -1749,6 +1793,7 @@ impl EditorView {
         if self.read_only {
             return;
         }
+        self.finish_composition();
         let Some(transaction) = self.history.pop_undo() else {
             return;
         };
@@ -1765,6 +1810,7 @@ impl EditorView {
         if self.read_only {
             return;
         }
+        self.finish_composition();
         let Some(transaction) = self.history.pop_redo() else {
             return;
         };
@@ -1985,12 +2031,24 @@ impl EditorView {
     }
 
     fn replace_next(&mut self, _: &ReplaceNext, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         let Some(range) = self.find.current() else {
             return;
         };
+        if !self.is_valid_range(&range) {
+            // Every change re-runs the search, so this is a guard rather than
+            // a path: a match that no longer fits the buffer is found again
+            // instead of replaced.
+            self.refresh_matches(cx);
+            cx.notify();
+            return;
+        }
         let replacement = self.find_replacement.read(cx).content().to_owned();
-        self.edit(range.clone(), &replacement, EditKind::Other, cx);
-        self.find.shift_after_replace(&range, replacement.len());
+        // The edit re-runs the search from the caret it leaves after the
+        // replacement, which makes the current match the next one along.
+        self.edit(range, &replacement, EditKind::Other, cx);
         if let Some(next) = self.find.current() {
             self.select_range(next, cx);
         }
@@ -2002,11 +2060,15 @@ impl EditorView {
         }
         let replacement = self.find_replacement.read(cx).content().to_owned();
         // Bottom upwards, so that no edit disturbs the offsets of the next.
+        // A match that does not fit the buffer is skipped rather than sliced:
+        // every change re-runs the search, so there should be none, and a
+        // panic is a poor way to find out there was.
         let edits: Vec<Edit> = self
             .find
             .matches
             .iter()
             .rev()
+            .filter(|range| self.is_valid_range(range))
             .map(|range| Edit {
                 start: range.start,
                 removed: self.buffer.slice(range.clone()),
@@ -2014,8 +2076,17 @@ impl EditorView {
             })
             .collect();
         let caret = self.caret();
+        // The transaction's change re-runs the search over the result.
         self.transact(edits, caret..caret, cx);
-        self.refresh_matches(cx);
+    }
+
+    /// Whether `range` lies inside the buffer with both ends on character
+    /// boundaries, which is what [`Buffer::slice`] needs not to panic.
+    fn is_valid_range(&self, range: &Range<usize>) -> bool {
+        range.start <= range.end
+            && range.end <= self.buffer.len()
+            && self.clamp(range.start) == range.start
+            && self.clamp(range.end) == range.end
     }
 
     /// Puts `query` into the find bar and re-runs the search.
@@ -2431,9 +2502,15 @@ impl EntityInputHandler for EditorView {
             .map(|range| self.buffer.range_to_utf16(range))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.marked_range = None;
-        self.history.cancel_composition();
+    /// Ends the composition, keeping the marked text.
+    ///
+    /// Not a cancel: macOS's `unmarkText` and the X11 and Wayland backends,
+    /// which send this when a click interrupts a composition, all leave the
+    /// preview in the document as committed text. So it is committed here too,
+    /// and recorded.
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.finish_composition();
+        cx.notify();
     }
 
     fn replace_text_in_range(
@@ -2532,9 +2609,12 @@ impl EntityInputHandler for EditorView {
         self.goal_column = None;
 
         if new_text.is_empty() {
-            // An empty preview cancels the composition rather than committing
-            // an empty one.
-            self.history.cancel_composition();
+            // An empty preview ends the composition with nothing inserted. Over
+            // an empty range that records nothing; over a selection the
+            // selection is gone from the buffer, so it has to be gone in the
+            // history as well.
+            self.history
+                .end_composition(String::new(), self.selection_state());
         }
         self.changed(cx);
     }

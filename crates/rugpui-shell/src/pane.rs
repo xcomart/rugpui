@@ -135,6 +135,53 @@ impl<I> Pane<I> {
         self.active = self.items.len() - 1;
     }
 
+    /// Inserts a tab at `index` and brings it to the top.
+    ///
+    /// An index past the end clamps to the end, so a drop over the empty
+    /// stretch of a strip — which names no tab — lands after the last one.
+    /// What a tab moved in from another pane arrives through.
+    pub fn insert(&mut self, index: usize, item: I) {
+        let index = index.min(self.items.len());
+        self.items.insert(index, item);
+        self.active = index;
+    }
+
+    /// Moves the tab at `from` to before the tab at `to`, and says whether
+    /// anything changed.
+    ///
+    /// `to` is in the coordinates of the strip as drawn — the tab the dragged
+    /// one is dropped on — so a `to` past the tab `from` stood on is one lower
+    /// once `from` is out: dropping the first tab of `[a, b, c]` on `c` lands
+    /// it between `b` and `c`. `to == len` appends, which is what a drop over
+    /// the strip's empty stretch asks for. Anything naming no tab refuses
+    /// with `false`, as does a move that would leave the strip as it was.
+    ///
+    /// The tab on top follows the moved tab when it was the one moved, and
+    /// otherwise stays on the tab it was on: a reorder of background tabs
+    /// must not steal the pane's top tab out from under the keyboard.
+    pub fn relocate(&mut self, from: usize, to: usize) -> bool {
+        let len = self.items.len();
+        if from >= len || to > len {
+            return false;
+        }
+        if from == to || from + 1 == to {
+            return false;
+        }
+        let followed = self.active == from;
+        let item = self.items.remove(from);
+        if !followed && from < self.active {
+            self.active -= 1;
+        }
+        let insert = if from < to { to - 1 } else { to }.min(self.items.len());
+        self.items.insert(insert, item);
+        if followed {
+            self.active = insert;
+        } else if insert <= self.active {
+            self.active += 1;
+        }
+        true
+    }
+
     /// Removes the tab at `index` and hands it back.
     ///
     /// The tab that follows the closed one takes its place, and the one before
@@ -205,6 +252,15 @@ impl PaneId {
     /// The id as a plain integer, for building element ids.
     pub fn as_u64(self) -> u64 {
         self.0
+    }
+
+    /// Rebuilds an id from its integer form.
+    ///
+    /// What a caller-supplied drag tag round-trips through: the strip hands
+    /// the pane's own integer to the tab bar as an opaque tag, and the drop
+    /// path turns it back into the pane it names.
+    pub fn from_u64(id: u64) -> Self {
+        Self(id)
     }
 }
 
@@ -359,7 +415,15 @@ impl<T> PaneTree<T> {
     /// range is enforced here, because how much of a pane must stay visible is
     /// a question about the rendered layout, not about the tree — the view
     /// clamps to its own minimum before calling.
+    ///
+    /// A NaN ratio — what a drag across an area of zero size divides its way
+    /// to — is refused the same way and answers `false`: `f32::clamp` passes
+    /// NaN straight through, and a divider at NaN lays out nothing on either
+    /// side of it.
     pub fn set_ratio(&mut self, id: SplitId, ratio: f32) -> bool {
+        if ratio.is_nan() {
+            return false;
+        }
         let Some(split) = find_split_mut(self.root.as_mut().expect(ROOT_INVARIANT), id) else {
             return false;
         };
@@ -1028,6 +1092,21 @@ mod tests {
     }
 
     #[test]
+    fn a_nan_ratio_leaves_the_divider_where_it_was() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        let split = root_split(&tree);
+        assert!(tree.set_ratio(split, 0.3));
+
+        assert!(!tree.set_ratio(split, f32::NAN));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 0.3)));
+
+        assert!(tree.set_ratio(split, f32::INFINITY));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 1.)));
+    }
+
+    #[test]
     fn a_nested_divider_moves_without_disturbing_its_parent() {
         // 1 | (2 / 3): dragging the inner divider must leave the outer one be.
         let mut tree = PaneTree::single(1u32);
@@ -1251,5 +1330,91 @@ mod tests {
 
         pane.active_mut().expect("one tab").push('!');
         assert_eq!(pane.active().map(String::as_str), Some("dirty!"));
+    }
+
+    #[test]
+    fn relocating_a_tab_backwards_lands_it_before_the_drop_target() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("b");
+        pane.push("c");
+
+        assert!(pane.relocate(2, 0));
+        assert_eq!(pane.items(), ["c", "a", "b"]);
+        // The moved tab was on top, so it stays on top at its new place.
+        assert_eq!(pane.active_index(), 0);
+    }
+
+    #[test]
+    fn relocating_a_tab_forwards_lands_it_before_the_drop_target() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("b");
+        pane.push("c");
+        // The newest tab is already the one on top.
+        assert_eq!(pane.active(), Some(&"c"));
+
+        // Dropping `a` on `c` tucks it between `b` and `c`, and the top tab
+        // — which did not move — stays the tab on top.
+        assert!(pane.relocate(0, 2));
+        assert_eq!(pane.items(), ["b", "a", "c"]);
+        assert_eq!(pane.active(), Some(&"c"));
+    }
+
+    #[test]
+    fn relocating_past_the_end_appends() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("b");
+        pane.push("c");
+
+        assert!(pane.relocate(0, 3));
+        assert_eq!(pane.items(), ["b", "c", "a"]);
+        // The moved tab was not on top, so the top tab stays the tab on top.
+        assert_eq!(pane.active(), Some(&"c"));
+    }
+
+    #[test]
+    fn relocating_a_background_tab_keeps_the_same_tab_on_top() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("b");
+        pane.push("c");
+        assert!(pane.activate(1));
+        assert_eq!(pane.active(), Some(&"b"));
+
+        assert!(pane.relocate(2, 0));
+        assert_eq!(pane.items(), ["c", "a", "b"]);
+        assert_eq!(pane.active(), Some(&"b"));
+    }
+
+    #[test]
+    fn relocating_refuses_what_names_no_tab_and_moves_that_change_nothing() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("b");
+
+        assert!(!pane.relocate(2, 0), "no tab at the source");
+        assert!(!pane.relocate(0, 3), "no tab at the target");
+        assert!(!pane.relocate(0, 0), "a tab onto itself");
+        assert!(!pane.relocate(0, 1), "a tab before its own neighbour");
+        assert!(!pane.relocate(1, 2), "the last tab to the end");
+        assert_eq!(pane.items(), ["a", "b"]);
+        assert_eq!(pane.active_index(), 1);
+    }
+
+    #[test]
+    fn inserting_names_a_position_and_brings_it_to_the_top() {
+        let mut pane = Pane::new();
+        pane.push("a");
+        pane.push("c");
+
+        pane.insert(1, "b");
+        assert_eq!(pane.items(), ["a", "b", "c"]);
+        assert_eq!(pane.active(), Some(&"b"));
+
+        pane.insert(usize::MAX, "d");
+        assert_eq!(pane.items(), ["a", "b", "c", "d"]);
+        assert_eq!(pane.active(), Some(&"d"));
     }
 }
