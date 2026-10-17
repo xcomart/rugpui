@@ -415,7 +415,15 @@ impl<T> PaneTree<T> {
     /// range is enforced here, because how much of a pane must stay visible is
     /// a question about the rendered layout, not about the tree — the view
     /// clamps to its own minimum before calling.
+    ///
+    /// A NaN ratio — what a drag across an area of zero size divides its way
+    /// to — is refused the same way and answers `false`: `f32::clamp` passes
+    /// NaN straight through, and a divider at NaN lays out nothing on either
+    /// side of it.
     pub fn set_ratio(&mut self, id: SplitId, ratio: f32) -> bool {
+        if ratio.is_nan() {
+            return false;
+        }
         let Some(split) = find_split_mut(self.root.as_mut().expect(ROOT_INVARIANT), id) else {
             return false;
         };
@@ -1080,6 +1088,21 @@ mod tests {
         assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 0.)));
 
         assert!(tree.set_ratio(split, 4.));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 1.)));
+    }
+
+    #[test]
+    fn a_nan_ratio_leaves_the_divider_where_it_was() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        let split = root_split(&tree);
+        assert!(tree.set_ratio(split, 0.3));
+
+        assert!(!tree.set_ratio(split, f32::NAN));
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 0.3)));
+
+        assert!(tree.set_ratio(split, f32::INFINITY));
         assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 1.)));
     }
 
