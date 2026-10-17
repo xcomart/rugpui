@@ -428,10 +428,11 @@ untouched by it — nothing starts one except a user picking a menu item.
 
 ```mermaid
 flowchart TD
-    A["install(release, report)"] --> B["plan the swap: every AppIdentity::payload entry"]
+    A["install(release, report)"] --> V["settle the checksum: Asset::digest and/or the signed list; neither → Err"]
+    V --> B["plan the swap: every AppIdentity::payload entry"]
     B --> C["create .update/ beside the installed copy"]
     C --> D["download → Progress::Downloading { done, total }"]
-    D --> E["verify: byte count vs the API, SHA-256 vs Asset::digest"]
+    D --> E["verify: byte count vs the API, SHA-256 vs the settled checksum"]
     E --> F["Progress::Installing"]
     F --> G["tar -xf into .update/unpacked"]
     G --> H{"must_defer()?"}
@@ -451,6 +452,48 @@ flowchart TD
 "Update" hand off to the browser instead. `Progress` is `Downloading { done,
 total }` (reported no more often than every 256 KB, so the read loop does not
 wake the UI thread for a bar that has not moved a pixel) and `Installing`.
+
+An asset the API reported **no `digest`** for is refused before anything is
+written or downloaded (`Err` naming the missing checksum, and the dialog's
+browser fallback): its length is all that could be checked, and a length proves
+nothing about content.
+
+#### Signed checksums (optional)
+
+The API's digest only proves the bytes are what the host stored — whoever can
+upload to the release can change both. An application can require more by
+registering, once and before the first check:
+
+```rust
+use rugpui_shell::{SignedChecksums, require_signed_checksums};
+
+/// The application's minisign public key, compiled in.
+const UPDATE_KEY: &str = "RWQ…";
+
+fn verify(list: &[u8], signature: &[u8]) -> Result<(), String> {
+    // With the `minisign-verify` crate, a dependency of the application.
+    let key = minisign_verify::PublicKey::from_base64(UPDATE_KEY).map_err(|e| e.to_string())?;
+    let signature = std::str::from_utf8(signature).map_err(|e| e.to_string())?;
+    let signature = minisign_verify::Signature::decode(signature).map_err(|e| e.to_string())?;
+    key.verify(list, &signature, false).map_err(|e| e.to_string())
+}
+
+require_signed_checksums(SignedChecksums {
+    list: "SHA256SUMS",
+    signature: "SHA256SUMS.minisig",
+    verify,
+});
+```
+
+From then on `install` also downloads `list` and `signature` from the same
+directory as the archive, has `verify` accept them, requires the list (in
+`sha256sum` format) to name the archive, and requires its entry to agree with
+the API's digest when there is one. The **release workflow** has to publish
+both files on every release — e.g. `sha256sum *.zip *.tar.gz > SHA256SUMS` and
+`minisign -S -s <key file> -m SHA256SUMS` — with the secret key and its password
+kept as CI secrets; this crate holds no key and no signature scheme. A release
+published without them can no longer be installed by a build that requires them,
+and falls back to the release page.
 
 Some things worth knowing about the fields:
 

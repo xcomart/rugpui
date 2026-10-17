@@ -13,6 +13,27 @@
 //! unpack it beside the installed copy, and move the new one into the old one's
 //! place. The application then restarts itself into the build it just wrote.
 //!
+//! # What vouches for a download
+//!
+//! Nothing is installed that nothing vouched for. The asset has to match a
+//! SHA-256 checksum published with the release, and an asset that arrives with
+//! none — an older GitHub Enterprise, a cached response, a field that changed
+//! shape — is refused before a byte is fetched, with a sentence saying why and
+//! the dialog's browser fallback beside it. The byte count the API reported is
+//! checked as well, but a size proves nothing about content.
+//!
+//! The checksum the releases API reports only says the bytes are the ones the
+//! host stored, and so trusts whoever can upload to the release — a leaked CI
+//! token is enough. An application that wants more registers
+//! [`SignedChecksums`] with [`require_signed_checksums`]: from then on the
+//! release must also carry a checksum list and a detached signature over it,
+//! the application's own `verify` (typically `minisign-verify` and a public key
+//! compiled into the binary) must accept the pair, the list must name the asset,
+//! and its entry must agree with the API's digest when there is one. What that
+//! asks of the application is written out on [`SignedChecksums`]. This crate
+//! carries no key and no signature scheme of its own, and the secret key
+//! belongs to the release workflow alone.
+//!
 //! # What the host supplies
 //!
 //! Everything specific to one application is in [`AppIdentity`], installed once
@@ -166,6 +187,7 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::App;
@@ -225,6 +247,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// this project has published — the bundled runtime is most of one — so it can
 /// only ever catch a fault.
 const MAX_ASSET_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Ceiling on a checksum list or its signature.
+///
+/// Both are a few hundred bytes in practice — a line per asset, a signature
+/// block — so anything near this is not one of them, and reading it whole into
+/// memory would be the mistake.
+const MAX_CHECKSUM_BYTES: u64 = 1024 * 1024;
 
 /// Copy buffer for the download.
 const DOWNLOAD_BUFFER: usize = 64 * 1024;
@@ -344,9 +373,61 @@ pub struct Asset {
     /// Lower-case hex SHA-256 of the asset, when the API supplied one.
     ///
     /// `digest` is a recent addition to the releases API, so an older GitHub
-    /// Enterprise or a cached response may omit it; the size check still
-    /// applies in that case.
+    /// Enterprise or a cached response may omit it. Such an asset is still
+    /// announced, but [`install`] refuses it unless a [`SignedChecksums`] list
+    /// vouches for it instead: a size alone proves nothing about content.
     pub digest: Option<String>,
+}
+
+/// A signed checksum list every update has to appear in, registered by the
+/// application with [`require_signed_checksums`].
+///
+/// The release then carries two more assets beside the archives: `list`, in the
+/// format `sha256sum` writes — one `<64 hex digits>  <file name>` line per asset,
+/// a `*` in place of the second space also accepted — and `signature`, a
+/// detached signature over the list's exact bytes. They are fetched from beside
+/// the archive (the same download directory, under these names), `verify` is
+/// handed both, and only a list it accepts is read. The archive must be named in
+/// it, and when the API also reports a digest the two must agree.
+///
+/// What an application configures:
+///
+/// - **The release workflow** publishes both assets on every release, e.g.
+///   `sha256sum *.zip *.tar.gz > SHA256SUMS` and
+///   `minisign -S -s <secret key> -m SHA256SUMS` (giving `SHA256SUMS.minisig`),
+///   with the secret key and its password held as CI secrets. A release made
+///   without them can no longer be installed by a build that requires them —
+///   the dialog falls back to the release page.
+/// - **The application** compiles the matching public key in and registers
+///   `verify` before the first check, e.g. with the `minisign-verify` crate:
+///   `PublicKey::from_base64(KEY)?.verify(list, &Signature::decode(sig)?, false)`
+///   with the errors turned into a sentence. `verify` runs on the background
+///   thread the install runs on, which is why it is a plain `fn`.
+///
+/// Nothing here holds a key or knows a signature scheme; rotating the key is a
+/// change to the application alone.
+#[derive(Debug, Clone, Copy)]
+pub struct SignedChecksums {
+    /// Asset name of the checksum list, e.g. `"SHA256SUMS"`.
+    pub list: &'static str,
+    /// Asset name of its detached signature, e.g. `"SHA256SUMS.minisig"`.
+    pub signature: &'static str,
+    /// Checks `signature` over `list` against the application's public key,
+    /// answering a sentence for the dialog when it does not hold.
+    pub verify: fn(list: &[u8], signature: &[u8]) -> Result<(), String>,
+}
+
+/// The signed list [`require_signed_checksums`] registered, if any.
+static SIGNED_CHECKSUMS: OnceLock<SignedChecksums> = OnceLock::new();
+
+/// Requires every update from now on to be listed in a signed checksum list;
+/// see [`SignedChecksums`].
+///
+/// Once per process, before the first install: a requirement that could be
+/// lifted again would be no requirement. Answers `false`, and changes nothing,
+/// when one was already registered.
+pub fn require_signed_checksums(checksums: SignedChecksums) -> bool {
+    SIGNED_CHECKSUMS.set(checksums).is_ok()
 }
 
 /// A release worth telling the user about.
@@ -655,6 +736,13 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<In
             release.tag
         ));
     };
+    // Settled before anything is written or downloaded: an asset nothing
+    // vouches for is not worth a staging directory.
+    let signed = match SIGNED_CHECKSUMS.get() {
+        Some(checksums) => Some(signed_digest(checksums, asset)?),
+        None => None,
+    };
+    let expected = expected_digest(asset, signed)?;
 
     let plan = install_plan()?;
     let parent = install_dir(&plan)
@@ -668,7 +756,14 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<In
     fs::create_dir_all(&staging)
         .map_err(|error| format!("could not write to {}: {error}", parent.display()))?;
 
-    let outcome = stage(asset, &plan, &staging, &parent.join(PENDING_DIR), report);
+    let outcome = stage(
+        asset,
+        &expected,
+        &plan,
+        &staging,
+        &parent.join(PENDING_DIR),
+        report,
+    );
     // Best-effort on purpose: the update either happened or it did not, and a
     // scratch directory that outlives it is not worth turning a success into a
     // failure over. The next install removes it anyway.
@@ -692,13 +787,14 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<In
 /// removal site covering every way out of it.
 fn stage(
     asset: &Asset,
+    expected: &str,
     plan: &[Entry],
     staging: &Path,
     pending: &Path,
     report: &mut dyn FnMut(Progress),
 ) -> Result<Installed, String> {
     let archive = staging.join(archive_name(&asset.name));
-    download(asset, &archive, report)?;
+    download(asset, expected, &archive, report)?;
 
     report(Progress::Installing);
 
@@ -1057,12 +1153,18 @@ fn install_dir(plan: &[Entry]) -> Option<&Path> {
     plan.first()?.target.parent()
 }
 
-/// Stream `asset` into `to`, checking it against what the API promised.
+/// Stream `asset` into `to`, checking it against `expected` — the lower-case
+/// hex SHA-256 [`expected_digest`] settled on — and the size the API promised.
 ///
 /// Uses an agent of its own rather than the check's: that one carries a global
 /// five-second deadline, which would abort a release download on any connection
 /// slower than a datacentre's. Here only the connect phase is bounded.
-fn download(asset: &Asset, to: &Path, report: &mut dyn FnMut(Progress)) -> Result<(), String> {
+fn download(
+    asset: &Asset,
+    expected: &str,
+    to: &Path,
+    report: &mut dyn FnMut(Progress),
+) -> Result<(), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(CONNECT_TIMEOUT))
         .build()
@@ -1126,17 +1228,128 @@ fn download(asset: &Asset, to: &Path, report: &mut dyn FnMut(Progress)) -> Resul
         ));
     }
 
-    if let Some(expected) = &asset.digest {
-        let actual = hex(digest.finish().as_ref());
-        if &actual != expected {
-            return Err(format!(
-                "{} does not match its published checksum",
-                asset.name
-            ));
-        }
+    if hex(digest.finish().as_ref()) != expected {
+        return Err(format!(
+            "{} does not match its published checksum",
+            asset.name
+        ));
     }
 
     Ok(())
+}
+
+/// The checksum the download has to match: the signed list's entry when
+/// [`SignedChecksums`] are required, else the API's digest — and when both are
+/// there, they must agree.
+///
+/// An asset with neither is refused outright. Installing it would mean trusting
+/// whatever arrived, checked by nothing but its length.
+fn expected_digest(asset: &Asset, signed: Option<String>) -> Result<String, String> {
+    match (asset.digest.as_ref(), signed) {
+        (Some(published), Some(signed)) if *published != signed => Err(format!(
+            "{} has two published checksums that disagree; it was not installed",
+            asset.name
+        )),
+        (_, Some(signed)) => Ok(signed),
+        (Some(published), None) => Ok(published.clone()),
+        (None, None) => Err(format!(
+            "{} was published without a SHA-256 checksum, so it cannot be verified \
+             and was not installed",
+            asset.name
+        )),
+    }
+}
+
+/// Fetches `checksums`' list and signature from beside `asset`, has the
+/// application verify them, and answers the list's entry for the asset.
+fn signed_digest(checksums: &SignedChecksums, asset: &Asset) -> Result<String, String> {
+    let fetch = |name: &str| {
+        let url = sibling_url(&asset.url, name)
+            .ok_or_else(|| format!("{} has no download directory to find {name} in", asset.name))?;
+        fetch_small(&url, name)
+    };
+    let list = fetch(checksums.list)?;
+    let signature = fetch(checksums.signature)?;
+    verified_digest(checksums, &list, &signature, &asset.name)
+}
+
+/// The entry for `name` in `list`, once `checksums.verify` has accepted
+/// `signature` over it.
+///
+/// Split from [`signed_digest`] so everything but the two requests can be
+/// tested.
+fn verified_digest(
+    checksums: &SignedChecksums,
+    list: &[u8],
+    signature: &[u8],
+    name: &str,
+) -> Result<String, String> {
+    (checksums.verify)(list, signature)
+        .map_err(|error| format!("the signature on {} does not hold: {error}", checksums.list))?;
+    let text =
+        std::str::from_utf8(list).map_err(|_| format!("{} is not a text file", checksums.list))?;
+    listed_digest(text, name).ok_or_else(|| format!("{} does not list {name}", checksums.list))
+}
+
+/// The SHA-256 a `sha256sum`-format `list` gives for `name`, in lower case.
+///
+/// One `<hex>  <name>` line per file; a `*` in place of the second space marks
+/// binary mode and means nothing different here. A name listed twice with two
+/// different checksums answers `None`, since nobody can say which was meant.
+fn listed_digest(list: &str, name: &str) -> Option<String> {
+    let mut found: Option<String> = None;
+    for line in list.lines() {
+        let Some((hex, rest)) = line.trim_end_matches('\r').split_once(' ') else {
+            continue;
+        };
+        let listed = rest.strip_prefix(' ').or_else(|| rest.strip_prefix('*'));
+        if listed != Some(name) {
+            continue;
+        }
+        let digest = parse_digest(&format!("sha256:{hex}"))?;
+        match &found {
+            Some(earlier) if *earlier != digest => return None,
+            _ => found = Some(digest),
+        }
+    }
+    found
+}
+
+/// The URL of the file called `name` in the same download directory as `url`.
+///
+/// A release's assets all download from one directory —
+/// `…/releases/download/<tag>/<file>` on GitHub — so a sibling's URL is the
+/// asset's with its last segment swapped, which spares [`Release`] a field per
+/// extra asset.
+fn sibling_url(url: &str, name: &str) -> Option<String> {
+    let (directory, file) = url.rsplit_once('/')?;
+    if file.is_empty() || !directory.contains("://") || directory.ends_with('/') {
+        return None;
+    }
+    Some(format!("{directory}/{name}"))
+}
+
+/// Downloads a small release file whole, refusing anything past
+/// [`MAX_CHECKSUM_BYTES`].
+fn fetch_small(url: &str, name: &str) -> Result<Vec<u8>, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_global(Some(CONNECT_TIMEOUT))
+        .build()
+        .into();
+    agent
+        .get(url)
+        .header("User-Agent", user_agent())
+        .header("Accept", "application/octet-stream")
+        .call()
+        .and_then(|mut response| {
+            response
+                .body_mut()
+                .with_config()
+                .limit(MAX_CHECKSUM_BYTES)
+                .read_to_vec()
+        })
+        .map_err(|error| format!("could not download {name}: {error}"))
 }
 
 /// Unpack `archive` into `into` using the system `tar`.
@@ -1590,8 +1803,8 @@ fn find_asset(value: &serde_json::Value, name: &str) -> Option<Asset> {
 ///
 /// Only SHA-256 is accepted, and only as exactly 64 hex digits. Anything else —
 /// a future algorithm, a truncated value, a field that changed shape — answers
-/// `None` and leaves the size check as the only verification, which is the
-/// behaviour on the many responses that carry no digest at all.
+/// `None`, exactly as a response that carries no digest at all does, and
+/// [`install`] then refuses the asset unless a signed list vouches for it.
 fn parse_digest(raw: &str) -> Option<String> {
     let (algorithm, hex) = raw.trim().split_once(':')?;
     if !algorithm.eq_ignore_ascii_case("sha256") {
@@ -2392,6 +2605,119 @@ mod tests {
             .expect_err("no asset, no install");
         assert!(error.contains("v9.9.9"), "{error}");
         assert!(seen.is_empty(), "nothing should have been reported");
+    }
+
+    /// An asset of `digest`, at a GitHub-shaped download URL.
+    fn asset_with(digest: Option<&str>) -> Asset {
+        Asset {
+            name: "app-v9.9.9-x86_64-unknown-linux-gnu.tar.gz".to_string(),
+            url: "https://github.com/o/r/releases/download/v9.9.9/app-v9.9.9-x86_64-unknown-linux-gnu.tar.gz"
+                .to_string(),
+            size: 0,
+            digest: digest.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn an_asset_without_a_checksum_is_refused_before_anything_is_fetched() {
+        fake();
+        let release = Release {
+            tag: "v9.9.9".to_string(),
+            version: "9.9.9".to_string(),
+            url: String::new(),
+            asset: Some(asset_with(None)),
+        };
+        let mut seen = Vec::new();
+        let error = install(&release, &mut |progress| seen.push(progress))
+            .expect_err("nothing vouches for the asset");
+        assert!(error.contains("checksum"), "{error}");
+        assert!(seen.is_empty(), "the download must not have started");
+    }
+
+    #[test]
+    fn the_expected_checksum_needs_one_source_and_agreeing_ones() {
+        let (api, signed) = ("aa".repeat(32), "bb".repeat(32));
+        assert_eq!(
+            expected_digest(&asset_with(Some(&api)), None).as_deref(),
+            Ok(api.as_str())
+        );
+        assert_eq!(
+            expected_digest(&asset_with(None), Some(signed.clone())).as_deref(),
+            Ok(signed.as_str()),
+            "a signed list vouches for an asset the API reported no digest for"
+        );
+        assert_eq!(
+            expected_digest(&asset_with(Some(&api)), Some(api.clone())).as_deref(),
+            Ok(api.as_str())
+        );
+        assert!(expected_digest(&asset_with(Some(&api)), Some(signed)).is_err());
+        assert!(expected_digest(&asset_with(None), None).is_err());
+    }
+
+    #[test]
+    fn a_checksum_list_is_read_the_way_sha256sum_writes_it() {
+        let (one, two) = ("ab".repeat(32), "CD".repeat(32));
+        let list =
+            format!("{one}  app.tar.gz\r\n{two} *app.zip\n{one}  app.tar.gz.extra\nnot a line\n");
+        assert_eq!(listed_digest(&list, "app.tar.gz"), Some(one.clone()));
+        assert_eq!(
+            listed_digest(&list, "app.zip"),
+            Some(two.to_lowercase()),
+            "binary mode, upper case"
+        );
+        assert_eq!(listed_digest(&list, "app"), None, "a prefix is not a name");
+        assert_eq!(listed_digest(&list, "missing.zip"), None);
+
+        let twice = format!("{one}  app.zip\n{}  app.zip\n", "ef".repeat(32));
+        assert_eq!(
+            listed_digest(&twice, "app.zip"),
+            None,
+            "two answers is none"
+        );
+        let short = format!("{}  app.zip\n", "ab".repeat(31));
+        assert_eq!(listed_digest(&short, "app.zip"), None);
+    }
+
+    #[test]
+    fn only_a_list_the_application_verified_is_read() {
+        fn accept(list: &[u8], signature: &[u8]) -> Result<(), String> {
+            assert_eq!(signature, b"sig");
+            assert!(!list.is_empty());
+            Ok(())
+        }
+        fn reject(_: &[u8], _: &[u8]) -> Result<(), String> {
+            Err("wrong key".to_string())
+        }
+        let checksums = |verify| SignedChecksums {
+            list: "SHA256SUMS",
+            signature: "SHA256SUMS.minisig",
+            verify,
+        };
+        let digest = "ab".repeat(32);
+        let list = format!("{digest}  app.zip\n");
+
+        assert_eq!(
+            verified_digest(&checksums(accept), list.as_bytes(), b"sig", "app.zip").as_deref(),
+            Ok(digest.as_str())
+        );
+        let error = verified_digest(&checksums(reject), list.as_bytes(), b"sig", "app.zip")
+            .expect_err("a bad signature");
+        assert!(error.contains("wrong key"), "{error}");
+        assert!(
+            verified_digest(&checksums(accept), list.as_bytes(), b"sig", "other.zip").is_err(),
+            "an asset the signed list leaves out"
+        );
+    }
+
+    #[test]
+    fn a_sibling_asset_downloads_from_the_same_directory() {
+        assert_eq!(
+            sibling_url(&asset_with(None).url, "SHA256SUMS").as_deref(),
+            Some("https://github.com/o/r/releases/download/v9.9.9/SHA256SUMS")
+        );
+        assert_eq!(sibling_url("https://example.invalid/", "SUMS"), None);
+        assert_eq!(sibling_url("no-directory", "SUMS"), None);
+        assert_eq!(sibling_url("https://host", "SUMS"), None);
     }
 
     #[test]
