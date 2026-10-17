@@ -105,7 +105,7 @@ pub use slider::{DraggedKnob, Slider, stepped};
 pub use spinner::Spinner;
 pub use splitter::{DraggedSplit, Splitter, split_share};
 pub use switch::Switch;
-pub use tab_bar::{DraggedTab, TabBar, TabItem, TabMark, TabStatus};
+pub use tab_bar::{DraggedTab, TabBar, TabDropState, TabItem, TabMark, TabStatus};
 pub use text_input::{InputMenuLabels, TextInput};
 pub use theme::{
     CustomUiTheme, Theme, ThemeColors, ThemeEntry, ThemeFile, ThemeRegistry, parse_hex, set_theme,
