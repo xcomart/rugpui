@@ -75,6 +75,7 @@ Every callback is keyed by the tab's **index in display order**, not by its `Ele
 | `.on_reorder` | `Fn(DraggedTab, usize, …)` | none | **setting it is what makes the strip a drop target**; the index is the insertion gap the drop landed in |
 | `.on_drag_over` | `Fn(DraggedTab, Option<usize>, …)` | none | once per move of any tab drag: the hovered gap, or `None` outside the scrolling row |
 | `.drop_indicator` | `Option<usize>` | `None` | draws the 2 px insertion bar in that gap |
+| `.focus_handle` | `&FocusHandle` | none | makes the strip a keyboard stop; see *Keyboard* |
 
 Three of the buttons are opt-in by handler rather than by a flag: a bar whose host has no way to close a tab does not draw a close button that would do nothing.
 
@@ -151,6 +152,21 @@ The insertion bar is laid *over* the tabs (absolutely positioned on the tab it b
 - Right press anywhere on a tab → `on_context_menu(index, position)`, on the *press* rather than the release. It deliberately does **not** also select the tab: the commands a tab menu offers differ for the active tab and any other, so the selection must survive the click that opens the menu. Render your own [`ContextMenu`](./menu.md) at `position`.
 - The tab, the "+" and the dropdown trigger all occlude, so a click on them is not read as "drag the window" when the strip doubles as the title bar.
 
+## Keyboard
+
+Hand the bar a `FocusHandle` you keep beside its scroll handle, and the strip tracks it under the `TabBar` key context. `rugpui::init` binds the keys (through `tab_bar::init`); they act only while that handle has focus, and each one goes through the same callback the mouse would:
+
+| key | action | calls |
+| --- | --- | --- |
+| Left / Right | `SelectPrevTab` / `SelectNextTab` | `on_select(active ∓ 1)` |
+| Home / End | `SelectFirstTab` / `SelectLastTab` | `on_select(0)` / `on_select(len - 1)` |
+| Delete (also Backspace on macOS) | `CloseActiveTab` | `on_close(active)`, unless the tab is not closable |
+| Ctrl+Shift+PageUp / PageDown (Cmd on macOS) | `MoveTabLeft` / `MoveTabRight` | `on_reorder(DraggedTab { source: drag_source, index: active }, active - 1 / active + 2)` |
+
+Nothing happens at either end of the strip. The reorder needs both `drag_source` and `on_reorder`, and its index is a gap like a drop's, so the same move code serves both. While focused, the active tab wears a 1 px accent ring.
+
+Clicking a tab does **not** focus the strip — a click usually means "show me this", and the owner moves focus into what it shows. How the keyboard reaches the strip (a command, a tab stop) is the owner's choice: `handle.focus(window, cx)`.
+
 ## Theme slots
 
 | slot | where |
@@ -159,7 +175,7 @@ The insertion bar is laid *over* the tabs (absolutely positioned on the tab it b
 | `border` | the hairline under the strip |
 | `surface_active` | background of the active tab |
 | `surface_hover` | hover background of an inactive tab, the close button and the "+" |
-| `accent` | 2 px underline of the active tab, and the `Connecting` dot |
+| `accent` | 2 px underline of the active tab, the drop bar, the focus ring, and the `Connecting` dot |
 | `text` | title of the active tab, and hover colour of the icon buttons |
 | `text_muted` | titles of inactive tabs, and the `Disconnected` dot |
 | `icon` | resting colour of the close "×", the mark, the "+" and the dropdown face |

@@ -135,6 +135,7 @@ pub fn init(cx: &mut App) {
     set_window_tint(1.0, cx);
     TextInput::init(cx);
     list::init(cx);
+    tab_bar::init(cx);
     tree::init(cx);
     warn_about_missing_icons(cx);
 }

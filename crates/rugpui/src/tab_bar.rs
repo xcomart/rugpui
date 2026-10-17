@@ -4,8 +4,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Context, DragMoveEvent, ElementId, Hsla, IsZero, MouseButton, Pixels, Point, Render,
-    ScrollHandle, SharedString, Window, div, prelude::*, px, svg, transparent_black,
+    App, Context, DragMoveEvent, ElementId, FocusHandle, Hsla, IsZero, KeyBinding, MouseButton,
+    Pixels, Point, Render, ScrollHandle, SharedString, Window, actions, div, prelude::*, px, svg,
+    transparent_black,
 };
 
 use crate::menu::{MenuButton, MenuEntry};
@@ -21,6 +22,72 @@ const NEW_GROUP: &str = "tab-bar-new";
 
 /// Width of the insertion bar drawn while a tab is dragged over the strip.
 const INDICATOR_WIDTH: f32 = 2.;
+
+actions!(
+    rugpui_tab_bar,
+    [
+        /// Select the tab left of the active one.
+        SelectPrevTab,
+        /// Select the tab right of the active one.
+        SelectNextTab,
+        /// Select the first tab.
+        SelectFirstTab,
+        /// Select the last tab.
+        SelectLastTab,
+        /// Close the active tab, as its close button would.
+        CloseActiveTab,
+        /// Move the active tab one place to the left.
+        MoveTabLeft,
+        /// Move the active tab one place to the right.
+        MoveTabRight,
+    ]
+);
+
+/// Key context that [`init`] binds the keys above to.
+const KEY_CONTEXT: &str = "TabBar";
+
+/// Registers the key bindings a focusable [`TabBar`] relies on.
+///
+/// Called by [`crate::init`]; scoped to the `TabBar` key context, which only a
+/// bar handed a [`TabBar::focus_handle`] carries, so the arrows keep meaning
+/// what they meant everywhere else in the app. The reorder chords follow the
+/// platform's command key — `cmd` on macOS, `ctrl` elsewhere — the way the
+/// text input's clipboard chords do. On macOS the key labelled Delete sends
+/// `backspace`, so it closes the tab there too.
+pub fn init(cx: &mut App) {
+    let modifier = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+
+    let mut bindings = vec![
+        KeyBinding::new("left", SelectPrevTab, Some(KEY_CONTEXT)),
+        KeyBinding::new("right", SelectNextTab, Some(KEY_CONTEXT)),
+        KeyBinding::new("home", SelectFirstTab, Some(KEY_CONTEXT)),
+        KeyBinding::new("end", SelectLastTab, Some(KEY_CONTEXT)),
+        KeyBinding::new("delete", CloseActiveTab, Some(KEY_CONTEXT)),
+        KeyBinding::new(
+            &format!("{modifier}-shift-pageup"),
+            MoveTabLeft,
+            Some(KEY_CONTEXT),
+        ),
+        KeyBinding::new(
+            &format!("{modifier}-shift-pagedown"),
+            MoveTabRight,
+            Some(KEY_CONTEXT),
+        ),
+    ];
+    if cfg!(target_os = "macos") {
+        bindings.push(KeyBinding::new(
+            "backspace",
+            CloseActiveTab,
+            Some(KEY_CONTEXT),
+        ));
+    }
+
+    cx.bind_keys(bindings);
+}
 
 /// Connection state rendered as a colored dot in front of a tab title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,6 +427,7 @@ pub struct TabBar {
     on_reorder: Option<ReorderHandler>,
     drop_indicator: Option<usize>,
     on_drag_over: Option<DragOverHandler>,
+    focus_handle: Option<FocusHandle>,
     scrollbar: Option<Scrollbar>,
     menu_icon: Option<SharedString>,
     new_icon: Option<SharedString>,
@@ -387,6 +455,7 @@ impl TabBar {
             on_reorder: None,
             drop_indicator: None,
             on_drag_over: None,
+            focus_handle: None,
             menu_icon: None,
             new_icon: None,
             menu_tooltip: None,
@@ -539,6 +608,10 @@ impl TabBar {
     /// or into either gap beside it, is reported like any other drop and left
     /// to the owner to ignore.
     ///
+    /// The keyboard reorder of a focusable bar ([`TabBar::focus_handle`])
+    /// reports through this handler too, with the bar's own
+    /// [`TabBar::drag_source`] tag as the source.
+    ///
     /// Up to 0.1.7 the index named the tab dropped on, whichever half took
     /// the drop. An owner that mapped it through its own record of the last
     /// hovered gap — the glue [`TabDropState`] replaces — reads the same index
@@ -589,6 +662,77 @@ impl TabBar {
         self.on_drag_over = Some(Rc::new(handler));
         self
     }
+
+    /// Makes the strip a keyboard stop, tracked by `handle`.
+    ///
+    /// The handle is the owner's, kept beside the scroll handle, since this
+    /// widget is rebuilt every frame and could not keep one of its own. While
+    /// it holds focus the active tab wears an accent ring and the keys [`init`]
+    /// binds work the strip: Left and Right (Home and End) ask
+    /// [`TabBar::on_select`] for the neighbouring (first, last) tab, Delete
+    /// asks [`TabBar::on_close`] to close the active one when it is closable,
+    /// and Ctrl+Shift+PageUp / PageDown (Cmd on macOS) ask
+    /// [`TabBar::on_reorder`] to move it one place, as a drop in the gap past
+    /// its neighbour would — which needs a [`TabBar::drag_source`] tag, the
+    /// source a reorder reports. At either end of the strip a key does nothing.
+    ///
+    /// The bar does not take focus when a tab is clicked: a click on a tab
+    /// usually means "show me this", and the owner moves focus into what it
+    /// shows. How the keyboard reaches the strip — a command, a tab stop — is
+    /// the owner's call too.
+    pub fn focus_handle(mut self, handle: &FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+}
+
+/// What a keyboard command on a strip of `len` tabs whose active one is
+/// `active` asks of the owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyRequest {
+    /// Select the tab at this index.
+    Select(usize),
+    /// Close the tab at this index.
+    Close(usize),
+    /// Move the tab at `from` into the insertion gap `to`.
+    Move { from: usize, to: usize },
+}
+
+/// The keyboard commands, as plain arithmetic the tests can reach without a
+/// window: `None` wherever the command has nothing to do.
+fn key_request(command: KeyCommand, active: usize, len: usize) -> Option<KeyRequest> {
+    if active >= len {
+        return None;
+    }
+    match command {
+        KeyCommand::Prev => active.checked_sub(1).map(KeyRequest::Select),
+        KeyCommand::Next => (active + 1 < len).then_some(KeyRequest::Select(active + 1)),
+        KeyCommand::First => (active != 0).then_some(KeyRequest::Select(0)),
+        KeyCommand::Last => (active + 1 != len).then_some(KeyRequest::Select(len - 1)),
+        KeyCommand::Close => Some(KeyRequest::Close(active)),
+        // One place left is the gap before the left neighbour; one place
+        // right is the gap past the right neighbour, since the gap straight
+        // after the tab is where it already is.
+        KeyCommand::MoveLeft => active
+            .checked_sub(1)
+            .map(|to| KeyRequest::Move { from: active, to }),
+        KeyCommand::MoveRight => (active + 1 < len).then_some(KeyRequest::Move {
+            from: active,
+            to: active + 2,
+        }),
+    }
+}
+
+/// The actions above, folded into one value for [`key_request`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyCommand {
+    Prev,
+    Next,
+    First,
+    Last,
+    Close,
+    MoveLeft,
+    MoveRight,
 }
 
 impl RenderOnce for TabBar {
@@ -657,6 +801,50 @@ impl RenderOnce for TabBar {
                 .open(self.menu_open)
                 .entries(entries)
                 .on_open_change(move |open, window, cx| on_open_change(open, window, cx))
+        });
+
+        // The keyboard's half of the bar, answered from what this frame was
+        // built with: the selection the keys move from is the one the owner
+        // passed in, so a key the owner has not caught up with yet simply asks
+        // again from the same place.
+        let focused = self
+            .focus_handle
+            .as_ref()
+            .is_some_and(|handle| handle.is_focused(window));
+        let keys = self.focus_handle.map(|handle| {
+            let closable = self.tabs.get(active).is_some_and(|tab| tab.closable);
+            let on_select = on_select.clone();
+            let on_close = on_close.clone().filter(|_| closable);
+            let on_reorder = on_reorder.clone();
+            let answer = move |command, window: &mut Window, cx: &mut App| match key_request(
+                command, active, tab_count,
+            ) {
+                Some(KeyRequest::Select(index)) => {
+                    if let Some(handler) = &on_select {
+                        handler(index, window, cx);
+                    }
+                }
+                Some(KeyRequest::Close(index)) => {
+                    if let Some(handler) = &on_close {
+                        handler(index, window, cx);
+                    }
+                }
+                Some(KeyRequest::Move { from, to }) => {
+                    if let (Some(handler), Some(source)) = (&on_reorder, drag_source) {
+                        handler(
+                            DraggedTab {
+                                source,
+                                index: from,
+                            },
+                            to,
+                            window,
+                            cx,
+                        );
+                    }
+                }
+                None => {}
+            };
+            (handle, Rc::new(answer))
         });
 
         let tab_theme = theme.clone();
@@ -890,6 +1078,20 @@ impl RenderOnce for TabBar {
                                 .child("\u{00d7}"),
                         )
                     })
+                    // A ring rather than a fill or a border: the active tab
+                    // already wears both, and a border would take room and
+                    // nudge the title. Inset, so the strip's clip keeps all
+                    // four sides.
+                    .when(focused && is_active, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .border_1()
+                                .border_color(theme.accent)
+                                .rounded_sm(),
+                        )
+                    })
                     // Last, so the bar paints over the tab it sits on.
                     .when(indicator_left, |this| {
                         this.child(insertion_bar(indicator_color).left(px(if index == 0 {
@@ -914,6 +1116,32 @@ impl RenderOnce for TabBar {
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
+            .when_some(keys, |this, (handle, answer)| {
+                let on = |command| {
+                    let answer = answer.clone();
+                    move |window: &mut Window, cx: &mut App| answer(command, window, cx)
+                };
+                let (prev, next, first, last) = (
+                    on(KeyCommand::Prev),
+                    on(KeyCommand::Next),
+                    on(KeyCommand::First),
+                    on(KeyCommand::Last),
+                );
+                let (close, left, right) = (
+                    on(KeyCommand::Close),
+                    on(KeyCommand::MoveLeft),
+                    on(KeyCommand::MoveRight),
+                );
+                this.track_focus(&handle)
+                    .key_context(KEY_CONTEXT)
+                    .on_action(move |_: &SelectPrevTab, window, cx| prev(window, cx))
+                    .on_action(move |_: &SelectNextTab, window, cx| next(window, cx))
+                    .on_action(move |_: &SelectFirstTab, window, cx| first(window, cx))
+                    .on_action(move |_: &SelectLastTab, window, cx| last(window, cx))
+                    .on_action(move |_: &CloseActiveTab, window, cx| close(window, cx))
+                    .on_action(move |_: &MoveTabLeft, window, cx| left(window, cx))
+                    .on_action(move |_: &MoveTabRight, window, cx| right(window, cx))
+            })
             .child(
                 // The wrapper is what the overlay bar is placed against, and
                 // it exists only for that: the scrolling row cannot hold its
@@ -2199,5 +2427,199 @@ mod tests {
         state.drag_over(1, Some(3), true);
         assert_eq!(state.resolve(1, 0), 3);
         assert!(!state.clear());
+    }
+
+    /// A strip the keyboard drives, whose owner applies every request at once
+    /// the way an app would: a select moves the selection, a close removes the
+    /// tab, and a reorder moves it with the selection riding along.
+    struct KeyHarness {
+        titles: Vec<&'static str>,
+        closable: Vec<bool>,
+        active: usize,
+        focus: FocusHandle,
+    }
+
+    impl Render for KeyHarness {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity().downgrade();
+            let tabs = self
+                .titles
+                .iter()
+                .zip(&self.closable)
+                .map(|(title, closable)| TabItem::new(*title, *title).closable(*closable))
+                .collect();
+            div().size_full().child(
+                TabBar::new("tabs")
+                    .tabs(tabs)
+                    .active(self.active)
+                    .focus_handle(&self.focus)
+                    .drag_source(STRIP)
+                    .on_select({
+                        let this = this.clone();
+                        move |index, _, cx| {
+                            let _ = this.update(cx, |harness, cx| {
+                                harness.active = index;
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .on_close({
+                        let this = this.clone();
+                        move |index, _, cx| {
+                            let _ = this.update(cx, |harness, cx| {
+                                harness.titles.remove(index);
+                                harness.closable.remove(index);
+                                harness.active = harness.active.min(harness.titles.len() - 1);
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .on_reorder(move |dragged, to, _, cx| {
+                        let _ = this.update(cx, |harness, cx| {
+                            assert_eq!(dragged.source, STRIP, "a reorder from a stranger");
+                            let from = dragged.index;
+                            let at = if from < to { to - 1 } else { to };
+                            let title = harness.titles.remove(from);
+                            let closable = harness.closable.remove(from);
+                            harness.titles.insert(at, title);
+                            harness.closable.insert(at, closable);
+                            harness.active = at;
+                            cx.notify();
+                        });
+                    }),
+            )
+        }
+    }
+
+    /// Opens a focused strip of `titles`, the first of them permanent.
+    fn open_keys(
+        cx: &mut TestAppContext,
+        titles: Vec<&'static str>,
+    ) -> (Entity<KeyHarness>, VisualTestContext) {
+        cx.update(init);
+        let window = cx.add_window(|_, cx| KeyHarness {
+            closable: (0..titles.len()).map(|index| index != 0).collect(),
+            titles,
+            active: 0,
+            focus: cx.focus_handle(),
+        });
+        let entity = window.root(cx).expect("the harness window");
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.update(|window, cx| entity.read(cx).focus.clone().focus(window, cx));
+        cx.run_until_parked();
+        (entity, cx)
+    }
+
+    /// The titles in display order, and the active one.
+    fn key_state(
+        harness: &Entity<KeyHarness>,
+        cx: &mut VisualTestContext,
+    ) -> (Vec<&'static str>, usize) {
+        harness.read_with(cx, |harness, _| (harness.titles.clone(), harness.active))
+    }
+
+    /// The platform's command key, as [`init`] binds the reorder chords.
+    fn command() -> &'static str {
+        if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        }
+    }
+
+    /// The arrows walk the selection and stop at the ends; Home and End jump
+    /// to them.
+    #[gpui::test]
+    fn the_arrows_walk_the_tabs(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_keys(cx, vec!["a", "b", "c"]);
+
+        cx.simulate_keystrokes("left");
+        assert_eq!(
+            key_state(&harness, &mut cx).1,
+            0,
+            "walked off the first tab"
+        );
+        cx.simulate_keystrokes("right right");
+        assert_eq!(key_state(&harness, &mut cx).1, 2);
+        cx.simulate_keystrokes("right");
+        assert_eq!(key_state(&harness, &mut cx).1, 2, "walked off the last tab");
+        cx.simulate_keystrokes("home");
+        assert_eq!(key_state(&harness, &mut cx).1, 0);
+        cx.simulate_keystrokes("end");
+        assert_eq!(key_state(&harness, &mut cx).1, 2);
+        cx.simulate_keystrokes("left");
+        assert_eq!(key_state(&harness, &mut cx).1, 1);
+    }
+
+    /// Delete closes the active tab, and leaves a permanent one alone.
+    #[gpui::test]
+    fn delete_closes_the_active_tab_unless_it_is_permanent(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_keys(cx, vec!["a", "b", "c"]);
+
+        cx.simulate_keystrokes("delete");
+        assert_eq!(
+            key_state(&harness, &mut cx).0,
+            vec!["a", "b", "c"],
+            "the permanent tab was closed"
+        );
+
+        cx.simulate_keystrokes("right delete");
+        assert_eq!(key_state(&harness, &mut cx), (vec!["a", "c"], 1));
+    }
+
+    /// The reorder chords move the active tab one place at a time, the
+    /// selection riding along, and stop at the ends.
+    #[gpui::test]
+    fn the_reorder_chords_move_the_active_tab(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_keys(cx, vec!["a", "b", "c"]);
+        let right = format!("{}-shift-pagedown", command());
+        let left = format!("{}-shift-pageup", command());
+
+        cx.simulate_keystrokes(&right);
+        assert_eq!(key_state(&harness, &mut cx), (vec!["b", "a", "c"], 1));
+        cx.simulate_keystrokes(&right);
+        assert_eq!(key_state(&harness, &mut cx), (vec!["b", "c", "a"], 2));
+        cx.simulate_keystrokes(&right);
+        assert_eq!(
+            key_state(&harness, &mut cx),
+            (vec!["b", "c", "a"], 2),
+            "the last tab moved past the end"
+        );
+        cx.simulate_keystrokes(&left);
+        assert_eq!(key_state(&harness, &mut cx), (vec!["b", "a", "c"], 1));
+    }
+
+    /// The keys belong to the focused strip alone: unfocused, the arrows do
+    /// nothing to it.
+    #[gpui::test]
+    fn an_unfocused_strip_ignores_the_keys(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_keys(cx, vec!["a", "b", "c"]);
+        cx.update(|window, _| window.blur());
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("right");
+        assert_eq!(key_state(&harness, &mut cx).1, 0);
+    }
+
+    /// The arithmetic behind the keys, at the edges included.
+    #[test]
+    fn key_requests_stop_at_the_ends() {
+        use KeyCommand::*;
+        assert_eq!(key_request(Prev, 0, 3), None);
+        assert_eq!(key_request(Next, 2, 3), None);
+        assert_eq!(key_request(First, 0, 3), None);
+        assert_eq!(key_request(Last, 2, 3), None);
+        assert_eq!(key_request(MoveLeft, 0, 3), None);
+        assert_eq!(key_request(MoveRight, 2, 3), None);
+        assert_eq!(key_request(Next, 0, 0), None, "an empty strip");
+        assert_eq!(
+            key_request(MoveRight, 0, 3),
+            Some(KeyRequest::Move { from: 0, to: 2 })
+        );
+        assert_eq!(
+            key_request(MoveLeft, 2, 3),
+            Some(KeyRequest::Move { from: 2, to: 1 })
+        );
+        assert_eq!(key_request(Close, 1, 3), Some(KeyRequest::Close(1)));
     }
 }
