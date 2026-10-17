@@ -100,6 +100,7 @@ inside a render pass, would take the window down over a missing line of text. A
 | `update.downloading` | Progress heading | |
 | `update.installing` | Progress heading | |
 | `update.failed` | Error heading | |
+| `update.notes` | Heading over the release notes in an announcement | |
 | `update.update` `update.ignore` `update.open_release` | The three buttons | |
 | `settings.editor.name` | Theme editor's name field | |
 | `settings.editor.dark` | Theme editor's dark/light checkbox | |
@@ -603,6 +604,13 @@ the user to close the window exactly then. Closing it would not stop the
 background task anyway, only hide it. The error text under the translated "the
 update failed" heading is *not* translated: it is a `tar` message or an OS
 error, produced on a thread that has no business reaching into locale state.
+
+An announcement also shows the release's own notes, read from its GitHub body
+by [`release_notes::parse`](../crates/rugpui-shell/src/release_notes.rs) into
+headings, paragraphs and list items with `**strong**` and `` `code` `` spans.
+GitHub's generated tail — "What's Changed", "New Contributors", "Full
+Changelog" — is cut off, and a body with nothing else in it shows no notes at
+all. Long notes scroll inside the dialog rather than pushing the buttons away.
 
 Structurally it is a twin of `AboutDialog` — same `open`/`close`/`is_open`
 shape, same `Escape` handling, same "renders nothing while closed" contract — so

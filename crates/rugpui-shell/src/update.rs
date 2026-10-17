@@ -193,6 +193,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use gpui::App;
 
 use crate::inject::{self};
+use crate::release_notes::{self, Block};
 
 /// Whether the start-up check is allowed to make a request at all.
 ///
@@ -449,6 +450,9 @@ pub struct Release {
     /// assets do not include the expected name — which is what decides whether
     /// "Update" installs or hands off to the browser.
     pub asset: Option<Asset>,
+    /// What the release says is new, read from its body. Empty when the body
+    /// says nothing beyond what GitHub generates, and then no notes are shown.
+    pub notes: Vec<Block>,
 }
 
 /// The answer to a check the user asked for.
@@ -1742,11 +1746,18 @@ fn parse_release(body: &str) -> Option<Release> {
         .map(|target| asset_name(tag, target))
         .and_then(|name| find_asset(&value, &name));
 
+    let notes = value
+        .get("body")
+        .and_then(serde_json::Value::as_str)
+        .map(release_notes::parse)
+        .unwrap_or_default();
+
     Some(Release {
         tag: tag.to_string(),
         version: strip_v(tag).to_string(),
         url: url.to_string(),
         asset,
+        notes,
     })
 }
 
@@ -2036,7 +2047,36 @@ mod tests {
         assert_eq!(release.version, "0.2.0");
         assert!(release.url.is_empty());
         assert!(release.asset.is_none());
+        assert!(release.notes.is_empty());
         assert_eq!(release_url(&release), fake().releases_page);
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn a_release_body_becomes_its_notes_without_the_generated_tail() {
+        fake();
+        let body = r#"{
+            "tag_name": "v0.2.0",
+            "body": "widget 0.2.0.\r\n\r\n- **Faster.** Much.\r\n\r\n## What's Changed\r\n* chore: release 0.2.0"
+        }"#;
+        let release = parse_release(body).expect("a well-formed release");
+        assert_eq!(
+            release.notes,
+            vec![
+                Block::Paragraph(release_notes::Inline {
+                    text: "widget 0.2.0.".to_owned(),
+                    ..Default::default()
+                }),
+                Block::Item(release_notes::Inline {
+                    text: "Faster. Much.".to_owned(),
+                    strong: vec![0..7],
+                    code: vec![],
+                }),
+            ]
+        );
+        // A body of the wrong type is no notes, not no release.
+        let release = parse_release(r#"{"tag_name":"v0.2.0","body":7}"#).expect("a tag");
+        assert!(release.notes.is_empty());
     }
 
     #[test]
@@ -2599,6 +2639,7 @@ mod tests {
             version: "9.9.9".to_string(),
             url: String::new(),
             asset: None,
+            notes: Vec::new(),
         };
         let mut seen = Vec::new();
         let error = install(&release, &mut |progress| seen.push(progress))
@@ -2626,6 +2667,7 @@ mod tests {
             version: "9.9.9".to_string(),
             url: String::new(),
             asset: Some(asset_with(None)),
+            notes: Vec::new(),
         };
         let mut seen = Vec::new();
         let error = install(&release, &mut |progress| seen.push(progress))

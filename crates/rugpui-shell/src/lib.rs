@@ -86,6 +86,7 @@ mod inject;
 pub mod locale;
 pub mod menu_rows;
 pub mod pane;
+pub mod release_notes;
 pub mod settings;
 pub mod theme_editor;
 pub mod update;
