@@ -101,6 +101,22 @@ vendor changes minimal, preserve upstream notices and the existing
 revision update must account for all carried patches and platform siblings.
 Check the relevant platform; Linux tests do not validate Windows or macOS code.
 
+After any change under `vendor/` or to the patch list, run the vendor check. It
+diffs each patched crate against upstream Zed at the revision the root manifest
+pins, and fails on a changed hunk without a `RULOGMAN PATCH` marker on or next to
+it, or on a patched file the patch list in `Cargo.toml` does not name:
+
+```sh
+python3 scripts/vendor_check.py                       # fetches upstream (sparse, shallow)
+python3 scripts/vendor_check.py --upstream ../zed     # or uses a checkout at that revision
+```
+
+It needs Python 3.11 and Git, plus network access when it fetches. The flattened
+`Cargo.toml` of each vendored crate is not compared, and neither is
+`vendor/unicode-width`. A follow-on edit away from its patch's main hunk, such as
+an import, needs a short marker of its own. The check is not part of CI yet; a
+job could run it as a single step after checkout.
+
 `vendor/unicode-width` is not patched into or built by this workspace. Its
 consumer is rulogman, so changes there need validation through rulogman too.
 

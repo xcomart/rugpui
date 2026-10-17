@@ -2491,6 +2491,7 @@ impl Interactivity {
                                                 window,
                                                 cx,
                                             );
+                                            // RULOGMAN PATCH: upstream painted the scroll listener here; see above.
                                         }
 
                                         self.paint_keyboard_listeners(window, cx);

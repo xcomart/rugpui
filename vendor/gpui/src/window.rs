@@ -2097,6 +2097,7 @@ impl Window {
             return;
         }
 
+        // RULOGMAN PATCH: traversal honours modal focus traps.
         if let Some(handle) = self.next_tab_stop(false) {
             self.focus(&handle, cx)
         }
@@ -2108,6 +2109,7 @@ impl Window {
             return;
         }
 
+        // RULOGMAN PATCH: traversal honours modal focus traps.
         if let Some(handle) = self.next_tab_stop(true) {
             self.focus(&handle, cx)
         }
@@ -3385,6 +3387,7 @@ impl Window {
                 } else {
                     self.reuse_prepaint(prepaint_range);
                 }
+                // RULOGMAN PATCH: a deferred draw's clip regions end with it.
                 self.next_frame.scene.clip_regions = previous_clip;
                 let prepaint_end = self.prepaint_index();
                 self.next_frame.deferred_draws[deferred_draw_ix].prepaint_range =
@@ -3434,6 +3437,7 @@ impl Window {
             } else {
                 self.reuse_paint(deferred_draw.paint_range.clone());
             }
+            // RULOGMAN PATCH: a deferred draw's clip regions end with it.
             self.next_frame.scene.clip_regions = previous_clip;
             let paint_end = self.paint_index();
             deferred_draw.paint_range = paint_start..paint_end;
@@ -3501,6 +3505,7 @@ impl Window {
                     element_id_stack: deferred_draw.element_id_stack.clone(),
                     text_style_stack: deferred_draw.text_style_stack.clone(),
                     content_mask: deferred_draw.content_mask,
+                    // RULOGMAN PATCH: a reused deferred draw keeps its clip regions.
                     clip_regions: deferred_draw.clip_regions.clone(),
                     rem_size: deferred_draw.rem_size,
                     priority: deferred_draw.priority,
@@ -4033,6 +4038,7 @@ impl Window {
             element_id_stack: self.element_id_stack.clone(),
             text_style_stack: self.text_style_stack.clone(),
             content_mask,
+            // RULOGMAN PATCH: a deferred draw inherits the clip regions.
             clip_regions: self.next_frame.scene.clip_regions.clone(),
             rem_size: self.rem_size(),
             priority,

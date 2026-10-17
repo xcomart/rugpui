@@ -51,6 +51,7 @@ use crate::{
     Menu, MenuItem, OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay,
     PlatformKeyboardLayout, PlatformKeyboardMapper, Point, Priority, PromptBuilder, PromptButton,
     PromptHandle, PromptLevel, Render, RenderImage, RenderablePromptHandle, Reservation,
+    // RULOGMAN PATCH: `ServiceRequest`, for `on_service_request`.
     ScreenCaptureSource, ServiceRequest, SharedString, SubscriberSet, Subscription, SvgRenderer,
     SystemNotification, SystemNotificationResponse, Task, TextRenderingMode, TextSystem,
     ThermalState, Window, WindowAppearance, WindowButtonLayout, WindowHandle, WindowId,

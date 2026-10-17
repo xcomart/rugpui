@@ -274,6 +274,7 @@ impl WindowsWindowInner {
             drop_target_helper: context.drop_target_helper.clone(),
             state,
             handle: context.handle,
+            // RULOGMAN PATCH: a `Cell`, for `set_titlebar_transparent`.
             hide_title_bar: Cell::new(context.hide_title_bar),
             is_movable: context.is_movable,
             is_resizable: context.is_resizable,

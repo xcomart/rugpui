@@ -13,6 +13,7 @@ use std::{
     iter::Peekable,
     ops::{Add, Range, Sub},
     slice,
+    // RULOGMAN PATCH: the content clip regions are shared by `Arc`.
     sync::Arc,
 };
 
@@ -61,6 +62,7 @@ impl Scene {
         self.paint_operations.clear();
         self.primitive_bounds.clear();
         self.layer_stack.clear();
+        // RULOGMAN PATCH: content clip regions are per frame.
         self.clip_regions = None;
         self.paths.clear();
         self.shadows.clear();

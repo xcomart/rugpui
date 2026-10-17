@@ -762,6 +762,7 @@ impl WindowsWindowInner {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> Option<isize> {
+        // RULOGMAN PATCH: `hide_title_bar` is a `Cell`; see `window.rs`.
         if !self.hide_title_bar.get() || self.state.is_fullscreen() || wparam.0 == 0 {
             return None;
         }
@@ -846,6 +847,7 @@ impl WindowsWindowInner {
     }
 
     fn handle_create_msg(&self, handle: HWND) -> Option<isize> {
+        // RULOGMAN PATCH: `hide_title_bar` is a `Cell`; see `window.rs`.
         if self.hide_title_bar.get() {
             notify_frame_changed(handle);
             Some(0)
@@ -966,6 +968,7 @@ impl WindowsWindowInner {
             None
         };
 
+        // RULOGMAN PATCH: `hide_title_bar` is a `Cell`; see `window.rs`.
         if !self.hide_title_bar.get() {
             // If the OS draws the title bar, we don't need to handle hit test messages.
             return drag_area;

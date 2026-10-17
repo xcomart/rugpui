@@ -9,6 +9,7 @@ use cocoa::{
     appkit::{
         NSAppearanceNameVibrantDark, NSAppearanceNameVibrantLight, NSApplication,
         NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular, NSControl as _,
+        // RULOGMAN PATCH: the pasteboard types a service request is read with.
         NSEventModifierFlags, NSFilenamesPboardType, NSMenu, NSMenuItem, NSModalResponse,
         NSOpenPanel, NSPasteboardURLReadingFileURLsOnlyKey, NSSavePanel, NSVisualEffectState,
         NSVisualEffectView, NSWindow,
@@ -33,6 +34,7 @@ use gpui::{
     Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, ForegroundExecutor,
     KeyContext, Keymap, Menu, MenuItem, OsMenu, OwnedMenu, PathPromptOptions, Platform,
     PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
+    // RULOGMAN PATCH: `ServiceRequest`, for `on_service_request`.
     PlatformWindow, Result, ServiceRequest, SystemMenuType, Task, ThermalState, WindowAppearance,
     WindowKind, WindowParams, popup::PopupNotSupportedError,
 };
@@ -559,6 +561,7 @@ impl Platform for MacPlatform {
     }
 
     fn restart(&self, binary_path: Option<PathBuf>, arguments: Vec<std::ffi::OsString>) {
+        // RULOGMAN PATCH: the inline relaunch script is gone; see below.
         let app_path = binary_path
             .or_else(|| {
                 self.app_path()
@@ -1577,6 +1580,7 @@ unsafe fn url_strings(urls: id) -> Vec<String> {
                     }
                 }
             })
+            // RULOGMAN PATCH: returned to the caller rather than handed on.
             .collect()
     }
 }
