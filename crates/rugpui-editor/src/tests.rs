@@ -1209,7 +1209,14 @@ fn one_keystroke_in_a_hundred_thousand_lines_relexes_a_constant_number(cx: &mut 
     );
 }
 
+/// A wall-clock benchmark, and so not part of the ordinary run: a loaded CI
+/// machine can stall any 500 keystrokes past the bound without anything being
+/// wrong. The deterministic half of the same promise — that one keystroke
+/// re-lexes a constant number of lines however long the buffer — is held by
+/// [`one_keystroke_in_a_hundred_thousand_lines_relexes_a_constant_number`]
+/// above; run this one with `--ignored` to time the rest of the edit path.
 #[gpui::test]
+#[ignore = "wall-clock benchmark; run with --ignored"]
 fn typing_in_a_hundred_thousand_lines_stays_quick(cx: &mut TestAppContext) {
     let (editor, mut cx) = open(&long_script(100_000), cx);
     editor.update(&mut cx, |editor, cx| {
