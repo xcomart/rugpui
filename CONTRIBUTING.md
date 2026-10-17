@@ -164,6 +164,13 @@ patch. Submit intended manifest and lockfile updates together.
 Follow the surrounding Rust style and run `cargo fmt --all`. Keep a contribution
 focused on one behavior or API change, with its tests and documentation.
 
+Add notable changes to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md)
+in the same change, especially public API changes, behavior that a consumer
+observes, and vendored patch changes. Name the crate and say what a consumer
+must update when it moves its pinned revision. A release moves those entries
+under the new version heading. The crates are used only by Git revision and
+are not published to crates.io.
+
 `dev` is the integration branch. Fork if needed, branch from the latest upstream
 `dev`, and open a pull request targeting `dev`. Maintainers working directly in
 this workspace validate and commit on `dev`, then push to `origin/dev`.
