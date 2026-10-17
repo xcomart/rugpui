@@ -512,6 +512,75 @@ fn a_caret_inside_a_preview_is_a_caret_and_not_a_selection(cx: &mut TestAppConte
     );
 }
 
+/// Ends a composition the way a click does on macOS, X11 and Wayland.
+fn unmark(editor: &Handles, cx: &mut VisualTestContext) {
+    editor.with_window(cx, |editor, window, cx| editor.unmark_text(window, cx));
+}
+
+#[gpui::test]
+fn unmarking_keeps_the_preview_and_records_it(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    cx.simulate_input("abc");
+    editor.update(&mut cx, |editor, cx| editor.move_to(0, cx));
+
+    compose(&editor, &mut cx, "ㅎ");
+    compose(&editor, &mut cx, "한");
+    unmark(&editor, &mut cx);
+    assert_eq!(editor.text(&mut cx), "한abc", "the preview stays");
+    assert_eq!(marked(&editor, &mut cx), None);
+
+    // Had the syllable gone unrecorded, undoing the typing would take the
+    // first three bytes -- the syllable -- instead of "abc".
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "abc");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "");
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "abc");
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "한abc");
+}
+
+#[gpui::test]
+fn an_edit_in_the_middle_of_a_composition_ends_it_first(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    cx.simulate_input("ab");
+    compose(&editor, &mut cx, "ㅎ");
+    // A command rather than an IME call, while the preview is up.
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("c");
+    assert_eq!(editor.text(&mut cx), "abㅎ\nc");
+
+    // A composition left running would have recorded the "c" as the commit of
+    // the syllable, at the syllable's offset, and undoing it would cut a
+    // character in half.
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "abㅎ\n");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "abㅎ");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "ab");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "");
+    for _ in 0..4 {
+        cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    }
+    assert_eq!(editor.text(&mut cx), "abㅎ\nc");
+}
+
+#[gpui::test]
+fn an_empty_preview_over_a_selection_can_be_undone(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select xx", cx);
+    editor.update(&mut cx, |editor, cx| editor.select_range(7..9, cx));
+
+    compose(&editor, &mut cx, "ㅎ");
+    compose(&editor, &mut cx, "");
+    assert_eq!(editor.text(&mut cx), "select ");
+
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select xx");
+}
+
 #[gpui::test]
 fn the_selection_is_reported_in_utf16(cx: &mut TestAppContext) {
     let (editor, mut cx) = open("한글 sql", cx);
@@ -845,6 +914,52 @@ fn replace_all_rewrites_every_match_in_one_undo_step(cx: &mut TestAppContext) {
     assert_eq!(editor.text(&mut cx), "z bb z bb z");
     cx.simulate_keystrokes("cmd-z ctrl-z");
     assert_eq!(editor.text(&mut cx), "aa bb aa bb aa");
+}
+
+#[gpui::test]
+fn replace_all_after_a_deletion_replaces_only_what_is_left(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("aa bb aa bb aa", cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_find_query("aa", cx);
+        editor.set_find_replacement("z", cx);
+    });
+    assert_eq!(editor.read(&mut cx, |editor| editor.matches().len()), 3);
+
+    // The last two matches now lie past the end of the buffer.
+    editor.update(&mut cx, |editor, cx| editor.select_range(6..14, cx));
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(editor.text(&mut cx), "aa bb ");
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.matches().to_vec()),
+        vec![0..2]
+    );
+
+    cx.dispatch_action(crate::editor::ReplaceAll);
+    assert_eq!(editor.text(&mut cx), "z bb ");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "aa bb ");
+}
+
+#[gpui::test]
+fn replace_next_after_an_edit_replaces_the_match_that_moved(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("aa bb aa", cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.move_to(0, cx);
+        editor.set_find_query("aa", cx);
+        editor.set_find_replacement("z", cx);
+    });
+
+    // Typing in front of the first match moves both matches along by three.
+    cx.simulate_input("한");
+    assert_eq!(editor.text(&mut cx), "한aa bb aa");
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.matches().to_vec()),
+        vec![3..5, 9..11]
+    );
+
+    cx.dispatch_action(crate::editor::ReplaceNext);
+    assert_eq!(editor.text(&mut cx), "한z bb aa");
+    assert_eq!(editor.read(&mut cx, EditorView::selection), 8..10);
 }
 
 // --- virtualisation and cost -------------------------------------------------
