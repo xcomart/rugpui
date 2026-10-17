@@ -259,6 +259,22 @@ impl PaneId {
     /// What a caller-supplied drag tag round-trips through: the strip hands
     /// the pane's own integer to the tab bar as an opaque tag, and the drop
     /// path turns it back into the pane it names.
+    ///
+    /// It has to stay, and it has to stay this loose. The tab bar lives in
+    /// `rugpui`, which knows nothing about panes, so [`rugpui::DraggedTab`]
+    /// and [`rugpui::TabDropState`] carry the strip as a bare `u64` — and the
+    /// applications both build `DraggedTab` literals and share that field with
+    /// tags of their own (a session or connection strip), so it cannot become
+    /// a `PaneId` without breaking every one of them.
+    ///
+    /// The constraint is therefore on the caller: pass only an integer that
+    /// came from [`Self::as_u64`], and check what came back against the tree
+    /// it is meant for — [`PaneTree::contains`] — before trusting it, as a
+    /// foreign strip's tag is just as much a `u64`. Nothing is unsafe about a
+    /// number that names no pane: every [`PaneTree`] method answers it as a
+    /// pane that is gone, the same as a stale id. But a number made up rather
+    /// than round-tripped can name some *other* live pane, since ids are a
+    /// process-wide counter, so this is not a way to mint one.
     pub fn from_u64(id: u64) -> Self {
         Self(id)
     }
