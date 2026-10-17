@@ -5,12 +5,22 @@
 # plus that one git fetch. Nothing here talks to a server, boots a JVM or opens
 # a window: the tests run on gpui's headless test platform, which is why one
 # job per operating system is the whole matrix.
+#
+# `dev` is built as well as `main`: the applications pin a rugpui revision
+# from `dev` long before it reaches `main`, so that is where a revision has to
+# have gone through CI.
+#
+# Third-party actions are pinned to a full commit SHA, with the release that
+# SHA belongs to in a trailing comment; bump both together.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,6 +29,12 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # The toolchain every blocking job builds with. Pinned rather than `stable`
+  # so a new Rust release cannot turn `clippy -D warnings` red on a commit
+  # nobody touched; the `latest stable` job below is where that shows up
+  # first, without blocking. Keep it equal to the applications' pin, and bump
+  # it deliberately, together with whatever new lints it brings.
+  RUST_TOOLCHAIN: "1.98.0"
 
 jobs:
   check:
@@ -30,7 +46,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Native libraries gpui links against on Linux. The crate graph binds
       # xkbcommon (+ its X11 half), wayland-client and fontconfig; fontconfig's
@@ -42,11 +58,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # This std-only helper also runs on Linux, where AppKit is unavailable.
       - name: macOS relaunch helper regression tests
@@ -75,3 +93,165 @@ jobs:
 
       - name: test (custom-syntax)
         run: cargo test -p rugpui-editor --features custom-syntax --locked
+
+  # What the next toolchain bump will bring, ahead of time: the same lints on
+  # whatever `stable` is today. Non-blocking, because a lint added upstream is
+  # news, not a regression in the commit under test.
+  latest-stable:
+    name: latest stable (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Licences, banned or duplicated crates and dependency sources (deny.toml)
+  # block; advisories do not, because a RUSTSEC entry published today says
+  # nothing about the commit under test and should not hold up unrelated work
+  # -- it shows up as a red, non-blocking job instead.
+  deny:
+    name: cargo deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [advisories, bans licenses sources]
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: cargo deny check ${{ matrix.checks }}
+        run: cargo deny --locked check ${{ matrix.checks }}
+
+  # rugpui exists to be built into the three applications, so a change here
+  # is only finished when they still compile against it. Each application's
+  # `dev` branch is checked out next to this commit and every crate it takes
+  # from `https://github.com/xcomart/rugpui` is pointed at the local tree:
+  #
+  #   - the widget crates, through `[patch."https://github.com/xcomart/rugpui"]`;
+  #   - the four vendored gpui crates and `unicode-width`, which the
+  #     applications already reach through `[patch.<zed>]` and
+  #     `[patch.crates-io]` entries of their own. Cargo does not patch a patch,
+  #     so a rugpui-source patch alone would leave those at the old revision;
+  #     instead the same two tables are given again here, and a patch from
+  #     `--config` wins over the manifest's entry for the same crate.
+  #
+  # `dev` rather than the default branch because that is where an application
+  # moves to a new rugpui revision; `main` only ever trails it. `cargo check`
+  # rather than clippy, and without `--locked`: the lockfile has to change to
+  # take the path crates, and an application's lints are its own business.
+  #
+  # Non-blocking for now. An intentional API change in rugpui is red here until
+  # each application adopts it, and the applications' `dev` can be behind --
+  # this job is the warning that tells you which one will need work, not a gate.
+  # Make it blocking once the applications track rugpui closely enough that red
+  # here really does mean "broken".
+  consumers:
+    name: consumer ${{ matrix.app }} (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [rulogman, rudbman, rudbgen]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: rugpui
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: xcomart/${{ matrix.app }}
+          ref: dev
+          path: app
+          persist-credentials: false
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig1-dev
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: app
+          key: consumer-${{ matrix.app }}
+
+      # rudbman's and rudbgen's JDBC crates refuse to build without the Java
+      # bridge JAR. `cargo check` only needs the file to exist, so an empty one
+      # stands in for a Gradle build; rulogman ignores both variables.
+      - name: Point the application at this rugpui
+        run: |
+          lib="$GITHUB_WORKSPACE/rugpui"
+          cat > "$RUNNER_TEMP/rugpui-under-test.toml" <<EOF
+          [patch."https://github.com/xcomart/rugpui"]
+          rugpui = { path = "$lib/crates/rugpui" }
+          rugpui-editor = { path = "$lib/crates/rugpui-editor" }
+          rugpui-grid = { path = "$lib/crates/rugpui-grid" }
+          rugpui-shell = { path = "$lib/crates/rugpui-shell" }
+
+          [patch."https://github.com/zed-industries/zed"]
+          gpui = { path = "$lib/vendor/gpui" }
+          gpui_linux = { path = "$lib/vendor/gpui_linux" }
+          gpui_macos = { path = "$lib/vendor/gpui_macos" }
+          gpui_windows = { path = "$lib/vendor/gpui_windows" }
+
+          [patch.crates-io]
+          unicode-width = { path = "$lib/vendor/unicode-width" }
+          EOF
+          cat "$RUNNER_TEMP/rugpui-under-test.toml"
+          touch "$RUNNER_TEMP/bridge-placeholder.jar"
+          echo "RUDBMAN_BRIDGE_JAR=$RUNNER_TEMP/bridge-placeholder.jar" >> "$GITHUB_ENV"
+          echo "RUDBGEN_BRIDGE_JAR=$RUNNER_TEMP/bridge-placeholder.jar" >> "$GITHUB_ENV"
+
+      # A crate the table above forgot would still resolve -- from the pinned
+      # git revision -- and the check below would pass against the old code.
+      # So first make sure nothing in the graph, on any target, still comes
+      # from rugpui's git source.
+      - name: Nothing left on the pinned rugpui revision
+        working-directory: app
+        run: |
+          left=$(cargo tree --workspace --target all -e all --prefix none \
+                   --config "$RUNNER_TEMP/rugpui-under-test.toml" \
+                 | grep -F 'github.com/xcomart/rugpui' | sort -u || true)
+          if [ -n "$left" ]; then
+            echo "::error::still resolved from the rugpui git source:"
+            echo "$left"
+            exit 1
+          fi
+
+      - name: cargo check
+        working-directory: app
+        run: cargo check --workspace --all-targets --config "$RUNNER_TEMP/rugpui-under-test.toml"
