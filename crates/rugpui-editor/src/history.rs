@@ -34,6 +34,23 @@
 //! displaced, and closes it with [`History::end_composition`], which records
 //! the one edit that is the difference. See [`crate::editor`] for the call
 //! sites.
+//!
+//! # The clean state
+//!
+//! Whether the document is *dirty* is a question about where the history
+//! stands, not about whether anything was ever typed: undoing back to the text
+//! that was saved has to read clean again, and redoing away from it dirty. So
+//! every transaction carries an id no other transaction in the same history
+//! has, the state the document is in is named by the id on top of the undo
+//! stack — or by the id of the state below the oldest one, when the stack is
+//! empty — and [`History::mark_clean`] remembers that name. The document is
+//! clean exactly when the history stands on it again.
+//!
+//! Two things keep the name honest. A transaction that is the clean state is
+//! closed for good, so typing on after a save starts a group of its own rather
+//! than changing what the saved name means; and a clean state that can no
+//! longer be reached — it was on the redo stack when a new edit dropped that
+//! stack — is forgotten, so nothing can stand on it again.
 
 use std::ops::Range;
 
@@ -108,10 +125,13 @@ pub struct Transaction {
     kind: EditKind,
     /// Whether another edit is still allowed to join this transaction.
     open: bool,
+    /// The name of the state this transaction leaves the document in, unique
+    /// within its history; see the module documentation's *The clean state*.
+    id: u64,
 }
 
 /// The undo and redo stacks.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct History {
     /// Transactions that can be undone, oldest first.
     undo: Vec<Transaction>,
@@ -119,6 +139,30 @@ pub struct History {
     redo: Vec<Transaction>,
     /// Where a running IME composition started, and what it displaced.
     composition: Option<(usize, String, SelectionState)>,
+    /// The name of the state below the oldest undoable transaction: what the
+    /// document is when the undo stack is empty.
+    base: u64,
+    /// The id the next transaction is given. Only ever grows, which is what
+    /// keeps a forgotten state from being named again.
+    next_id: u64,
+    /// The state [`Self::mark_clean`] last recorded, or `None` once it can no
+    /// longer be reached.
+    clean: Option<u64>,
+}
+
+impl Default for History {
+    /// An empty history standing on its clean state: a document that has not
+    /// been touched has nothing to save.
+    fn default() -> Self {
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            composition: None,
+            base: 0,
+            next_id: 1,
+            clean: Some(0),
+        }
+    }
 }
 
 /// How large a group is allowed to grow before it is closed anyway.
@@ -145,10 +189,62 @@ impl History {
     }
 
     /// Forgets everything, for [`crate::EditorView::set_text`].
+    ///
+    /// The state it leaves is a fresh one and the clean one: "a file was
+    /// opened" is also "what is on screen is what is on disk".
     pub fn clear(&mut self) {
         self.undo.clear();
         self.redo.clear();
         self.composition = None;
+        self.base = self.mint();
+        self.clean = Some(self.base);
+    }
+
+    /// Records the state the history stands on as the saved one.
+    ///
+    /// The open group is closed as well — and stays closed, since the saved
+    /// transaction is never extended — so that typing on after a save is a step of its own
+    /// that undo can take back to exactly what was saved. A composition still
+    /// running is not part of the state: its preview is in the buffer but not
+    /// in the history, so a save in the middle of one reads dirty again once
+    /// the composition is recorded.
+    pub fn mark_clean(&mut self) {
+        self.break_group();
+        self.clean = Some(self.state());
+    }
+
+    /// Whether the history stands on the state [`Self::mark_clean`] (or
+    /// [`Self::clear`]) last recorded.
+    ///
+    /// Undo and redo move this both ways: back onto the saved state is clean
+    /// again, and away from it in either direction is not. A running
+    /// composition is not counted; [`crate::EditorView::is_dirty`] adds it.
+    pub fn is_clean(&self) -> bool {
+        self.clean == Some(self.state())
+    }
+
+    /// The name of the state the document is in: the newest undoable
+    /// transaction's id, or the base when there is none.
+    fn state(&self) -> u64 {
+        self.undo.last().map_or(self.base, |last| last.id)
+    }
+
+    /// A transaction id no transaction in this history has had.
+    fn mint(&mut self) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    /// Drops the redo stack, for an edit that makes its future unreachable —
+    /// and with it the clean state, if that is where the saved text was.
+    fn drop_redo(&mut self) {
+        if let Some(clean) = self.clean
+            && self.redo.iter().any(|transaction| transaction.id == clean)
+        {
+            self.clean = None;
+        }
+        self.redo.clear();
     }
 
     /// Closes the open group, so the next edit starts a transaction of its own.
@@ -170,7 +266,7 @@ impl History {
     ) {
         // Any new edit invalidates the redo stack: the future it led to is no
         // longer reachable.
-        self.redo.clear();
+        self.drop_redo();
 
         if self.extend(&edit, kind, &after) {
             return;
@@ -179,12 +275,14 @@ impl History {
         // rather than swallowing the statement above.
         let crosses_a_line = edit.inserted.contains('\n') || edit.removed.contains('\n');
         let open = kind != EditKind::Other && !crosses_a_line;
+        let id = self.mint();
         self.undo.push(Transaction {
             edits: vec![edit],
             before,
             after,
             kind,
             open,
+            id,
         });
     }
 
@@ -203,13 +301,15 @@ impl History {
         if edits.is_empty() {
             return;
         }
-        self.redo.clear();
+        self.drop_redo();
+        let id = self.mint();
         self.undo.push(Transaction {
             edits,
             before,
             after,
             kind: EditKind::Other,
             open: false,
+            id,
         });
     }
 
@@ -238,7 +338,8 @@ impl History {
         if removed == inserted {
             return;
         }
-        self.redo.clear();
+        self.drop_redo();
+        let id = self.mint();
         self.undo.push(Transaction {
             edits: vec![Edit {
                 start,
@@ -249,6 +350,7 @@ impl History {
             after,
             kind: EditKind::Other,
             open: false,
+            id,
         });
     }
 
@@ -291,7 +393,9 @@ impl History {
         let Some(last) = self.undo.last_mut() else {
             return false;
         };
-        if !last.open || last.kind != kind {
+        // The saved state is never extended: its id is what "clean" means, and
+        // folding more typing into it would change the text behind the name.
+        if !last.open || last.kind != kind || self.clean == Some(last.id) {
             return false;
         }
         let Some(previous) = last.edits.last_mut() else {
@@ -505,5 +609,121 @@ mod tests {
 
         type_run(&mut history, 0, "z");
         assert!(!history.can_redo());
+    }
+
+    /// Undoes one step the way the editor does, answering whether there was one.
+    fn undo(history: &mut History) -> bool {
+        let Some(transaction) = history.pop_undo() else {
+            return false;
+        };
+        history.finish_undo(transaction);
+        true
+    }
+
+    /// Redoes one step the way the editor does, answering whether there was one.
+    fn redo(history: &mut History) -> bool {
+        let Some(transaction) = history.pop_redo() else {
+            return false;
+        };
+        history.finish_redo(transaction);
+        true
+    }
+
+    #[test]
+    fn a_new_history_is_clean_and_an_edit_is_not() {
+        let mut history = History::new();
+        assert!(history.is_clean());
+        type_run(&mut history, 0, "a");
+        assert!(!history.is_clean());
+        assert!(undo(&mut history));
+        assert!(history.is_clean(), "undoing everything is the opened text");
+    }
+
+    #[test]
+    fn undo_and_redo_move_onto_and_off_the_saved_state() {
+        let mut history = History::new();
+        type_run(&mut history, 0, "abc");
+        history.mark_clean();
+        assert!(history.is_clean());
+
+        type_run(&mut history, 3, "def");
+        assert!(!history.is_clean());
+        assert!(undo(&mut history));
+        assert!(history.is_clean(), "back on the save");
+        assert!(undo(&mut history));
+        assert!(!history.is_clean(), "before the save");
+        assert!(redo(&mut history));
+        assert!(history.is_clean());
+        assert!(redo(&mut history));
+        assert!(!history.is_clean(), "past the save");
+    }
+
+    #[test]
+    fn typing_on_after_a_save_does_not_join_the_saved_group() {
+        let mut history = History::new();
+        type_run(&mut history, 0, "abc");
+        history.mark_clean();
+        type_run(&mut history, 3, "def");
+        assert_eq!(history.undo.len(), 2);
+    }
+
+    #[test]
+    fn a_saved_group_reopened_by_undo_is_not_extended() {
+        // A paste never closes the group below it, so undoing the paste lands
+        // on a group that is still open; were it extended, its name would
+        // still say "clean" over text that is not what was saved.
+        let mut history = History::new();
+        type_run(&mut history, 0, "abc");
+        history.mark_clean();
+        history.push(
+            typed(3, "pasted"),
+            EditKind::Other,
+            SelectionState::at(3),
+            SelectionState::at(9),
+        );
+        assert!(undo(&mut history));
+        assert!(history.is_clean());
+        type_run(&mut history, 3, "d");
+        assert!(!history.is_clean());
+        assert_eq!(history.undo.len(), 2);
+    }
+
+    #[test]
+    fn a_saved_state_dropped_with_the_redo_stack_is_unreachable() {
+        let mut history = History::new();
+        type_run(&mut history, 0, "abc");
+        history.mark_clean();
+        assert!(undo(&mut history));
+        type_run(&mut history, 0, "x");
+        assert_eq!(history.clean, None);
+        assert!(undo(&mut history));
+        assert!(!history.is_clean());
+        assert!(redo(&mut history));
+        assert!(!history.is_clean());
+    }
+
+    #[test]
+    fn clearing_is_a_fresh_clean_state() {
+        let mut history = History::new();
+        type_run(&mut history, 0, "abc");
+        history.mark_clean();
+        type_run(&mut history, 3, "d");
+        history.clear();
+        assert!(history.is_clean());
+        type_run(&mut history, 0, "e");
+        assert!(!history.is_clean());
+        assert!(undo(&mut history));
+        assert!(history.is_clean());
+    }
+
+    #[test]
+    fn a_composition_records_a_step_off_the_saved_state() {
+        let mut history = History::new();
+        history.mark_clean();
+        history.begin_composition(0, String::new(), SelectionState::at(0));
+        history.end_composition("한".to_owned(), SelectionState::at(3));
+        assert!(!history.is_clean());
+        assert!(undo(&mut history));
+        assert!(history.is_clean());
     }
 }

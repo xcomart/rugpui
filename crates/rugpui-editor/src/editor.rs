@@ -385,7 +385,6 @@ pub struct EditorView {
     /// past a short line and back up returns to where it started.
     goal_column: Option<usize>,
     read_only: bool,
-    dirty: bool,
     is_selecting: bool,
     /// What a drag extends by, decided by the click count that started it.
     granularity: Granularity,
@@ -544,7 +543,6 @@ impl EditorView {
             marked_range: None,
             goal_column: None,
             read_only: false,
-            dirty: false,
             is_selecting: false,
             granularity: Granularity::Character,
             drag_anchor: 0..0,
@@ -801,7 +799,6 @@ impl EditorView {
         self.selection_reversed = false;
         self.marked_range = None;
         self.goal_column = None;
-        self.dirty = false;
         self.scroll = point(px(0.), px(0.));
         if self.find.open {
             self.refresh_matches(cx);
@@ -812,14 +809,25 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Whether the buffer has changed since it was set or last marked clean.
-    pub const fn is_dirty(&self) -> bool {
-        self.dirty
+    /// Whether the buffer differs from what it was when it was set or last
+    /// marked clean.
+    ///
+    /// A question about where the history stands rather than about whether
+    /// anything was typed since: undoing back to the saved text reads clean
+    /// again, and undoing or redoing away from it reads dirty. A running IME
+    /// composition counts as a change — its preview is in the buffer — until
+    /// it is recorded or cancelled. See [`History::mark_clean`].
+    pub fn is_dirty(&self) -> bool {
+        self.history.in_composition() || !self.history.is_clean()
     }
 
     /// Marks the buffer clean, for a host that has just saved it.
+    ///
+    /// The point it marks is a point in the history, so undo and redo can
+    /// come back to it; typing on after it starts a new undo step rather than
+    /// joining the one the save landed in.
     pub fn mark_clean(&mut self, cx: &mut Context<Self>) {
-        self.dirty = false;
+        self.history.mark_clean();
         cx.notify();
     }
 
@@ -1022,7 +1030,6 @@ impl EditorView {
         self.buffer.replace(range, text);
         self.syntax.edited(&self.buffer, first, removed, added);
         self.wrap.edited(first, removed, added);
-        self.dirty = true;
     }
 
     /// Replaces `range` with `text`, records it, and leaves the caret after it.
