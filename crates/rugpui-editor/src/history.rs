@@ -51,7 +51,22 @@
 //! than changing what the saved name means; and a clean state that can no
 //! longer be reached — it was on the redo stack when a new edit dropped that
 //! stack — is forgotten, so nothing can stand on it again.
+//!
+//! # Limits
+//!
+//! Every transaction keeps both texts, so a history left to grow holds every
+//! paste and every replace-all of a long session twice over. [`HistoryLimits`]
+//! caps it by the number of undo steps and by the bytes of text they hold, and
+//! a step that would break either cap drops the *oldest* — the newest is always
+//! kept, however large, since an edit that cannot be undone at all is worse
+//! than one long session's memory. Dropping the oldest moves the base: the
+//! document it leaves when everything is undone is the state after the dropped
+//! step, not the text that was opened. A clean state below the base is gone
+//! for good, which is right — undo can no longer bring that text back — while
+//! a save that landed on the dropped step itself is the new base, and so still
+//! reachable.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 
 /// Where the caret and selection were.
@@ -112,6 +127,14 @@ pub enum EditKind {
     Other,
 }
 
+impl Edit {
+    /// The bytes of text it holds, which is what [`HistoryLimits::max_bytes`]
+    /// counts.
+    const fn weight(&self) -> usize {
+        self.removed.len() + self.inserted.len()
+    }
+}
+
 /// One undo step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaction {
@@ -130,11 +153,60 @@ pub struct Transaction {
     id: u64,
 }
 
+impl Transaction {
+    /// The bytes of text its edits hold.
+    fn weight(&self) -> usize {
+        self.edits.iter().map(Edit::weight).sum()
+    }
+}
+
+/// How much a [`History`] keeps before it starts forgetting its oldest steps.
+///
+/// Both caps are checked on every recorded edit and the oldest transaction is
+/// dropped while either is exceeded — except the newest, which is always kept,
+/// so an edit larger than `max_bytes` on its own can still be undone once.
+/// `max_transactions: 0` turns undo off altogether. See the module
+/// documentation's *Limits* for what dropping does to the clean state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HistoryLimits {
+    /// The most undo steps kept.
+    pub max_transactions: usize,
+    /// The most bytes of text — removed and inserted, over the undo and redo
+    /// stacks together — kept.
+    pub max_bytes: usize,
+}
+
+impl HistoryLimits {
+    /// What a new history gets: ten thousand steps, or 64 MiB of text, which
+    /// is a long day of typing and a few dozen replace-alls over a large file.
+    pub const DEFAULT: Self = Self::new(10_000, 64 * 1024 * 1024);
+
+    /// No limit at all: every step is kept, which is how the history behaved
+    /// before it had limits.
+    pub const UNBOUNDED: Self = Self::new(usize::MAX, usize::MAX);
+
+    /// Limits of `max_transactions` steps and `max_bytes` bytes of text.
+    pub const fn new(max_transactions: usize, max_bytes: usize) -> Self {
+        Self {
+            max_transactions,
+            max_bytes,
+        }
+    }
+}
+
+impl Default for HistoryLimits {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 /// The undo and redo stacks.
 #[derive(Debug)]
 pub struct History {
-    /// Transactions that can be undone, oldest first.
-    undo: Vec<Transaction>,
+    /// Transactions that can be undone, oldest first. A deque because the
+    /// limits drop from the front while edits arrive at the back.
+    undo: VecDeque<Transaction>,
     /// Transactions that can be redone, oldest first.
     redo: Vec<Transaction>,
     /// Where a running IME composition started, and what it displaced.
@@ -148,6 +220,11 @@ pub struct History {
     /// The state [`Self::mark_clean`] last recorded, or `None` once it can no
     /// longer be reached.
     clean: Option<u64>,
+    /// The bytes of text held on both stacks, kept as a running total so that
+    /// checking [`HistoryLimits::max_bytes`] costs nothing per keystroke.
+    bytes: usize,
+    /// How much is kept; see [`HistoryLimits`].
+    limits: HistoryLimits,
 }
 
 impl Default for History {
@@ -155,12 +232,14 @@ impl Default for History {
     /// been touched has nothing to save.
     fn default() -> Self {
         Self {
-            undo: Vec::new(),
+            undo: VecDeque::new(),
             redo: Vec::new(),
             composition: None,
             base: 0,
             next_id: 1,
             clean: Some(0),
+            bytes: 0,
+            limits: HistoryLimits::DEFAULT,
         }
     }
 }
@@ -173,9 +252,29 @@ impl Default for History {
 const MAX_GROUP: usize = 128;
 
 impl History {
-    /// An empty history.
+    /// An empty history, with [`HistoryLimits::DEFAULT`].
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty history that keeps no more than `limits`.
+    pub fn with_limits(limits: HistoryLimits) -> Self {
+        Self {
+            limits,
+            ..Self::default()
+        }
+    }
+
+    /// How much this history keeps.
+    pub const fn limits(&self) -> HistoryLimits {
+        self.limits
+    }
+
+    /// Changes how much this history keeps, dropping the oldest steps at once
+    /// if it already holds more than the new limits allow.
+    pub fn set_limits(&mut self, limits: HistoryLimits) {
+        self.limits = limits;
+        self.trim();
     }
 
     /// Whether there is anything to undo.
@@ -196,6 +295,7 @@ impl History {
         self.undo.clear();
         self.redo.clear();
         self.composition = None;
+        self.bytes = 0;
         self.base = self.mint();
         self.clean = Some(self.base);
     }
@@ -226,7 +326,7 @@ impl History {
     /// The name of the state the document is in: the newest undoable
     /// transaction's id, or the base when there is none.
     fn state(&self) -> u64 {
-        self.undo.last().map_or(self.base, |last| last.id)
+        self.undo.back().map_or(self.base, |last| last.id)
     }
 
     /// A transaction id no transaction in this history has had.
@@ -244,14 +344,42 @@ impl History {
         {
             self.clean = None;
         }
-        self.redo.clear();
+        for transaction in self.redo.drain(..) {
+            self.bytes -= transaction.weight();
+        }
+    }
+
+    /// Puts a new transaction on top of the undo stack and holds the limits
+    /// to it.
+    fn record(&mut self, transaction: Transaction) {
+        self.bytes += transaction.weight();
+        self.undo.push_back(transaction);
+        self.trim();
+    }
+
+    /// Drops the oldest undo steps until the limits hold, moving the base up
+    /// behind them; see the module documentation's *Limits*.
+    fn trim(&mut self) {
+        while self.undo.len() > self.limits.max_transactions
+            || (self.bytes > self.limits.max_bytes && self.undo.len() > 1)
+        {
+            let Some(oldest) = self.undo.pop_front() else {
+                break;
+            };
+            self.bytes -= oldest.weight();
+            // The text below the dropped step is no longer reachable by undo.
+            if self.clean == Some(self.base) {
+                self.clean = None;
+            }
+            self.base = oldest.id;
+        }
     }
 
     /// Closes the open group, so the next edit starts a transaction of its own.
     ///
     /// Called on every caret move and on every command that is not typing.
     pub fn break_group(&mut self) {
-        if let Some(last) = self.undo.last_mut() {
+        if let Some(last) = self.undo.back_mut() {
             last.open = false;
         }
     }
@@ -276,7 +404,7 @@ impl History {
         let crosses_a_line = edit.inserted.contains('\n') || edit.removed.contains('\n');
         let open = kind != EditKind::Other && !crosses_a_line;
         let id = self.mint();
-        self.undo.push(Transaction {
+        self.record(Transaction {
             edits: vec![edit],
             before,
             after,
@@ -303,7 +431,7 @@ impl History {
         }
         self.drop_redo();
         let id = self.mint();
-        self.undo.push(Transaction {
+        self.record(Transaction {
             edits,
             before,
             after,
@@ -340,7 +468,7 @@ impl History {
         }
         self.drop_redo();
         let id = self.mint();
-        self.undo.push(Transaction {
+        self.record(Transaction {
             edits: vec![Edit {
                 start,
                 removed,
@@ -365,24 +493,33 @@ impl History {
     /// same transaction.
     pub fn pop_undo(&mut self) -> Option<Transaction> {
         self.composition = None;
-        self.undo.pop()
+        let transaction = self.undo.pop_back()?;
+        self.bytes -= transaction.weight();
+        Some(transaction)
     }
 
     /// Puts a reversed transaction onto the redo stack.
     pub fn finish_undo(&mut self, transaction: Transaction) {
+        self.bytes += transaction.weight();
         self.redo.push(transaction);
     }
 
     /// Takes the newest transaction off the redo stack, ready to be replayed.
     pub fn pop_redo(&mut self) -> Option<Transaction> {
         self.composition = None;
-        self.redo.pop()
+        let transaction = self.redo.pop()?;
+        self.bytes -= transaction.weight();
+        Some(transaction)
     }
 
     /// Puts a replayed transaction back onto the undo stack, closed.
+    ///
+    /// Not held to the limits again: moving a step between the stacks changes
+    /// neither total, and the stack it returns to held it a moment ago.
     pub fn finish_redo(&mut self, mut transaction: Transaction) {
         transaction.open = false;
-        self.undo.push(transaction);
+        self.bytes += transaction.weight();
+        self.undo.push_back(transaction);
     }
 
     /// Tries to fold `edit` into the open transaction. Answers whether it did.
@@ -390,7 +527,7 @@ impl History {
         if kind == EditKind::Other {
             return false;
         }
-        let Some(last) = self.undo.last_mut() else {
+        let Some(last) = self.undo.back_mut() else {
             return false;
         };
         // The saved state is never extended: its id is what "clean" means, and
@@ -446,6 +583,9 @@ impl History {
             EditKind::Other => unreachable!("returned above"),
         }
         last.after = after.clone();
+        // The merged edit holds exactly the new edit's text more than before.
+        self.bytes += edit.weight();
+        self.trim();
         true
     }
 }
@@ -725,5 +865,130 @@ mod tests {
         assert!(!history.is_clean());
         assert!(undo(&mut history));
         assert!(history.is_clean());
+    }
+
+    /// A paste of `text` at `at`: always a step of its own.
+    fn paste(history: &mut History, at: usize, text: &str) {
+        history.push(
+            typed(at, text),
+            EditKind::Other,
+            SelectionState::at(at),
+            SelectionState::at(at + text.len()),
+        );
+    }
+
+    /// The running byte total, recounted from scratch.
+    fn recount(history: &History) -> usize {
+        history
+            .undo
+            .iter()
+            .chain(&history.redo)
+            .map(Transaction::weight)
+            .sum()
+    }
+
+    #[test]
+    fn the_step_limit_drops_the_oldest() {
+        let mut history = History::with_limits(HistoryLimits::new(2, usize::MAX));
+        for (at, text) in [(0, "a"), (1, "b"), (2, "c")] {
+            paste(&mut history, at, text);
+        }
+        assert_eq!(history.undo.len(), 2);
+        let newest = history.pop_undo().expect("c");
+        assert_eq!(newest.edits, vec![typed(2, "c")]);
+        history.finish_undo(newest);
+        let oldest = history.pop_undo().expect("b");
+        assert_eq!(oldest.edits, vec![typed(1, "b")], "`a` was dropped");
+        history.finish_undo(oldest);
+        assert!(!history.can_undo());
+    }
+
+    #[test]
+    fn the_byte_limit_drops_the_oldest_but_never_the_newest() {
+        let mut history = History::with_limits(HistoryLimits::new(usize::MAX, 10));
+        paste(&mut history, 0, "abcd");
+        paste(&mut history, 4, "efgh");
+        assert_eq!(history.undo.len(), 2);
+        paste(&mut history, 8, "ijkl");
+        assert_eq!(history.undo.len(), 2, "twelve bytes is over ten");
+        assert_eq!(history.bytes, 8);
+
+        paste(&mut history, 12, &"x".repeat(64));
+        assert_eq!(history.undo.len(), 1, "an oversized step is still kept");
+        assert_eq!(history.bytes, 64);
+    }
+
+    #[test]
+    fn the_byte_total_follows_grouping_undo_and_redo() {
+        let mut history = History::with_limits(HistoryLimits::new(usize::MAX, 200));
+        type_run(&mut history, 0, &"x".repeat(MAX_GROUP * 3));
+        assert_eq!(history.bytes, recount(&history));
+        assert!(history.bytes <= 200);
+
+        assert!(undo(&mut history));
+        assert_eq!(history.bytes, recount(&history));
+        assert!(redo(&mut history));
+        assert_eq!(history.bytes, recount(&history));
+        assert!(undo(&mut history));
+        paste(&mut history, 0, "y");
+        assert_eq!(
+            history.bytes,
+            recount(&history),
+            "the redo stack was let go"
+        );
+    }
+
+    #[test]
+    fn a_lower_limit_applies_at_once() {
+        let mut history = History::new();
+        for at in 0..5 {
+            paste(&mut history, at, "z");
+        }
+        history.set_limits(HistoryLimits::new(3, usize::MAX));
+        assert_eq!(history.undo.len(), 3);
+        assert_eq!(history.limits(), HistoryLimits::new(3, usize::MAX));
+    }
+
+    #[test]
+    fn no_steps_at_all_turns_undo_off() {
+        let mut history = History::with_limits(HistoryLimits::new(0, usize::MAX));
+        paste(&mut history, 0, "a");
+        assert!(!history.can_undo());
+        assert_eq!(history.bytes, 0);
+    }
+
+    #[test]
+    fn a_save_below_the_dropped_steps_can_never_be_clean_again() {
+        let mut history = History::with_limits(HistoryLimits::new(2, usize::MAX));
+        // Clean at the opened text, then three steps: the first is dropped,
+        // and with it the only way back to what was opened.
+        for (at, text) in [(0, "a"), (1, "b"), (2, "c")] {
+            paste(&mut history, at, text);
+        }
+        assert_eq!(history.clean, None);
+        while undo(&mut history) {}
+        assert!(
+            !history.is_clean(),
+            "undo cannot bring the opened text back"
+        );
+    }
+
+    #[test]
+    fn a_save_on_the_dropped_step_itself_is_still_reachable() {
+        let mut history = History::with_limits(HistoryLimits::new(2, usize::MAX));
+        paste(&mut history, 0, "a");
+        history.mark_clean();
+        paste(&mut history, 1, "b");
+        paste(&mut history, 2, "c");
+        // `a` is gone from the stack, but the text it left is the new base,
+        // and that is what was saved.
+        assert_eq!(history.undo.len(), 2);
+        assert!(undo(&mut history));
+        assert!(!history.is_clean());
+        assert!(undo(&mut history));
+        assert!(!history.can_undo());
+        assert!(history.is_clean());
+        assert!(redo(&mut history));
+        assert!(!history.is_clean());
     }
 }

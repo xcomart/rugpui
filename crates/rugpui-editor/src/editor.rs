@@ -81,7 +81,7 @@ use crate::buffer::Buffer;
 use crate::element::EditorElement;
 use crate::find::FindState;
 use crate::highlight::{Highlighter, SyntaxCache};
-use crate::history::{Edit, EditKind, History, SelectionState};
+use crate::history::{Edit, EditKind, History, HistoryLimits, SelectionState};
 use crate::syntax::{self, StatementSpan};
 use crate::wrap::WrapMap;
 
@@ -819,6 +819,16 @@ impl EditorView {
     /// it is recorded or cancelled. See [`History::mark_clean`].
     pub fn is_dirty(&self) -> bool {
         self.history.in_composition() || !self.history.is_clean()
+    }
+
+    /// Caps how much undo history the editor keeps, by steps and by bytes of
+    /// text; the oldest steps are dropped first. [`HistoryLimits::DEFAULT`]
+    /// unless changed, and a lower limit applies at once to what is already
+    /// kept. Undoing everything after a drop lands on the oldest state still
+    /// kept, which a save older than that can no longer be — so the editor
+    /// reads dirty there.
+    pub fn set_history_limits(&mut self, limits: HistoryLimits) {
+        self.history.set_limits(limits);
     }
 
     /// Marks the buffer clean, for a host that has just saved it.

@@ -433,6 +433,26 @@ fn a_save_that_was_undone_and_replaced_is_never_clean_again(cx: &mut TestAppCont
     assert!(editor.read(&mut cx, EditorView::is_dirty));
 }
 
+#[gpui::test]
+fn the_history_limit_drops_the_oldest_steps(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    editor.update(&mut cx, |editor, _| {
+        editor.set_history_limits(crate::HistoryLimits::new(1, usize::MAX));
+    });
+    cx.simulate_input("sel");
+    cx.simulate_keystrokes("left right");
+    cx.simulate_input("ect");
+
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "sel");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "sel", "the first step was dropped");
+    assert!(
+        editor.read(&mut cx, EditorView::is_dirty),
+        "the opened text is out of undo's reach"
+    );
+}
+
 // --- the IME -----------------------------------------------------------------
 
 /// Runs one composition step, the way a platform IME does.
