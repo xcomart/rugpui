@@ -8,39 +8,42 @@ autoexamples = false
 autotests = false
 autobenches = false
 
-[lib]
-path = "src/gpui_macos.rs"
-
 [features]
 default = ["gpui/default"]
+bench-support = ["gpui/bench-support", "gpui_apple/bench-support"]
 test-support = ["gpui/test-support", "gpui_apple/test-support"]
 runtime_shaders = ["gpui_apple/runtime_shaders"]
-font-kit = ["dep:font-kit"]
-screen-capture = ["gpui/screen-capture"]
+font-kit = ["gpui_apple/font-kit"]
+screen-capture = [
+    "gpui/screen-capture",
+    "dep:objc2-core-graphics",
+    "dep:objc2-core-media",
+    "dep:objc2-screen-capture-kit",
+]
+
+[lib]
+path = "src/gpui_macos.rs"
+doctest = false
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", package = "gpui", default-features = false }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", package = "gpui", default-features = false }
 
 [target."cfg(target_os = \"macos\")".dependencies]
 accesskit = { version = "0.24.0", features = ["enumn"] }
 accesskit_macos = { version = "0.26.0" }
 anyhow = { version = "1.0.86" }
-async-task = { version = "4.7" }
-block = { version = "0.1" }
 block2 = { version = "0.6" }
 cocoa = { version = "=0.26.0" }
-collections = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", package = "collections" }
+collections = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", package = "collections" }
 core-foundation = { version = "0.10" }
 core-foundation-sys = { version = "0.8.6" }
 core-graphics = { version = "0.24" }
-core-text = { version = "21" }
 ctor = { version = "1.0.12" }
-dispatch2 = "0.3.1"
-font-kit = { git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", package = "zed-font-kit", version = "0.14.1-zed", optional = true }
+dispatch2 = { version = "0.3", default-features = false, features = ["block2", "objc2", "std"] }
 foreign-types = { version = "0.5" }
-futures = { version = "0.3.32" }
-gpui_apple = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", package = "gpui_apple" }
-gpui_util = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", package = "gpui_util" }
+futures = { version = "0.3.34" }
+gpui_apple = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", package = "gpui_apple" }
+gpui_util = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", package = "gpui_util" }
 image = { version = "0.25.1", default-features = false, features = [
     "bmp",
     "dds",
@@ -59,26 +62,36 @@ image = { version = "0.25.1", default-features = false, features = [
     "webp",
 ] }
 itertools = { version = "0.14.0" }
-libc = { version = "0.2" }
-log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
-mach2 = { version = "0.5" }
-media = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", package = "media" }
-metal = { version = "0.33" }
+log = { version = "0.4", default-features = false, features = ["std"] }
 objc = { version = "0.2" }
 objc2 = { version = "0.6" }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "NSAlert",
+    "NSApplication",
     "NSButton",
     "NSControl",
+    "NSDraggingItem",
     "NSGraphics",
+    "NSImage",
+    "NSOpenPanel",
+    "NSPanel",
+    "NSPasteboard",
     "NSResponder",
+    "NSSavePanel",
+    "NSScreen",
+    "NSTrackingArea",
     "NSView",
     "NSWindow",
+    "NSWorkspace",
+    "block2",
     "objc2-core-foundation",
 ] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["CGDirectDisplay"], optional = true }
+objc2-core-media = { version = "=0.3.2", default-features = false, features = ["CMSampleBuffer", "objc2-core-video"], optional = true }
+objc2-core-video = { version = "=0.3.2", default-features = false, features = ["CVBuffer", "CVHostTime", "CVImageBuffer"] }
 objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "NSArray",
     "NSAttributedString",
-    "NSBundle",
     "NSCoder",
     "NSData",
     "NSDate",
@@ -86,7 +99,6 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "NSEnumerator",
     "NSError",
     "NSGeometry",
-    "NSNotification",
     "NSNull",
     "NSObjCRuntime",
     "NSObject",
@@ -96,19 +108,38 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
     "NSSet",
     "NSString",
     "NSURL",
-    "NSUndoManager",
     "NSValue",
     "objc2-core-foundation",
     "std",
 ] }
-objc2-user-notifications = { version = "0.3" }
+objc2-screen-capture-kit = { version = "=0.3.2", default-features = false, features = [
+    "block2",
+    "dispatch2",
+    "objc2-core-graphics",
+    "objc2-core-media",
+    "SCShareableContent",
+    "SCStream",
+    "std",
+], optional = true }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std",
+    "block2",
+    "UNNotification",
+    "UNNotificationAction",
+    "UNNotificationCategory",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+] }
 parking_lot = { version = "0.12.1" }
-pathfinder_geometry = { version = "0.5" }
 raw-window-handle = { version = "0.6" }
+scheduler = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", package = "scheduler" }
 semver = { version = "1.0", features = ["serde"] }
 smallvec = { version = "1.6", features = ["union", "const_new"] }
-strum = { version = "0.27.2", features = ["derive"] }
-uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+strum = { version = "0.28", features = ["derive"] }
+uuid = { version = "1.1", features = ["serde"] }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555.svg)](#)
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](Cargo.toml)
-[![gpui](https://img.shields.io/badge/gpui-zed%40fd82517-8A2BE2.svg)](https://github.com/zed-industries/zed/tree/fd82517a115d97a07835b52f0512b22b38e38ccf)
+[![gpui](https://img.shields.io/badge/gpui-zed%4056934ec-8A2BE2.svg)](https://github.com/zed-industries/zed/tree/56934ec0560bce8929025497411de7f5322fb6ca)
 
 A gpui widget kit, and the two larger widgets built on it: a virtualised data
 grid and a code editor. Extracted from three desktop applications that had been
@@ -98,8 +98,8 @@ rugpui-shell = { git = "https://github.com/xcomart/rugpui", rev = "<sha>" }
 
 # The gpui these widgets are written against, named by revision because a git
 # dependency is identified by URL *and* revision.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", features = [
     "font-kit",
     "wayland",
     "x11",
@@ -298,14 +298,13 @@ settings form; the settings type and its globals; your own icons; and the
 ## The vendored gpui
 
 `vendor/` holds four crates of Zed's monorepo at revision
-`fd82517a115d97a07835b52f0512b22b38e38ccf`, each the upstream directory with its
+`56934ec0560bce8929025497411de7f5322fb6ca`, each the upstream directory with its
 manifest flattened and every change to the code marked `RULOGMAN PATCH` — so
 diffing a vendored crate against upstream at that revision shows the whole of
 what we carry. They are patched back over the git source by the root manifest's
 patch table, and they exist because gpui has no answer of its own for things
 like these: moving an open window between the platform's caption and the
-application's own (`set_titlebar_transparent`), the X11 backend running its
-close callbacks with the client `RefCell` borrowed, X11's `is_transparent`
+application's own (`set_titlebar_transparent`), X11's `is_transparent`
 ignoring client-side decorations, X11 having no counterpart to Wayland's
 `org_kde_kwin_blur`, and macOS 26 blurring nothing behind a window whose
 `NSVisualEffectView` Liquid Glass rebuilt — as well as content clip regions for

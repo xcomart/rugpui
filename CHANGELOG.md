@@ -54,6 +54,17 @@ revision past it.
   step, so a save older than the oldest kept step cannot become clean again.
 - The library crates are marked `publish = false`, because they are used only
   by Git revision.
+- gpui moves to Zed revision `56934ec0560bce8929025497411de7f5322fb6ca`
+  (2026-10-17) from `fd82517a115d97a07835b52f0512b22b38e38ccf`. A consumer
+  moves the `rev` of its `gpui` and `gpui_platform` entries to the new
+  revision together with its rugpui revision. Upstream API changes reach
+  application code too: `Window::blur` now takes `&mut App`, for one.
+- The vendored X11 `WM_DELETE_WINDOW` patch is gone: upstream now runs
+  `should_close` and `close` outside the client borrow itself (zed#63089).
+- `zlog`, `ztracing` and `ztracing_macro` are Apache-2.0 upstream now
+  (zed#63573), so the GPL-3.0 licence exceptions are removed from `deny.toml`.
+  wgpu comes from a pinned git revision of `gfx-rs/wgpu`, which a consumer
+  running `cargo deny` has to allow as a source.
 
 ### Fixed
 
