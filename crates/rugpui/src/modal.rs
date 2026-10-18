@@ -550,7 +550,7 @@ mod tests {
                 dismissed,
             }
         });
-        let mut cx = VisualTestContext::from_window(window.into(), &cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
         cx.simulate_resize(gpui::size(px(600.), px(400.)));
         cx.run_until_parked();
 
