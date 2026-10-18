@@ -57,6 +57,10 @@ revision past it.
 
 ### Fixed
 
+- `rugpui`: a `modal`'s backdrop occludes the window behind it. A press on the
+  backdrop still dismisses the dialog, but no longer also reaches what it was
+  drawn over, and the window behind no longer takes the wheel or hover while
+  the dialog is up.
 - The `RULOGMAN PATCH` markers and patch list in `Cargo.toml` now cover every
   vendored change, including `gpui_windows/src/events.rs` and
   `gpui_macos/src/gpui_macos.rs`. This changes comments only.
