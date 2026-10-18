@@ -4,8 +4,8 @@
 
 use gpui::{AnyView, App, Entity, Focusable, Window, div, prelude::*, px};
 use rugpui::{
-    Button, ButtonVariant, Checkbox, Collapsible, ProgressBar, RangeSlider, Segmented, Slider,
-    Spinner, Switch, TextInput, theme,
+    Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, Hsv, ProgressBar, RangeSlider,
+    Segmented, Slider, Spinner, Switch, TextInput, theme,
 };
 
 use super::{Motion, Shot, caption, column, panel, row};
@@ -116,6 +116,14 @@ pub const SHOTS: &[Shot] = &[
         per_theme: "",
         motion: Motion::Still,
         build: sliders,
+    },
+    Shot {
+        name: "color-picker/presets",
+        width: 280.,
+        height: 270.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: color_picker,
     },
     Shot {
         name: "range-slider/values",
@@ -374,6 +382,24 @@ fn sliders(_window: &mut Window, cx: &mut App) -> AnyView {
             .child(Slider::new("part").value(0.4))
             .child(caption("value(1.0)", cx))
             .child(Slider::new("full").value(1.))
+            .into_any_element()
+    })
+}
+
+/// A blue picked from the field, with a row of presets under the strip, the
+/// matching one ringed.
+fn color_picker(_window: &mut Window, cx: &mut App) -> AnyView {
+    panel(cx, |_window, _cx| {
+        let presets = [
+            0xdc2626, 0xea580c, 0xca8a04, 0x16a34a, 0x0d9488, 0x2563eb, 0x7c3aed, 0xdb2777,
+        ]
+        .map(|value| gpui::rgb(value).into());
+        column()
+            .child(
+                ColorPicker::new("picker")
+                    .value(Hsv::from_hex("#2563eb").unwrap_or_default())
+                    .presets(presets),
+            )
             .into_any_element()
     })
 }

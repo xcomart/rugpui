@@ -48,6 +48,7 @@ widget.
 | [segmented](./widgets/segmented.md) | `Segmented` | A horizontal one-of-many strip, used where a group of radio buttons would otherwise go. |
 | [slider](./widgets/slider.md) | `Slider` | A horizontal slider over a fraction from `0.0` to `1.0`. |
 | [range-slider](./widgets/range-slider.md) | `RangeSlider` | A horizontal slider over an interval, with a knob at each end. |
+| [color-picker](./widgets/color-picker.md) | `ColorPicker` | A saturation/value field over a hue strip, with optional preset swatches. |
 | [progress](./widgets/progress.md) | `ProgressBar` | A thin horizontal bar showing how far along a piece of work is. |
 | [spinner](./widgets/spinner.md) | `Spinner` | A rotating arc that says work is under way without saying how much is left. |
 | [text-input](./widgets/text-input.md) | `TextInput` | A focusable text field: one line by default, several rows on request. |

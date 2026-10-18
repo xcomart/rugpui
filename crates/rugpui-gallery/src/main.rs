@@ -26,10 +26,11 @@ use gpui::{
     prelude::*, px, size,
 };
 use rugpui::{
-    Button, ButtonVariant, Checkbox, Collapsible, DraggedThumb, EditorTheme, ListEvent, ListView,
-    MenuButton, MenuEntry, ProgressBar, RangeSlider, Scrollbar, ScrollbarAxis, Segmented, Select,
-    SelectOption, Slider, Spinner, Splitter, Switch, TabBar, TabItem, TabStatus, TextInput, Theme,
-    Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme, tooltip_label,
+    Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, DraggedThumb, EditorTheme, Hsv,
+    ListEvent, ListView, MenuButton, MenuEntry, ProgressBar, RangeSlider, Scrollbar, ScrollbarAxis,
+    Segmented, Select, SelectOption, Slider, Spinner, Splitter, Switch, TabBar, TabItem, TabStatus,
+    TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme,
+    tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
 use rugpui_grid::{GridEvent, GridView};
@@ -344,6 +345,8 @@ struct Gallery {
     amount: f32,
     /// The two ends of the range slider's interval.
     range: (f32, f32),
+    /// The colour picker's colour.
+    color: Hsv,
     /// The dropdown's choice, and whether its list is showing.
     choice: SharedString,
     select_open: bool,
@@ -485,6 +488,7 @@ impl Gallery {
             switch_on: true,
             amount: 0.4,
             range: (0.25, 0.75),
+            color: Hsv::from_hex("#2563eb").unwrap_or_default(),
             choice: "PostgreSQL".into(),
             select_open: false,
             menu_open: false,
@@ -678,6 +682,31 @@ impl Gallery {
             .child(ProgressBar::new("amount-progress").fraction(amount))
             .child(ProgressBar::new("loading").indeterminate());
 
+        // Under the presets, the colour as a host would spell it.
+        let color = self.color;
+        let picker = section("Color picker", &palette).child(
+            ColorPicker::new("accent")
+                .value(color)
+                .field_height(px(96.))
+                .presets(
+                    [
+                        0xdc2626, 0xea580c, 0xca8a04, 0x16a34a, 0x0d9488, 0x2563eb, 0x7c3aed,
+                        0xdb2777,
+                    ]
+                    .map(|value| gpui::rgb(value).into()),
+                )
+                .tab_index(0)
+                .on_change({
+                    let this = this.clone();
+                    move |color, _window, cx| {
+                        this.update(cx, |gallery, cx| {
+                            gallery.color = color;
+                            cx.notify();
+                        });
+                    }
+                }),
+        );
+
         let fields = section("Text fields", &palette)
             .child(self.filled.clone())
             .child(self.empty.clone())
@@ -745,6 +774,7 @@ impl Gallery {
             .child(slider)
             .child(fields)
             .child(menu)
+            .child(picker)
     }
 
     /// The rich tooltip: a thumbnail, a caption and four lines of highlighted

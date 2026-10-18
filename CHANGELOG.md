@@ -32,6 +32,11 @@ revision past it.
   shows the selected option's square on the trigger. `SelectOption` has a new
   public field, `swatch: Option<Hsla>`, and no longer derives `Eq`; code that
   builds a `SelectOption` literal has to supply the field.
+- `rugpui`: `ColorPicker`, a stateless colour picker — a saturation/value
+  field over a hue strip, with optional preset swatches, a tab stop and keys —
+  working in the new `Hsv` type, which converts to and from `Hsla`, `Rgba` and
+  `#rrggbb`. `DraggedColor` is its drag payload. The gallery shows one under
+  the controls column.
 - `scripts/vendor_check.py` diffs `vendor/` against upstream Zed at the pinned
   revision and fails on an unmarked hunk or a patched file missing from the
   patch list in `Cargo.toml`.
