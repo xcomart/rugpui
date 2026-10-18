@@ -1022,6 +1022,14 @@ mod tests {
         );
     }
 
+    /// The modifier the text field's select-all and copy chords use on this
+    /// platform: `cmd` on macOS, `ctrl` elsewhere.
+    const SECONDARY: &str = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+
     /// What the hex field says, read the way a user would: select it all and
     /// copy.
     fn hex_text(cx: &mut VisualTestContext) -> String {
@@ -1029,7 +1037,7 @@ mod tests {
             .debug_bounds(HEX_SELECTOR)
             .expect("the hex field is drawn");
         press(cx, f32::from(field.center().x), f32::from(field.center().y));
-        cx.simulate_keystrokes("ctrl-a ctrl-c");
+        cx.simulate_keystrokes(&format!("{SECONDARY}-a {SECONDARY}-c"));
         cx.read_from_clipboard()
             .and_then(|item| item.text())
             .unwrap_or_default()
@@ -1059,7 +1067,7 @@ mod tests {
             f32::from(field.center().x),
             f32::from(field.center().y),
         );
-        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_keystrokes(&format!("{SECONDARY}-a"));
         cx.simulate_input("#00ff");
         cx.run_until_parked();
         assert_eq!(value.get().to_hex(), moved, "half a colour moved the knobs");
@@ -1070,7 +1078,7 @@ mod tests {
         assert!((picked.h - 1. / 3.).abs() < 1e-3, "{picked:?}");
 
         // A grey typed in keeps the hue the knobs were under.
-        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_keystrokes(&format!("{SECONDARY}-a"));
         cx.simulate_input("#808080");
         cx.run_until_parked();
         let grey = value.get();
