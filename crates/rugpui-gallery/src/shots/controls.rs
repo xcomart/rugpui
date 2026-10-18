@@ -120,7 +120,7 @@ pub const SHOTS: &[Shot] = &[
     Shot {
         name: "color-picker/presets",
         width: 280.,
-        height: 270.,
+        height: 312.,
         per_theme: "",
         motion: Motion::Still,
         build: color_picker,

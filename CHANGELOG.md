@@ -33,7 +33,8 @@ revision past it.
   public field, `swatch: Option<Hsla>`, and no longer derives `Eq`; code that
   builds a `SelectOption` literal has to supply the field.
 - `rugpui`: `ColorPicker`, a stateless colour picker — a saturation/value
-  field over a hue strip, with optional preset swatches, a tab stop and keys —
+  field over a hue strip, a `#rrggbb` field kept in step with both, optional
+  preset swatches, a tab stop and keys —
   working in the new `Hsv` type, which converts to and from `Hsla`, `Rgba` and
   `#rrggbb`. `DraggedColor` is its drag payload. The gallery shows one under
   the controls column.

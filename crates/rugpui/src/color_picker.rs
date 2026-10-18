@@ -9,14 +9,19 @@
 //! things the pointer moves, so they are what the host keeps, and a grey keeps
 //! the hue it was picked under.
 //!
-//! Like the rest of the kit the picker is stateless: the owning view passes the
-//! current [`Hsv`] on every render and updates its own state from
-//! [`ColorPicker::on_change`]. What a colour is spelled as — `#rrggbb`, a
-//! theme slot, a name — is the host's business; [`Hsv::to_hex`] and
-//! [`Hsv::from_hex`] are there for the common case, and a host that wants a
-//! hex field beside the picker puts its own [`crate::TextInput`] there.
+//! Like the rest of the kit the picker is stateless as far as the host is
+//! concerned: the owning view passes the current [`Hsv`] on every render and
+//! updates its own state from [`ColorPicker::on_change`].
 //!
-//! Four ways to move it, all ending at the same callback:
+//! The one thing it keeps for itself is its `#rrggbb` field, a
+//! [`TextInput`] held in gpui's element state under the picker's id. The two
+//! sides are kept in step both ways: a move in the field or the strip writes
+//! the new colour into the field, and a complete `#rrggbb` typed into the field
+//! moves the knobs — under the hue the picker already had, when what was typed
+//! is a grey. Text that is not yet a colour is left alone while it is being
+//! typed and moves nothing.
+//!
+//! Five ways to move it, all ending at the same callback:
 //!
 //! * Pressing or dragging in the field, which sets saturation (across) and
 //!   value (down).
@@ -25,22 +30,24 @@
 //!   knob a hundredth at a time, or a tenth with `Shift`, and `PageUp` /
 //!   `PageDown` turn the hue by ten degrees.
 //! * Clicking a preset swatch, when the host gave some.
+//! * Typing a `#rrggbb` into the hex field.
 //!
 //! A drag finds its way home the way a [`crate::Slider`]'s does: the pressed
 //! area carries its own bounds, measured by a [`canvas`] during the frame it was
 //! built in, inside a [`DraggedColor`], so a pointer position alone answers
 //! "what colour is this now?" wherever the pointer has wandered.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gpui::{
-    App, Bounds, DragMoveEvent, ElementId, Hsla, MouseButton, MouseDownEvent, Pixels, Point, Rgba,
-    Window, canvas, div, linear_color_stop, linear_gradient, prelude::*, px, relative,
-    transparent_black,
+    App, Bounds, Context, DragMoveEvent, ElementId, Entity, Hsla, MouseButton, MouseDownEvent,
+    Pixels, Point, Rgba, Subscription, Window, canvas, div, linear_color_stop, linear_gradient,
+    prelude::*, px, relative, transparent_black,
 };
 
 use crate::menu::color_swatch;
+use crate::text_input::TextInput;
 use crate::theme::{parse_hex, theme};
 
 /// Height of the saturation/value field unless the host names one; see
@@ -61,6 +68,16 @@ const HUE_KNOB: f32 = 6.;
 
 /// Edge length of a preset swatch.
 const PRESET: f32 = 18.;
+
+/// Width of the hex field.
+const HEX_WIDTH: f32 = 110.;
+
+/// Edge length of the swatch beside the hex field.
+const PREVIEW: f32 = 24.;
+
+/// Key a test looks the hex field's bounds up by; compiled away outside a
+/// test build.
+const HEX_SELECTOR: &str = "rugpui-color-picker-hex";
 
 /// Padding inside the focus ring, which is drawn as a one-pixel border.
 const RING_PAD: f32 = 2.;
@@ -211,6 +228,79 @@ impl Hsv {
     }
 }
 
+/// What a typed `#rrggbb` asks of a picker showing `held`: the colour typed —
+/// under `held`'s hue when it is a grey — or `None` while the text is not a
+/// colour yet, or is the colour already shown.
+fn typed(text: &str, held: Hsv) -> Option<Hsv> {
+    let color = Hsv::from_hex(text)?;
+    (color.to_hex() != held.to_hex()).then(|| color.keeping_hue(held))
+}
+
+/// The picker's own `#rrggbb` field, kept in gpui's element state under the
+/// picker's id for as long as the picker is drawn.
+struct HexField {
+    /// The field itself.
+    input: Entity<TextInput>,
+    /// The colour the picker was last drawn with, which is what a typed grey
+    /// borrows its hue from.
+    held: Hsv,
+    /// The host's callback as of the last frame, for the field to report a
+    /// typed colour through. Replaced every frame, since the host builds a new
+    /// one with every render.
+    on_change: Rc<RefCell<Option<ChangeHandler>>>,
+    /// Answers the field's edits.
+    _edited: Subscription,
+}
+
+impl HexField {
+    fn new(tab_index: Option<isize>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| {
+            let input = TextInput::new(cx).placeholder("#rrggbb");
+            match tab_index {
+                Some(index) => input.tab_index(index),
+                None => input,
+            }
+        });
+        let edited = cx.observe_in(&input, window, |field, input, window, cx| {
+            let Some(next) = typed(input.read(cx).content(), field.held) else {
+                return;
+            };
+            // Held at once, so a second notification before the host redraws
+            // does not report the same colour twice.
+            field.held = next;
+            let handler = field.on_change.borrow().clone();
+            if let Some(handler) = handler {
+                handler(next, window, cx);
+            }
+        });
+        Self {
+            input,
+            held: Hsv::default(),
+            on_change: Rc::new(RefCell::new(None)),
+            _edited: edited,
+        }
+    }
+
+    /// Brings the field up to the colour the picker is drawn with this frame.
+    ///
+    /// The text is rewritten only when the colour moved and the text spells
+    /// some other colour, or when the field is empty — so the caret is not
+    /// thrown about while the user types, and `#ABCDEF` stays as typed rather
+    /// than being lowered under the cursor.
+    fn sync(&mut self, value: Hsv, on_change: Option<ChangeHandler>, cx: &mut Context<Self>) {
+        *self.on_change.borrow_mut() = on_change;
+        let moved = value.to_hex() != self.held.to_hex();
+        self.held = value;
+        let content = self.input.read(cx).content().to_owned();
+        let hex = value.to_hex();
+        let shows = Hsv::from_hex(&content).is_some_and(|shown| shown.to_hex() == hex);
+        if !shows && (moved || content.is_empty()) {
+            self.input
+                .update(cx, |input, cx| input.set_content(hex, cx));
+        }
+    }
+}
+
 /// Which part of the picker a drag took hold of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Part {
@@ -335,6 +425,7 @@ pub struct ColorPicker {
     value: Hsv,
     presets: Vec<Hsla>,
     field_height: Pixels,
+    hex_field: bool,
     tab_index: Option<isize>,
     on_change: Option<ChangeHandler>,
 }
@@ -347,6 +438,7 @@ impl ColorPicker {
             value: Hsv::default(),
             presets: Vec::new(),
             field_height: px(FIELD_HEIGHT),
+            hex_field: true,
             tab_index: None,
             on_change: None,
         }
@@ -373,8 +465,15 @@ impl ColorPicker {
         self
     }
 
+    /// Whether the `#rrggbb` field and its swatch are drawn under the strip, as
+    /// they are unless turned off.
+    pub fn hex_field(mut self, shown: bool) -> Self {
+        self.hex_field = shown;
+        self
+    }
+
     /// Makes the picker a tab stop at `index`, answering the keys the module
-    /// docs list while it holds focus.
+    /// docs list while it holds focus. The hex field takes the stop after it.
     pub fn tab_index(mut self, index: isize) -> Self {
         self.tab_index = Some(index);
         self
@@ -458,11 +557,35 @@ fn knob(size: f32) -> gpui::Div {
 }
 
 impl RenderOnce for ColorPicker {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let id = self.id;
         let value = self.value;
         let on_change = self.on_change;
+
+        let hex = self.hex_field.then(|| {
+            let tab_index = self.tab_index.map(|index| index + 1);
+            let field = window.use_keyed_state(
+                ElementId::from((id.clone(), "hex")),
+                cx,
+                move |window, cx| HexField::new(tab_index, window, cx),
+            );
+            field.update(cx, |field, cx| field.sync(value, on_change.clone(), cx));
+            let input = field.read(cx).input.clone();
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .child(color_swatch(value.to_hsla(), &theme).size(px(PREVIEW)))
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(HEX_WIDTH))
+                        .debug_selector(|| HEX_SELECTOR.to_string())
+                        .child(input),
+                )
+        });
 
         let field_area: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
         let hue_area: Rc<Cell<Bounds<Pixels>>> = Rc::new(Cell::new(Bounds::default()));
@@ -640,6 +763,7 @@ impl RenderOnce for ColorPicker {
             })
             .child(field)
             .child(hue)
+            .children(hex)
             .children(presets)
     }
 }
@@ -775,6 +899,7 @@ mod tests {
     /// A picker in a window, recording what it answered.
     struct Harness {
         value: Rc<Cell<Hsv>>,
+        hex: bool,
     }
 
     impl Render for Harness {
@@ -785,6 +910,7 @@ mod tests {
                     ColorPicker::new("picker")
                         .value(self.value.get())
                         .presets([rgb(0x2563eb).into()])
+                        .hex_field(self.hex)
                         .on_change(move |color, _window, cx| {
                             this.update(cx, |harness, cx| {
                                 harness.value.set(color);
@@ -796,12 +922,15 @@ mod tests {
         }
     }
 
-    fn open(value: Hsv, cx: &mut TestAppContext) -> (Rc<Cell<Hsv>>, VisualTestContext) {
+    fn open(value: Hsv, hex: bool, cx: &mut TestAppContext) -> (Rc<Cell<Hsv>>, VisualTestContext) {
         cx.update(crate::init);
         let showing = Rc::new(Cell::new(value));
         let window = cx.add_window({
             let showing = showing.clone();
-            move |_, _| Harness { value: showing }
+            move |_, _| Harness {
+                value: showing,
+                hex,
+            }
         });
         let cx = VisualTestContext::from_window(*window.deref(), cx);
         cx.run_until_parked();
@@ -831,7 +960,7 @@ mod tests {
     /// the box the canvas measured is the box the colour is drawn against.
     #[gpui::test]
     fn presses_in_the_field_and_the_strip_pick_what_is_under_them(cx: &mut TestAppContext) {
-        let (value, mut cx) = open(Hsv::new(0.5, 0., 0.), cx);
+        let (value, mut cx) = open(Hsv::new(0.5, 0., 0.), false, cx);
         let inner = WIDTH - 2. * INSET;
 
         // The middle of the field, halfway across and halfway down.
@@ -861,7 +990,7 @@ mod tests {
     /// pointer has left everything the picker drew.
     #[gpui::test]
     fn dragging_in_the_field_follows_the_pointer(cx: &mut TestAppContext) {
-        let (value, mut cx) = open(Hsv::new(0.5, 0., 0.), cx);
+        let (value, mut cx) = open(Hsv::new(0.5, 0., 0.), false, cx);
         let inner = WIDTH - 2. * INSET;
 
         let start = point(px(INSET + 20.), px(INSET + 20.));
@@ -890,6 +1019,73 @@ mod tests {
         assert!(
             close(picked.h, 0.5),
             "a drag in the field moved the hue: {picked:?}"
+        );
+    }
+
+    /// What the hex field says, read the way a user would: select it all and
+    /// copy.
+    fn hex_text(cx: &mut VisualTestContext) -> String {
+        let field = cx
+            .debug_bounds(HEX_SELECTOR)
+            .expect("the hex field is drawn");
+        press(cx, f32::from(field.center().x), f32::from(field.center().y));
+        cx.simulate_keystrokes("ctrl-a ctrl-c");
+        cx.read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default()
+    }
+
+    /// The field and the knobs follow each other: a press in the field writes
+    /// the colour into the hex field, and a colour typed there moves the knobs.
+    #[gpui::test]
+    fn the_hex_field_and_the_knobs_follow_each_other(cx: &mut TestAppContext) {
+        let (value, mut cx) = open(Hsv::from_hex("#2563eb").expect("blue"), true, cx);
+        assert_eq!(hex_text(&mut cx), "#2563eb");
+
+        // Knobs to text.
+        let inner = WIDTH - 2. * INSET;
+        press(&mut cx, INSET + inner - 2., INSET + 2.);
+        cx.run_until_parked();
+        let moved = value.get().to_hex();
+        assert_ne!(moved, "#2563eb");
+        assert_eq!(hex_text(&mut cx), moved);
+
+        // Text to knobs: half typed moves nothing, a whole colour does.
+        let field = cx
+            .debug_bounds(HEX_SELECTOR)
+            .expect("the hex field is drawn");
+        press(
+            &mut cx,
+            f32::from(field.center().x),
+            f32::from(field.center().y),
+        );
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("#00ff");
+        cx.run_until_parked();
+        assert_eq!(value.get().to_hex(), moved, "half a colour moved the knobs");
+        cx.simulate_input("00");
+        cx.run_until_parked();
+        let picked = value.get();
+        assert_eq!(picked.to_hex(), "#00ff00");
+        assert!((picked.h - 1. / 3.).abs() < 1e-3, "{picked:?}");
+
+        // A grey typed in keeps the hue the knobs were under.
+        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_input("#808080");
+        cx.run_until_parked();
+        let grey = value.get();
+        assert_eq!(grey.to_hex(), "#808080");
+        assert!((grey.h - 1. / 3.).abs() < 1e-3, "{grey:?}");
+    }
+
+    #[test]
+    fn typing_answers_only_a_whole_colour_that_differs() {
+        let held = Hsv::from_hex("#2563eb").expect("blue");
+        assert_eq!(typed("#2563e", held), None);
+        assert_eq!(typed("#2563EB", held), None);
+        assert_eq!(
+            typed("#ff0000", held).map(Hsv::to_hex).as_deref(),
+            Some("#ff0000")
         );
     }
 }
