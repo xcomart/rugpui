@@ -18,7 +18,9 @@ public APIs or vendored framework changes before implementing them.
 
 ## Development environment
 
-Use Git, stable Rust with `rustfmt` and `clippy`, and a native compiler toolchain:
+Use Git, stable Rust with `rustfmt` and `clippy` (CI pins the toolchain in
+`RUST_TOOLCHAIN` in [the workflow](.github/workflows/ci.yml), currently 1.98.0),
+and a native compiler toolchain:
 MSVC and the Windows SDK on Windows, Xcode command line tools on macOS, or a C
 compiler on Linux. The workspace uses edition 2024. The first build downloads
 pinned Git dependencies and compiles gpui from source.
@@ -74,6 +76,11 @@ cargo test --workspace --locked
 cargo test -p rugpui-editor --features custom-syntax --locked
 ```
 
+CI also runs `cargo deny --locked check` against [deny.toml](deny.toml)
+(advisories are non-blocking there), the macOS relaunch helper's tests (see
+[shell](docs/shell.md#the-install)) and a non-blocking `cargo check` of each
+consumer application's `dev` branch against the change.
+
 When editing public APIs or documentation, also run:
 
 ```sh
@@ -122,8 +129,12 @@ consumer is rulogman, so changes there need validation through rulogman too.
 
 For a shared API or behavior change, test affected consumers before they adopt
 the new revision. Put sibling checkouts next to each other and add the following
-table to each consumer's uncommitted `.cargo/config.toml`, merging with any
-existing configuration:
+tables to each consumer's uncommitted `.cargo/config.toml`, merging with any
+existing configuration. The vendored gpui crates go under the Zed source rather
+than the rugpui one: the consumer already patches them to rugpui's Git source,
+and Cargo does not patch a patch, so an entry under the rugpui table would be
+reported unused and leave them at the pinned revision. The same CI job does the
+same thing.
 
 ```toml
 [patch."https://github.com/xcomart/rugpui"]
@@ -131,16 +142,19 @@ rugpui = { path = "../rugpui/crates/rugpui" }
 rugpui-grid = { path = "../rugpui/crates/rugpui-grid" }
 rugpui-editor = { path = "../rugpui/crates/rugpui-editor" }
 rugpui-shell = { path = "../rugpui/crates/rugpui-shell" }
+
+[patch."https://github.com/zed-industries/zed"]
 gpui = { path = "../rugpui/vendor/gpui" }
 gpui_linux = { path = "../rugpui/vendor/gpui_linux" }
 gpui_macos = { path = "../rugpui/vendor/gpui_macos" }
 gpui_windows = { path = "../rugpui/vendor/gpui_windows" }
 ```
 
-For rulogman, omit the unused `rugpui-grid` entry and add this entry to the same
-table to override its additional patch:
+For rulogman, omit the unused `rugpui-grid` entry and override its additional
+patch, which it takes from crates.io's source, in a third table:
 
 ```toml
+[patch.crates-io]
 unicode-width = { path = "../rugpui/vendor/unicode-width" }
 ```
 
@@ -188,8 +202,8 @@ pull request. Include gallery screenshots for visible changes, list consumer
 checks and identify anything not tested. Exclude unrelated formatting, build
 artifacts and local configuration.
 
-CI runs on pull requests and pushes to `main`, so a direct `dev` push needs local
-validation. Routine work ends at `origin/dev`. Promotion and releases are
+CI runs on pull requests and on pushes to `dev` and `main`, but a direct `dev`
+push still needs local validation first, since CI reports only after it lands. Routine work ends at `origin/dev`. Promotion and releases are
 separate maintainer actions: merge the `dev` → `main` PR after required checks,
 fetch `origin/main`, and tag its verified latest commit. Do not move an existing
 release tag.

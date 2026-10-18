@@ -150,7 +150,9 @@ flowchart LR
 - **There is no `Escape` handling in the widget.** A dialog that should close on
   `Escape` tracks focus itself and wires its own `on_key_down`, the way the
   shell's about and update dialogs do.
-- Nothing here traps focus either. `occlude()` stops mouse events, not `Tab`.
+- `occlude()` stops mouse events, not `Tab`; the keyboard is confined
+  separately — the panel is a tab group with a focus trap, so Tab and
+  Shift+Tab wrap among its controls (see [Keyboard navigation](#keyboard-navigation)).
 
 ## Sizing
 

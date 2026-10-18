@@ -32,12 +32,13 @@ it can do, and is unrelated to `rugpui::WindowControls`, the element.
 
 ## Builder options
 
-`WindowControls` has one constructor and no builder methods — everything it
-draws was decided before it was built.
+`WindowControls` has one constructor and a single builder method — everything
+else it draws was decided before it was built.
 
 | method | argument | effect |
 | --- | --- | --- |
 | `WindowControls::new` | `id: impl Into<ElementId>`, `icons: WindowControlIcons`, `buttons: Vec<WindowButton>` | Creates the strip. `id` must be unique among its siblings and — because a title bar can carry a strip at each end — among the strips themselves. |
+| `with_active` | `active: bool` | Tints the glyphs by the window's active state instead of the resting `icon`: `text` while active, `text_muted` while inactive. Unset, the glyphs stay `icon`. For a custom Linux title bar whose inactive window should quieten its glyphs. |
 
 ## Minimal example
 
@@ -132,7 +133,8 @@ control of its own. Neither is configurable.
 - `surface` — the strip's background.
 - `border` — the hairline along its bottom edge.
 - `surface_hover` — the hover fill of minimise and maximise.
-- `icon` — the resting glyph colour. Not `text_muted`: a glyph is a solid run of
+- `icon` — the resting glyph colour, unless `with_active(..)` is set (then
+  `text` while active and `text_muted` while inactive). Not `text_muted`: a glyph is a solid run of
   pixels while an icon is a hairline, and an antialiased hairline arrives on
   screen weaker than the text beside it, so `icon` is derived to clear a
   contrast floor against both `background` and `surface`. See

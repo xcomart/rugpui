@@ -95,5 +95,6 @@ changed but nothing asked for a repaint.
   so gaining focus costs no layout and the row does not shift.
 - `checked(..)` is what draws; the widget never derives it from previous clicks.
   A `on_toggle` that does not write back leaves a box that flickers nowhere.
-- The glyph colour on an unticked box is `transparent_black`, so the tick is
-  always present in the tree and only becomes visible when checked.
+- An unticked box draws no glyph at all — its child is an empty string, and
+  its glyph colour is `transparent_black` — so the tick only enters the tree
+  when checked.

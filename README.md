@@ -74,7 +74,7 @@ comments the guide points at.
 
 | crate | what it is |
 |---|---|
-| [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, switches, segmented controls, sliders, progress bars, busy spinners, tabs, fold-away sections, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, split panes, lazily filled trees, and the caption buttons of a self-drawn title bar. |
+| [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, switches, segmented controls, sliders and range sliders, progress bars, busy spinners, tabs, fold-away sections, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, split panes and their resize handles, lazily filled trees, flat lists of host-drawn rows, and the caption buttons of a self-drawn title bar. |
 | [`rugpui-grid`](crates/rugpui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
 | [`rugpui-editor`](crates/rugpui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
 | [`rugpui-shell`](crates/rugpui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
@@ -85,7 +85,7 @@ depends on another. `rugpui-gallery` is not a library and nothing depends on it.
 
 ## Using it
 
-Take all three from git at one revision, and — this is the part that is easy to
+Take all four from git at one revision, and — this is the part that is easy to
 get wrong — point your own `[patch."https://github.com/zed-industries/zed"]`
 table at *this* repository at that same revision:
 
@@ -302,13 +302,16 @@ settings form; the settings type and its globals; your own icons; and the
 manifest flattened and every change to the code marked `RULOGMAN PATCH` — so
 diffing a vendored crate against upstream at that revision shows the whole of
 what we carry. They are patched back over the git source by the root manifest's
-patch table, and they exist because gpui has no answer of its own for five
-things: moving an open window between the platform's caption and the
+patch table, and they exist because gpui has no answer of its own for things
+like these: moving an open window between the platform's caption and the
 application's own (`set_titlebar_transparent`), the X11 backend running its
 close callbacks with the client `RefCell` borrowed, X11's `is_transparent`
 ignoring client-side decorations, X11 having no counterpart to Wayland's
 `org_kde_kwin_blur`, and macOS 26 blurring nothing behind a window whose
-`NSVisualEffectView` Liquid Glass rebuilt. The root
+`NSVisualEffectView` Liquid Glass rebuilt — as well as content clip regions for
+rounded window corners, modal focus traps and default Tab traversal, macOS
+*Services* requests (`on_service_request`), relaunching an updated macOS bundle,
+and the order native scrolling and wheel handlers run in. The root
 [`Cargo.toml`](Cargo.toml) tells the whole story, hunk by hunk.
 
 `vendor/unicode-width` is there for a different reason: nothing in this
@@ -328,7 +331,10 @@ its own manifest is in the same position.
 
 Moving the revision forward means re-flattening the manifests and replaying the
 marked hunks. Delete a hunk, and then the vendored crate once it holds none,
-whenever upstream grows its own answer.
+whenever upstream grows its own answer. `scripts/vendor_check.py` diffs
+`vendor/` against upstream at the pinned revision and fails on any change
+without a `RULOGMAN PATCH` marker; see the [contribution
+guide](CONTRIBUTING.md#vendored-code-and-consumer-checks).
 
 ## Development
 

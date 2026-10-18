@@ -95,6 +95,8 @@ That example leaves `fade` at its default `Fade::Shown`, so the bar is simply al
 
 `ScrollbarAxis` is `Horizontal` (along the bottom edge) or `Vertical` (down the right-hand edge).
 
+`DraggedThumb::progress(&id, position) -> Option<f32>` gives the same answer as `.dragged`, straight off the drag payload.
+
 The three numbers `new` takes are all in the *same* unit, whatever it is — pixels for a gpui container, lines for a terminal — because only their ratios matter: `visible / (visible + scrollable)` sets the length and `scrolled / scrollable` sets the position. `scrollable` is how much lies *beyond* the visible part, which is exactly what `ScrollHandle::max_offset` reports. The thumb never gets shorter than 24 px, so a long scrollback still leaves something to aim at.
 
 ### Free functions over a `ScrollHandle`
@@ -133,12 +135,15 @@ Two things move nothing and must still keep the bar up: a pointer holding the th
 stateDiagram-v2
     [*] --> Hidden
     Hidden --> In: moved() / hover_enter()
-    In --> Shown: FADE_IN (120ms) elapses
+    In --> Shown: hold() — a pointer takes the thumb
+    In --> Out: hide(epoch) — SCROLL_LINGER passed, nothing holding
     Shown --> Out: hide(epoch) — SCROLL_LINGER passed, nothing holding
     Out --> Shown: moved() / hover_enter() / hold() — caught on the way out
     Out --> Hidden: finish(epoch) — FADE_OUT (250ms) elapses
     Shown --> Shown: hold() / release() / moved()
 ```
+
+`In` is not left when its `FADE_IN` (120 ms) animation has run: the animation simply ends at full strength, and the phase stays `In` until something else moves it.
 
 A bar caught on its way out comes straight back at **full strength** rather than fading in again from nothing: it never left, and restarting the fade would dip it to invisible on the way back up.
 

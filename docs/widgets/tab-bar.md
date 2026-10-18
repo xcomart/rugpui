@@ -48,6 +48,7 @@ Every callback is keyed by the tab's **index in display order**, not by its `Ele
 | `.status` | `TabStatus` | a coloured dot before the title |
 | `.dot` | `Hsla` | a dot in a colour of your own; wins over `.status` |
 | `.mark` | icon path, tooltip | an icon *after* the title, with a required hover label |
+| `.closable` | `bool` | `true` by default; `false` gives a permanent tab with no close button, which `Delete` does not close either |
 
 `TabStatus` has four variants and each takes a theme slot: `Connecting` → `accent`, `Connected` → `success`, `Disconnected` → `text_muted`, `Error` → `danger`. `.dot(color)` exists for strips whose dot means something those four cannot say — which connection profile a pane's tab belongs to, say.
 
@@ -140,6 +141,7 @@ TabBar::new("tabs")
 ```
 
 - `drag_over(strip, index, accepted)` keeps the bar of one strip at a time: a `None` only takes down the bar of the strip that reported it, so the strips a drag is not over never wipe the one it is. It returns whether anything changed — notify on `true`.
+- `indicator(strip)` is the gap to hand that strip's `.drop_indicator(…)`, `current()` is the strip showing a bar and its gap, if any, and `clear()` takes the bar down, returning whether one was up.
 - `resolve(strip, fallback)` is for drop targets the bar does not cover, such as a pane body: the gap the bar stood in on that strip, else `fallback`. It takes the bar down either way.
 - A drag released outside every drop target reaches no handler, so clear the bar from the root's `on_mouse_up` / `on_mouse_up_out` too; after a drop that is a no-op.
 
@@ -186,6 +188,6 @@ Clicking a tab does **not** focus the strip — a click usually means "show me t
 - **Indices, not ids.** `TabItem::new` takes an id for gpui's element state; the callbacks report positions. Keep the vector you passed in around to map back.
 - **A missing handler is a missing button.** No `on_close` means no close buttons at all; likewise `on_new` and `on_menu_open_change`. This is deliberate, but it looks like a bug the first time.
 - **`menu_open` is yours.** The dropdown will not open on its own — store the flag from `on_menu_open_change` and pass it back through `.menu_open(…)`, exactly as the gallery does for its `MenuButton`.
-- **Icons are asset paths.** `.menu_icon`, `.new_icon` and `TabItem::mark` take paths into the host's `AssetSource`; this crate ships no icons and falls back to glyphs when they are absent.
+- **Icons are asset paths.** `.menu_icon`, `.new_icon` and `TabItem::mark` take paths into the host's `AssetSource`; this crate ships no icons for them and falls back to glyphs when they are absent.
 - **Indices are gaps during a drag.** `on_reorder(_, to)` may be `len`, and `to == index + 1` is a drop right next to the tab's own place, not a move.
 - **The strip is a fixed 36 px** and always `w_full`; put it in a column, not in a flex row that will squeeze it.

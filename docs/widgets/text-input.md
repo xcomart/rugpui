@@ -126,8 +126,8 @@ Validation is the host's job, which is why `set_invalid` is a setter rather than
 | `shift-left` / `shift-right` | `SelectLeft` / `SelectRight` | extend the selection one grapheme |
 | `up` / `down` | `Up` / `Down` | move a row (multiline; single-line rows are degenerate) |
 | `shift-up` / `shift-down` | `SelectUp` / `SelectDown` | extend the selection a row |
-| `home` / `end` | `Home` / `End` | caret to the start / end of the field |
-| `shift-home` / `shift-end` | `SelectHome` / `SelectEnd` | extend the selection to the start / end |
+| `home` / `end` | `Home` / `End` | caret to the start / end of the line it is on (the whole field when single-line) |
+| `shift-home` / `shift-end` | `SelectHome` / `SelectEnd` | extend the selection to the start / end of that line |
 | `enter` | `Submit` | run `on_submit`, or break the line in a multiline field |
 | `cmd/ctrl-a` | `SelectAll` | select everything |
 | `cmd/ctrl-c` | `Copy` | copy the selection; refused while masked |

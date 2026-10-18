@@ -239,6 +239,7 @@ something that can be pressed.
 - `surface` — the box's background.
 - `border` — its outline.
 - `text` — the label, at 11 px.
+- `text_muted` — `Tooltip`'s `note` lines.
 
 ## Pitfalls
 

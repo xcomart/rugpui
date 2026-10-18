@@ -528,7 +528,7 @@ pub fn init(cx: &mut App) {
 }
 
 impl EditorView {
-    /// An empty editor over generic SQL.
+    /// An empty editor with no highlighter.
     pub fn new(cx: &mut Context<Self>) -> Self {
         let buffer = Buffer::new("");
         let syntax = SyntaxCache::new(&buffer, None);
