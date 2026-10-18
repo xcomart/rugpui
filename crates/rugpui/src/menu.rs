@@ -20,8 +20,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ElementId, Keystroke, Pixels, Point, SharedString, Size, Subscription, Window,
-    anchored, deferred, div, point, prelude::*, px, svg,
+    AnyElement, App, Div, ElementId, Hsla, Keystroke, Pixels, Point, SharedString, Size,
+    Subscription, Window, anchored, deferred, div, point, prelude::*, px, svg,
 };
 
 use crate::theme::{Theme, theme};
@@ -84,6 +84,26 @@ const PANEL_MAX_WIDTH: f32 = 360.;
 /// Width of the column a check mark sits in.
 const CHECK_WIDTH: f32 = 16.;
 
+/// Edge length of the colour square a row can lead with; see
+/// [`MenuEntry::swatch`].
+pub(crate) const SWATCH_SIZE: f32 = 12.;
+
+/// Space between a row's colour square and its label.
+const SWATCH_GAP: f32 = 8.;
+
+/// A square of `color`, framed so that a colour close to the panel's own still
+/// reads as a square: what [`MenuEntry::swatch`] and
+/// [`SelectOption::swatch`](crate::select::SelectOption::swatch) draw.
+pub(crate) fn color_swatch(color: Hsla, theme: &Theme) -> Div {
+    div()
+        .flex_none()
+        .size(px(SWATCH_SIZE))
+        .rounded_sm()
+        .border_1()
+        .border_color(theme.border)
+        .bg(color)
+}
+
 /// What a checked row is marked with.
 ///
 /// A glyph rather than an asset: the mark has to line up with a row of text and
@@ -133,6 +153,8 @@ pub struct MenuEntry {
     disabled: bool,
     /// Whether the row carries a check mark.
     checked: bool,
+    /// The colour square drawn before the label, if any.
+    swatch: Option<Hsla>,
 }
 
 impl MenuEntry {
@@ -145,6 +167,7 @@ impl MenuEntry {
             separator: false,
             disabled: false,
             checked: false,
+            swatch: None,
         }
     }
 
@@ -167,6 +190,7 @@ impl MenuEntry {
             separator: true,
             disabled: false,
             checked: false,
+            swatch: None,
         }
     }
 
@@ -211,6 +235,18 @@ impl MenuEntry {
     /// before the slot existed.
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    /// Leads the label with a square of `color`.
+    ///
+    /// For the menus whose rows *are* colours, where the name alone says less
+    /// than the colour it stands for. Like the check mark, the square has a
+    /// column of its own that is laid out on every row of a menu that has one,
+    /// so a row without a colour — "none", say — keeps its label in line with
+    /// the rest.
+    pub fn swatch(mut self, color: Hsla) -> Self {
+        self.swatch = Some(color);
         self
     }
 }
@@ -351,6 +387,8 @@ fn menu_panel(
     // only indented its own row would leave the labels stepping sideways down
     // the list.
     let checkable = entries.iter().any(|entry| entry.checked);
+    // The same, for the colour column.
+    let swatched = entries.iter().any(|entry| entry.swatch.is_some());
     // Only a panel that may run out of room truncates. A fixed-width one was
     // measured for its own rows, and an ellipsis there would be a regression
     // rather than a fallback.
@@ -376,6 +414,7 @@ fn menu_panel(
             on_activate,
             disabled,
             checked,
+            swatch,
             ..
         } = entry;
 
@@ -422,11 +461,32 @@ fn menu_panel(
             })
             .child(
                 div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
                     .flex_1()
                     .min_w_0()
-                    .whitespace_nowrap()
-                    .when(truncates, |this| this.text_ellipsis())
-                    .child(label),
+                    .gap(px(SWATCH_GAP))
+                    // Inside the label's box rather than a column of the row:
+                    // the row's gap is sized for the space before a shortcut,
+                    // and a square that far from its name would read as
+                    // belonging to neither.
+                    .when(swatched, |this| {
+                        this.child(
+                            div()
+                                .flex_none()
+                                .w(px(SWATCH_SIZE))
+                                .children(swatch.map(|color| color_swatch(color, theme))),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .whitespace_nowrap()
+                            .when(truncates, |this| this.text_ellipsis())
+                            .child(label),
+                    ),
             )
             .children(shortcut.map(|shortcut| {
                 div()
@@ -905,6 +965,7 @@ mod tests {
         label: SharedString,
         disabled: bool,
         checked: bool,
+        swatched: bool,
     }
 
     impl Row {
@@ -914,7 +975,14 @@ mod tests {
                 label: SharedString::new_static(label),
                 disabled: false,
                 checked: false,
+                swatched: false,
             }
+        }
+
+        /// The same row, led by a colour square.
+        fn swatched(mut self) -> Self {
+            self.swatched = true;
+            self
         }
 
         /// The same row, greyed out.
@@ -959,10 +1027,15 @@ mod tests {
                 .enumerate()
                 .map(|(index, row)| {
                     let activated = self.activated.clone();
-                    MenuEntry::new(row.label.clone())
+                    let entry = MenuEntry::new(row.label.clone())
                         .disabled(row.disabled)
                         .checked(row.checked)
-                        .on_activate(move |_, _| activated.borrow_mut().push(index))
+                        .on_activate(move |_, _| activated.borrow_mut().push(index));
+                    if row.swatched {
+                        entry.swatch(gpui::red())
+                    } else {
+                        entry
+                    }
                 })
                 .collect()
         }
@@ -1269,6 +1342,26 @@ mod tests {
             CHECK_WIDTH + ROW_GAP,
             "the column is laid out once for the menu, on the checked row and \
              the unchecked one alike"
+        );
+    }
+
+    /// The colour column is the menu's too, and sits closer to its label than
+    /// the row's gap: one square widens every row by the square and its own
+    /// gap.
+    #[gpui::test]
+    fn the_swatch_column_is_laid_out_for_the_whole_menu(cx: &mut TestAppContext) {
+        let rows = vec![Row::new(MEDIUM), Row::new(MEDIUM)];
+        let (_, mut bare_cx) = open(Surface::Context, rows.clone(), cx);
+        let bare = panel_width(&mut bare_cx);
+
+        let swatched = vec![rows[0].clone(), rows[1].clone().swatched()];
+        let (_, mut swatched_cx) = open(Surface::Context, swatched, cx);
+
+        assert_eq!(
+            panel_width(&mut swatched_cx) - bare,
+            SWATCH_SIZE + SWATCH_GAP,
+            "the column is laid out once for the menu, on the coloured row and \
+             the plain one alike"
         );
     }
 

@@ -13,11 +13,12 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnchoredPositionMode, App, ElementId, MouseButton, Pixels, ScrollHandle, SharedString,
-    Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
+    Anchor, AnchoredPositionMode, App, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
+    SharedString, Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
 };
 
 use crate::icons::CARET_DOWN;
+use crate::menu::color_swatch;
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
@@ -93,7 +94,7 @@ type OpenChangeHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 ///     .leading("icons/database.svg")
 ///     .trailing("icons/warning.svg")
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SelectOption {
     /// The text of the option, which is also its identity.
     pub label: SharedString,
@@ -101,6 +102,9 @@ pub struct SelectOption {
     pub leading: Option<SharedString>,
     /// Asset path of the icon drawn after the label, at the row's right edge.
     pub trailing: Option<SharedString>,
+    /// Colour of the square drawn before the label — and before the leading
+    /// icon, when there is one too.
+    pub swatch: Option<Hsla>,
 }
 
 impl SelectOption {
@@ -110,6 +114,7 @@ impl SelectOption {
             label: label.into(),
             leading: None,
             trailing: None,
+            swatch: None,
         }
     }
 
@@ -123,6 +128,14 @@ impl SelectOption {
     /// the row.
     pub fn trailing(mut self, path: impl Into<SharedString>) -> Self {
         self.trailing = Some(path.into());
+        self
+    }
+
+    /// Draws a square of `color` before the label, for a list whose options
+    /// are colours. Nothing is reserved on a row without one, as with the
+    /// icons.
+    pub fn swatch(mut self, color: Hsla) -> Self {
+        self.swatch = Some(color);
         self
     }
 }
@@ -367,13 +380,18 @@ impl RenderOnce for Select {
         // something really is selected: the placeholder row may well be one of
         // the options, and repeating its mark would make an empty dropdown look
         // like a made choice.
-        let (trigger_leading, trigger_trailing) = match current.filter(|_| selected.is_some()) {
-            Some(index) => {
-                let option = &options[index];
-                (option.leading.clone(), option.trailing.clone())
-            }
-            None => (None, None),
-        };
+        let (trigger_swatch, trigger_leading, trigger_trailing) =
+            match current.filter(|_| selected.is_some()) {
+                Some(index) => {
+                    let option = &options[index];
+                    (
+                        option.swatch,
+                        option.leading.clone(),
+                        option.trailing.clone(),
+                    )
+                }
+                None => (None, None, None),
+            };
 
         let trigger = div()
             .id(ElementId::from((id.clone(), "trigger")))
@@ -436,6 +454,7 @@ impl RenderOnce for Select {
                     }
                 }
             })
+            .children(trigger_swatch.map(|color| color_swatch(color, &theme)))
             .children(trigger_leading.map(|path| {
                 svg()
                     .size(px(OPTION_ICON_SIZE))
@@ -512,6 +531,7 @@ impl RenderOnce for Select {
                     label,
                     leading,
                     trailing,
+                    swatch,
                 } = option;
                 let value = label.clone();
 
@@ -549,6 +569,7 @@ impl RenderOnce for Select {
                             handler(false, window, cx);
                         }
                     })
+                    .children(swatch.map(|color| color_swatch(color, theme)))
                     .children(leading.map(|path| {
                         svg()
                             .size(px(OPTION_ICON_SIZE))

@@ -26,6 +26,12 @@ revision past it.
   closed its menus on `Escape` itself can drop that code.
 - `rugpui-shell`: `PaneTree::swap` exchanges the places of two panes. Each
   pane moves with its id, and the splits and their ratios stay where they are.
+- `rugpui`: `MenuEntry::swatch` and `SelectOption::swatch` lead a row with a
+  square of the given colour. A menu with any swatched row lays the square's
+  column out on every row; a `Select` reserves nothing on a row without one and
+  shows the selected option's square on the trigger. `SelectOption` has a new
+  public field, `swatch: Option<Hsla>`, and no longer derives `Eq`; code that
+  builds a `SelectOption` literal has to supply the field.
 - `scripts/vendor_check.py` diffs `vendor/` against upstream Zed at the pinned
   revision and fails on an unmarked hunk or a patched file missing from the
   patch list in `Cargo.toml`.
