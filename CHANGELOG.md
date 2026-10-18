@@ -24,6 +24,8 @@ revision past it.
   `on_open_change(false)`), wherever the focus is. The key is taken ahead of
   the focused surface's bindings and does not reach them; a consumer that
   closed its menus on `Escape` itself can drop that code.
+- `rugpui-shell`: `PaneTree::swap` exchanges the places of two panes. Each
+  pane moves with its id, and the splits and their ratios stay where they are.
 - `scripts/vendor_check.py` diffs `vendor/` against upstream Zed at the pinned
   revision and fails on an unmarked hunk or a patched file missing from the
   patch list in `Cargo.toml`.
