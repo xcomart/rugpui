@@ -11,12 +11,17 @@
 //! open flag — and, for a context menu, the position that goes with it — passes
 //! it in on every render, and closes the menu from
 //! [`MenuButton::on_open_change`] or [`ContextMenu::on_dismiss`].
+//!
+//! An open menu also closes on `Escape`, wherever the focus is: neither menu
+//! takes the focus from the surface it was opened over, so the key is caught
+//! ahead of that surface's own bindings rather than at the menu.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ElementId, Pixels, Point, SharedString, Size, Window, anchored, deferred, div,
-    point, prelude::*, px, svg,
+    AnyElement, App, ElementId, Keystroke, Pixels, Point, SharedString, Size, Subscription, Window,
+    anchored, deferred, div, point, prelude::*, px, svg,
 };
 
 use crate::theme::{Theme, theme};
@@ -233,6 +238,71 @@ enum PanelWidth {
 /// ends up.
 fn panel_max_height(viewport: Size<Pixels>) -> Pixels {
     viewport.height - px(2. * WINDOW_MARGIN)
+}
+
+/// What keeps `Escape` closing one open menu.
+///
+/// Held in the menu's element state, so it lives exactly as long as the menu is
+/// drawn in consecutive frames: a menu the host stops rendering drops the
+/// interceptor with it, and nothing has to be unregistered by hand.
+struct EscapeDismiss {
+    /// The handler of the menu as last drawn; taken when it fires, so a second
+    /// `Escape` before the host has redrawn reaches the surface underneath.
+    handler: Rc<RefCell<Option<DismissHandler>>>,
+    _interceptor: Subscription,
+}
+
+/// Whether `keystroke` is a bare `Escape`. Shift is allowed, the way a menu
+/// row's click allows it; a chord with a command modifier is somebody else's.
+fn is_escape(keystroke: &Keystroke) -> bool {
+    let modifiers = &keystroke.modifiers;
+    keystroke.key == "escape"
+        && !modifiers.control
+        && !modifiers.alt
+        && !modifiers.platform
+        && !modifiers.function
+}
+
+/// Has `Escape` call `on_dismiss` for as long as the menu `id` is drawn.
+///
+/// A keystroke interceptor rather than a key binding: the focus stays on the
+/// editor, grid or terminal the menu was opened over, so a binding would have
+/// to be made by every one of them, and theirs would run first — the editor's
+/// own `Escape` closes its find bar. An interceptor runs before any binding,
+/// and stopping propagation there keeps the key from also closing whatever is
+/// under the menu. Only `Escape` pressed in the menu's own window counts.
+fn dismiss_on_escape(
+    id: ElementId,
+    on_dismiss: Option<DismissHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // A menu with nobody to tell cannot close itself, and taking no state here
+    // also drops an interceptor left from a frame that had a handler.
+    let Some(on_dismiss) = on_dismiss else {
+        return;
+    };
+    let state = window.use_keyed_state((id, "escape"), cx, |window, cx| {
+        let handler: Rc<RefCell<Option<DismissHandler>>> = Rc::default();
+        let owner = window.window_handle();
+        let current = handler.clone();
+        let interceptor = cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle() != owner || !is_escape(&event.keystroke) {
+                return;
+            }
+            // Out of the cell before the call: the handler may well redraw.
+            let Some(dismiss) = current.borrow_mut().take() else {
+                return;
+            };
+            dismiss(window, cx);
+            cx.stop_propagation();
+        });
+        EscapeDismiss {
+            handler,
+            _interceptor: interceptor,
+        }
+    });
+    *state.read(cx).handler.borrow_mut() = Some(on_dismiss);
 }
 
 /// Builds the full-window sheet that sits under an open menu.
@@ -490,8 +560,8 @@ impl ContextMenu {
         self
     }
 
-    /// Called when the menu should go away: after a row is activated, or when
-    /// the pointer goes down outside the panel.
+    /// Called when the menu should go away: after a row is activated, when the
+    /// pointer goes down outside the panel, or on `Escape`.
     pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_dismiss = Some(Rc::new(handler));
         self
@@ -502,6 +572,7 @@ impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let viewport = window.viewport_size();
+        dismiss_on_escape(self.id.clone(), self.on_dismiss.clone(), window, cx);
         let backdrop = menu_backdrop(
             ElementId::from((self.id.clone(), "backdrop")),
             viewport,
@@ -656,6 +727,10 @@ impl RenderOnce for MenuButton {
             Rc::new(move |window: &mut Window, cx: &mut App| handler(false, window, cx))
                 as DismissHandler
         });
+        // Only while the dropdown is out: a closed button leaves `Escape` alone.
+        if open {
+            dismiss_on_escape(self.id.clone(), on_dismiss.clone(), window, cx);
+        }
 
         // A trigger only ever wears a mark — an icon, or a glyph standing in
         // for one — never a word, so its resting colour is the theme's icon
@@ -777,8 +852,9 @@ mod tests {
     use std::ops::Deref;
 
     use gpui::{
-        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, ScrollDelta,
-        ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
+        Context, FocusHandle, KeyBinding, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+        Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
+        actions,
     };
 
     use super::*;
@@ -1042,6 +1118,95 @@ mod tests {
             .size
             .height
             .into()
+    }
+
+    /// `Escape` closes either menu without a click, and without the focus
+    /// having to be on it — the harness never focuses anything.
+    #[gpui::test]
+    fn escape_dismisses_either_menu(cx: &mut TestAppContext) {
+        for surface in [Surface::Context, Surface::Button] {
+            let (menu, mut cx) = open(surface, vec![Row::new(SHORT)], cx);
+            cx.simulate_keystrokes("escape");
+            cx.run_until_parked();
+            assert_eq!(menu.drain(), Vec::<usize>::new(), "no row runs");
+            assert_eq!(menu.dismissals(), 1);
+
+            // A chord is not `Escape`.
+            cx.simulate_keystrokes("ctrl-escape");
+            cx.run_until_parked();
+            assert_eq!(menu.dismissals(), 1);
+        }
+    }
+
+    actions!(menu_escape_test, [HostEscape]);
+
+    /// A focused surface with an `Escape` binding of its own, and a context
+    /// menu over it that closes for real.
+    struct Host {
+        focus: FocusHandle,
+        menu_open: bool,
+        host_escapes: usize,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            div()
+                .size_full()
+                .key_context("MenuEscapeHost")
+                .track_focus(&self.focus)
+                .on_action(cx.listener(|host, _: &HostEscape, _, _| host.host_escapes += 1))
+                .when(self.menu_open, |this_div| {
+                    this_div.child(
+                        ContextMenu::new("menu")
+                            .position(point(px(MENU_X), px(MENU_Y)))
+                            .entries(vec![MenuEntry::new(SHORT)])
+                            .on_dismiss(move |_, cx| {
+                                this.update(cx, |host, cx| {
+                                    host.menu_open = false;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                })
+        }
+    }
+
+    /// The menu is on top, so it takes the key before the surface under it —
+    /// and once it has gone, the surface's own `Escape` works again.
+    #[gpui::test]
+    fn escape_closes_the_menu_before_the_surface_under_it(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.bind_keys([KeyBinding::new(
+                "escape",
+                HostEscape,
+                Some("MenuEscapeHost"),
+            )]);
+        });
+        let window = cx.add_window(|_, cx| Host {
+            focus: cx.focus_handle(),
+            menu_open: true,
+            host_escapes: 0,
+        });
+        let host = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.update(|window, cx| {
+            let focus = host.read(cx).focus.clone();
+            focus.focus(window, cx);
+        });
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            assert!(!host.read(cx).menu_open, "the menu closed");
+            assert_eq!(host.read(cx).host_escapes, 0, "and kept the key");
+        });
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|_, cx| assert_eq!(host.read(cx).host_escapes, 1));
     }
 
     /// The two halves of what disabled means: the callback never runs, and the

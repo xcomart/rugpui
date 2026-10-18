@@ -19,6 +19,11 @@ revision past it.
   `History::with_limits`, `History::limits` and `History::set_limits`) cap the
   undo history by steps and by bytes of stored text. The default is 10,000 steps
   or 64 MiB, and `HistoryLimits::UNBOUNDED` keeps the earlier behavior.
+- `rugpui`: an open `ContextMenu`, and a `MenuButton` dropdown, close on
+  `Escape` through their existing dismiss callback (`on_dismiss`,
+  `on_open_change(false)`), wherever the focus is. The key is taken ahead of
+  the focused surface's bindings and does not reach them; a consumer that
+  closed its menus on `Escape` itself can drop that code.
 - `scripts/vendor_check.py` diffs `vendor/` against upstream Zed at the pinned
   revision and fails on an unmarked hunk or a patched file missing from the
   patch list in `Cargo.toml`.
