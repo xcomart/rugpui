@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-19
+
 ### Added
 
 - `rugpui-shell`: the update dialog shows the release notes from the GitHub
@@ -118,5 +120,6 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.8...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.9...dev
+[0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/xcomart/rugpui/compare/v0.1.7...v0.1.8
