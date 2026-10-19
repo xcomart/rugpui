@@ -40,28 +40,26 @@ exclude = [
 #     regions, inherited by deferred overlays and cached draws. The shell uses
 #     pixel-row strips to clip rounded window corners without adding padding.
 #     Shadow clipping and culling include the shader's full blur extent.
-#     GPU primitive layouts and the platform renderers remain unchanged.
+#     GPU primitive layouts and the platform renderers remain unchanged, and
+#     must stay so: `gpui_apple`, taken from git unpatched, generates the Metal
+#     shader bindings from the *upstream* `gpui/src/scene.rs` and its
+#     neighbours, not from the vendored copies.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
 #     tab stops, and default Tab traversal for forms without host bindings.
 #     Background controls remain in the frame but are skipped by traversal.
-#   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`
-#     and `gpui_windows/src/window.rs` — `set_titlebar_transparent`, which moves
-#     an open window between the caption the platform draws and the one the app
-#     draws. gpui settles that at window creation and offers no way back; an
-#     application that offers it as a setting cannot reopen its window to honour
-#     a change without dropping whatever the window is holding. It has to reach
-#     the backends, so it is a `PlatformWindow` method, which is why the core is
-#     vendored at all rather than only the two backends that implement it.
-#   * `gpui_linux/src/linux/x11/client.rs` — the WM_DELETE_WINDOW handler runs
-#     the close callbacks with the client `RefCell` borrowed, and both of them
-#     re-enter the application, where anything that reaches the platform borrows
-#     that same cell and panics with "already borrowed". Upstream learnt half of
-#     it when the crate was split: `close()` now runs outside the borrow, which
-#     is what quitting from a window-closed observer needs. `should_close()` did
-#     not move, so an `on_should_close` handler is still standing on the
-#     trapdoor; the patch is what keeps registering one from being a condition
-#     of closing a window.
+#   * `gpui/src/platform.rs`, `gpui/src/window.rs`, `gpui_macos/src/window.rs`,
+#     `gpui_windows/src/window.rs` and `gpui_windows/src/events.rs` —
+#     `set_titlebar_transparent`, which moves an open window between the
+#     caption the platform draws and the one the app draws. gpui settles that
+#     at window creation and offers no way back; an application that offers it
+#     as a setting cannot reopen its window to honour a change without dropping
+#     whatever the window is holding. It has to reach the backends, so it is a
+#     `PlatformWindow` method, which is why the core is vendored at all rather
+#     than only the two backends that implement it.
+#     On Windows the window procedure in `events.rs` reads the caption flag
+#     on every frame message, so the flag becomes a `Cell` it reads through,
+#     and `notify_frame_changed` makes the system recompute the frame.
 #   * `gpui_linux/src/linux/x11/window.rs` — `is_transparent` ignores
 #     client-side decorations, unlike its Wayland counterpart, so the
 #     transparent shadow band around a self-decorated window composited as
@@ -86,11 +84,15 @@ exclude = [
 #     gpui strips the material's tint from are no longer the ones drawing it, so
 #     a blurred window there is see-through over an unblurred backdrop. From 26
 #     on the patch asks the WindowServer for the blur directly, through the
-#     legacy private API gpui used before the effect view.
-#   * `gpui_macos/src/platform.rs` and `gpui_macos/src/restart.rs` — after an
-#     update, wait for the old process and request a new instance of the exact
-#     bundle with `open -n -a`. Retry transient LaunchServices failures and
-#     detach the helper's streams and working directory from the exiting app.
+#     legacy private API gpui used before the effect view. Upstream has since
+#     moved the effect view to a material that still blurs on macOS 27
+#     (zed#65361), untested there on 26; drop this hunk once a blurred window
+#     is confirmed on 26 without it.
+#   * `gpui_macos/src/platform.rs`, `gpui_macos/src/restart.rs` and the
+#     `mod` line for it in `gpui_macos/src/gpui_macos.rs` — after an update,
+#     wait for the old process and request a new instance of the exact bundle
+#     with `open -n -a`. Retry transient LaunchServices failures and detach the
+#     helper's streams and working directory from the exiting app.
 #
 #   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
 #     handlers, so reverse-order bubbling lets a wheel handler consume the event
@@ -110,7 +112,10 @@ exclude = [
 #
 # Moving the revision forward means re-flattening the manifests and replaying
 # the marked hunks. Delete a hunk, and then the vendored crate once it holds
-# none, whenever upstream grows its own answer.
+# none, whenever upstream grows its own answer. `scripts/vendor_check.py`
+# diffs `vendor/` against upstream at the revision below and fails on any
+# change without a `RULOGMAN PATCH` marker, or in a file this list does not
+# name; run it after touching either.
 [patch."https://github.com/zed-industries/zed"]
 gpui = { path = "vendor/gpui" }
 gpui_linux = { path = "vendor/gpui_linux" }
@@ -118,7 +123,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]
@@ -210,14 +215,14 @@ ring = "0.17"
 # them.
 #
 # `windows` is what the caption module pins the native title bar to the app
-# theme with, at the version gpui already links (0.61) so the bindings are
+# theme with, at the version gpui already links (0.62) so the bindings are
 # shared rather than duplicated in the tree; `raw-window-handle` is how gpui
 # hands out the `HWND` it needs. `windows-registry` is the one registry
 # consumer: after a self-update the shell corrects the `DisplayVersion` in the
 # uninstall entry an Inno Setup installer wrote, so that winget still recognises
 # the installed copy.
-windows = { version = "0.61", features = ["Win32_Graphics_Dwm"] }
-windows-registry = "0.5"
+windows = { version = "0.62", features = ["Win32_Graphics_Dwm"] }
+windows-registry = "0.6"
 raw-window-handle = "0.6"
 
 # --- GUI: Zed's GPU-accelerated UI framework ---
@@ -233,7 +238,7 @@ raw-window-handle = "0.6"
 # `Application::new()` — is the application's job, and so is choosing that
 # crate's features; the entry below it is the one application in this
 # workspace doing exactly that.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca" }
 
 # The other half, named by the one member that is an application: `rugpui-gallery`.
 # `gpui_platform` is the façade that links a backend and starts it, and choosing
@@ -242,7 +247,7 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07
 # under X11. Naming it is also what pulls `gpui_linux`, `gpui_macos` and
 # `gpui_windows` into the graph, and so what the three patch entries above
 # apply to.
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd82517a115d97a07835b52f0512b22b38e38ccf", features = [
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "56934ec0560bce8929025497411de7f5322fb6ca", features = [
     "font-kit",
     "wayland",
     "x11",

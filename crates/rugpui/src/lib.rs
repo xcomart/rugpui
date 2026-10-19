@@ -5,7 +5,8 @@
 //! sessions — and only about colors ([`theme`], [`editor_theme`]), text entry
 //! ([`text_input`]), buttons ([`button`]), checkboxes ([`checkbox`]) and
 //! switches ([`switch`]), one-of-many strips ([`segmented`]), sliders
-//! ([`slider`]) and two-knob range sliders ([`range_slider`]), progress bars
+//! ([`slider`]) and two-knob range sliders ([`range_slider`]), colour pickers
+//! ([`color_picker`]), progress bars
 //! ([`progress`]) and busy spinners ([`spinner`]),
 //! tabs ([`tab_bar`]), fold-away sections ([`collapsible`]), dropdown menus
 //! ([`menu`]), one-of-many dropdowns over plain strings ([`select`]) and over
@@ -50,6 +51,7 @@
 pub mod button;
 pub mod checkbox;
 pub mod collapsible;
+pub mod color_picker;
 pub mod editor_theme;
 pub mod editor_theme_picker;
 pub mod icons;
@@ -81,6 +83,7 @@ pub mod window_controls;
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::Collapsible;
+pub use color_picker::{ColorPicker, DraggedColor, Hsv};
 pub use editor_theme::{
     CustomEditorTheme, EditorTheme, EditorThemeColors, EditorThemeEntry, EditorThemeFile,
     EditorThemeRegistry, editor_theme, set_editor_theme,

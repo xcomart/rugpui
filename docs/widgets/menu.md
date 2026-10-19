@@ -47,7 +47,7 @@ A row is either a command — a label, an optional shortcut hint and a callback 
 | `.label()` | — | — | the row's text (empty for a separator) |
 | `.is_separator()` | — | — | whether the row is a rule |
 
-The shortcut is decoration only. The key binding itself is registered by the application (`cx.bind_keys`), and the menu row dispatches the same handler that binding does — the menu is a second way in, never a second implementation. This module registers no `KeyBinding` of its own.
+The shortcut is decoration only. The key binding itself is registered by the application (`cx.bind_keys`), and the menu row dispatches the same handler that binding does — the menu is a second way in, never a second implementation. This module registers no `KeyBinding` of its own; the one key a menu answers, `Escape`, is caught by a keystroke interceptor instead (see [Escape](#escape)).
 
 `checked` decides a *column*, not a row: a menu with any checked row lays that column out on every row, so the labels stay in a line; a menu with nothing checked never gets the column at all.
 
@@ -61,21 +61,21 @@ A disabled row is inert by having no handler rather than by having one that thin
 
 | method | argument | default | effect |
 | --- | --- | --- | --- |
-| `MenuButton::new` | `impl Into<ElementId>` | — | a closed 28 px trigger showing `☰` |
-| `.glyph` | `impl Into<SharedString>` | `☰` | replaces the character on the trigger |
-| `.icon` | asset path | none | draws a 16 px SVG instead of the glyph |
+| `MenuButton::new` | `impl Into<ElementId>` | — | a closed 28 px trigger showing the default hamburger icon (`rugpui::icons::MENU`, a 16 px SVG) |
+| `.glyph` | `impl Into<SharedString>` | none (the hamburger icon) | draws this text on the trigger instead of the default icon |
+| `.icon` | asset path | none | draws a 16 px SVG instead of the glyph or the default icon; wins over `.glyph` if both are set |
 | `.tooltip` | `impl Into<SharedString>` | none | hover label |
 | `.open` | `bool` | `false` | whether the dropdown is showing |
 | `.entries` | `Vec<MenuEntry>` | empty | the rows, in display order |
 | `.on_open_change` | `Fn(bool, …)` | none | the open state the menu would like to be in |
 
-`on_open_change` fires with `true` when the trigger is clicked while closed, and with `false` when the trigger is clicked again, when a row is activated, or when the pointer goes down anywhere outside the panel.
+`on_open_change` fires with `true` when the trigger is clicked while closed, and with `false` when the trigger is clicked again, when a row is activated, when the pointer goes down anywhere outside the panel, or on `Escape` while the dropdown is open.
 
 The dropdown is a **fixed 280 px** wide, deliberately: the same trigger opens the same menu every time, and a width that followed the entries would make the panel breathe under a button that never moves. It hangs 32 px below the trigger's top-left corner.
 
 ![Two closed menu triggers, one glyph and one icon](../screenshots/menu/button.png)
 
-*Two closed triggers: the default `☰` glyph, and one given `.icon(..)` instead.*
+*Two closed triggers: the default hamburger icon, and one given `.icon(..)` instead.*
 
 ## ContextMenu
 
@@ -120,7 +120,7 @@ div()
 | `.anchor` | `Anchor` | `Anchor::TopLeft` | which corner is pinned, and so which way the panel grows |
 | `.width` | `Pixels` | content-sized | a fixed width instead of measuring |
 | `.entries` | `Vec<MenuEntry>` | empty | the rows |
-| `.on_dismiss` | `Fn(&mut Window, &mut App)` | none | called after a row runs, or on a press outside |
+| `.on_dismiss` | `Fn(&mut Window, &mut App)` | none | called after a row runs, on a press outside, or on `Escape` |
 
 ### Positioning
 
@@ -144,6 +144,10 @@ Both draw two `deferred` layers over the window, so a menu opened inside a scrol
 
 The panel scrolls vertically once it is taller than the window minus the margins, with the wheel locked to that one axis; the rows stay `flex_none` so they scroll past rather than being squeezed.
 
+## Escape
+
+An open menu also closes on `Escape` — a bare one, or with Shift; a chord with Ctrl, Alt, the platform key or Fn is left alone — wherever the focus is. Neither menu takes the focus from the surface it was opened over, so the key is caught by a keystroke interceptor that runs ahead of that surface's own bindings, calls `on_dismiss` (for a `MenuButton`, `on_open_change(false)`), and stops propagation so the same press does not also close whatever is underneath. Only a press in the menu's own window counts, a closed `MenuButton` leaves `Escape` alone, and a menu with no `on_dismiss` / `on_open_change` cannot close itself this way either.
+
 ## Theme slots
 
 | slot | where |
@@ -159,7 +163,7 @@ The panel scrolls vertically once it is taller than the window minus the margins
 ## Pitfalls
 
 - **Nothing opens itself.** Both are stateless; store the flag and pass it back.
-- **`on_dismiss` fires for the outside press *and* after a row runs.** Clear your stored position in one place and let the row handlers do their own work.
+- **`on_dismiss` fires for the outside press, for `Escape`, *and* after a row runs.** Clear your stored position in one place and let the row handlers do their own work.
 - **A disabled row does not dismiss the menu.** That is by design; the user must click elsewhere.
 - **The context menu's element takes no layout space**, but it must still be a child of something that renders — attach it beside the content it belongs to, not in a detached branch.
 - **Shortcut hints are strings you write.** They are never derived from the bindings, so a hint that has drifted from its key binding will lie; the [`TextInput`](./text-input.md) menu shows the pattern for keeping them honest by building both from the same `cfg`.

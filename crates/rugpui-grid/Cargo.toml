@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "The virtualised result grid: a widget over rows it never fetches itself"
+# Consumed by git revision only, never from crates.io: its gpui is a git
+# dependency patched from `vendor/`, which a registry package cannot carry.
+publish = false
 
 [dependencies]
 # The chrome palette and the overlay scrollbars, and nothing else. In

@@ -81,10 +81,11 @@ mutates and whatever decides `disabled(..)`, and both live in the host view.
 
 ## Keyboard and mouse
 
-- Hover and press are styled through gpui's `hover`/`active` styles. The hover
-  and press fills are the variant's base colour shifted by ±6% lightness
-  (`surface_active` darkened by 4% for `Secondary`), computed by
-  `rugpui::theme::shift_lightness`.
+- Hover and press are styled through gpui's `hover`/`active` styles. On
+  `Primary` and `Danger` the hover and press fills are the base colour shifted
+  by ±6% lightness, computed by `rugpui::theme::shift_lightness`; `Secondary`
+  hovers to `surface_active` and presses to `surface_active` darkened by 4%,
+  and `Ghost` uses `surface_hover` and `surface_active` as they are.
 - A focused button draws an accent outline and is
   activated by `Enter` or `Space`, which gpui delivers as an ordinary click.
 - A disabled button is skipped by the tab order entirely, mirroring how the

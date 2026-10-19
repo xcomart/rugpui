@@ -259,6 +259,22 @@ impl PaneId {
     /// What a caller-supplied drag tag round-trips through: the strip hands
     /// the pane's own integer to the tab bar as an opaque tag, and the drop
     /// path turns it back into the pane it names.
+    ///
+    /// It has to stay, and it has to stay this loose. The tab bar lives in
+    /// `rugpui`, which knows nothing about panes, so [`rugpui::DraggedTab`]
+    /// and [`rugpui::TabDropState`] carry the strip as a bare `u64` — and the
+    /// applications both build `DraggedTab` literals and share that field with
+    /// tags of their own (a session or connection strip), so it cannot become
+    /// a `PaneId` without breaking every one of them.
+    ///
+    /// The constraint is therefore on the caller: pass only an integer that
+    /// came from [`Self::as_u64`], and check what came back against the tree
+    /// it is meant for — [`PaneTree::contains`] — before trusting it, as a
+    /// foreign strip's tag is just as much a `u64`. Nothing is unsafe about a
+    /// number that names no pane: every [`PaneTree`] method answers it as a
+    /// pane that is gone, the same as a stale id. But a number made up rather
+    /// than round-tripped can name some *other* live pane, since ids are a
+    /// process-wide counter, so this is not a way to mint one.
     pub fn from_u64(id: u64) -> Self {
         Self(id)
     }
@@ -405,6 +421,35 @@ impl<T> PaneTree<T> {
         let (rebuilt, payload) = take_leaf(root, target);
         self.root = Some(rebuilt.expect("a tree of two or more panes cannot empty"));
         payload
+    }
+
+    /// Exchanges the places of the panes `a` and `b`.
+    ///
+    /// Each pane moves whole, id and payload together, so whatever a caller
+    /// keeps by id — the active pane, a focus history — goes on naming the same
+    /// content in its new place. The splits stay where they are, dividers and
+    /// all: only the two leaves trade positions.
+    ///
+    /// Returns whether both panes were found and are distinct; on `false`
+    /// nothing changed.
+    pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
+        if a == b {
+            return false;
+        }
+        let mut leaves = Vec::new();
+        leaves_mut(self.root.as_mut().expect(ROOT_INVARIANT), &mut leaves);
+        let position = |target: PaneId, leaves: &[&mut PaneNode<T>]| {
+            leaves
+                .iter()
+                .position(|node| matches!(node, PaneNode::Leaf { id, .. } if *id == target))
+        };
+        let (Some(first), Some(second)) = (position(a, &leaves), position(b, &leaves)) else {
+            return false;
+        };
+        let (low, high) = (first.min(second), first.max(second));
+        let (head, tail) = leaves.split_at_mut(high);
+        std::mem::swap(&mut *head[low], &mut *tail[0]);
+        true
     }
 
     /// Moves the divider of the split `id`, giving its first child `ratio` of
@@ -651,6 +696,20 @@ fn collect<'a, T>(node: &'a PaneNode<T>, leaves: &mut Vec<(PaneId, &'a T)>) {
 }
 
 /// The payload of the leaf `target` inside `node`.
+/// Gathers every leaf node under `node`, mutably and in layout order.
+///
+/// Whole nodes rather than payloads, so that [`PaneTree::swap`] can trade a
+/// leaf's id along with what it shows.
+fn leaves_mut<'a, T>(node: &'a mut PaneNode<T>, out: &mut Vec<&'a mut PaneNode<T>>) {
+    match node {
+        PaneNode::Split { first, second, .. } => {
+            leaves_mut(first, out);
+            leaves_mut(second, out);
+        }
+        leaf @ PaneNode::Leaf { .. } => out.push(leaf),
+    }
+}
+
 fn find<T>(node: &PaneNode<T>, target: PaneId) -> Option<&T> {
     match node {
         PaneNode::Leaf { id, payload } => (*id == target).then_some(payload),
@@ -1048,6 +1107,42 @@ mod tests {
         assert_ne!(outer, inner);
         // The outer split was rebuilt around the inner one and kept its id.
         assert_eq!(root_split(&tree), outer);
+    }
+
+    #[test]
+    fn swapping_trades_two_panes_and_keeps_the_dividers() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        let two = tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        let three = tree.split(two, Axis::Vertical, 3).expect("2 exists");
+        let outer = root_split(&tree);
+        assert!(tree.set_ratio(outer, 0.3));
+
+        assert!(tree.swap(one, three));
+        assert_eq!(payloads(&tree), vec![3, 2, 1]);
+        // Each id travelled with its payload.
+        assert_eq!(tree.leaf_ids(), vec![three, two, one]);
+        assert_eq!(tree.get(one), Some(&1));
+        // The shape is untouched, divider included.
+        assert_eq!(root_split(&tree), outer);
+        assert_eq!(split_of(tree.root()), Some((Axis::Horizontal, 0.3)));
+
+        // And back again, from the other end.
+        assert!(tree.swap(one, three));
+        assert_eq!(payloads(&tree), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn swapping_refuses_an_unknown_pane_or_the_pane_itself() {
+        let mut tree = PaneTree::single(1u32);
+        let one = tree.first_leaf().0;
+        let two = tree.split(one, Axis::Horizontal, 2).expect("1 exists");
+        let stranger = PaneTree::single(9u32).first_leaf().0;
+
+        assert!(!tree.swap(one, one));
+        assert!(!tree.swap(one, stranger));
+        assert!(!tree.swap(stranger, two));
+        assert_eq!(payloads(&tree), vec![1, 2]);
     }
 
     #[test]

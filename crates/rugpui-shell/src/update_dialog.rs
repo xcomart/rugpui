@@ -15,6 +15,10 @@
 //!   remembered "ignore this version" tag: the user has just overruled it by
 //!   asking. Ignoring it again is still on offer, from the same button as ever.
 //!
+//! An announcement also carries the release's own notes — its summary and
+//! bullets, read by [`crate::release_notes`] — in a scrolling box under the two
+//! version lines, so the user can judge the update before taking it.
+//!
 //! Pressing Update moves into [`State::Busy`], where the dialog owns a download
 //! and a swap running on the background executor and draws a progress bar.
 //! There are no buttons in that state and `Escape` does nothing — see
@@ -43,17 +47,34 @@
 use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
-    AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Render, SharedString, Window, div, prelude::*, px, relative,
+    AnyElement, App, Context, DragMoveEvent, EventEmitter, FocusHandle, Focusable, FontWeight,
+    HighlightStyle, IntoElement, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
+    SharedString, StyledText, Window, div, prelude::*, px, relative,
 };
-use rugpui::{Button, ButtonVariant, modal, theme};
+use rugpui::{
+    Button, ButtonVariant, DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, SmoothScrollExt,
+    Theme, hide_later, hide_now, modal, scroll_to, scrolled, theme,
+};
 
 use crate::inject::{identity, label, text};
+use crate::release_notes::{Block, Inline};
+use crate::settings::monospace_family;
 use crate::update::{self, Check, Installed, Progress, Release, release_url};
 
 /// Width of the dialog panel. Matches the about dialog: both are a short
 /// paragraph and a row of buttons.
 const DIALOG_WIDTH: f32 = 420.;
+
+/// Width of the panel while it shows release notes: a bullet of them is a
+/// sentence or two, which wraps into a column at the narrower width.
+const NOTES_WIDTH: f32 = 540.;
+
+/// Height at which the release notes start scrolling, so a long release body
+/// never pushes the buttons off a small window.
+const NOTES_MAX_HEIGHT: f32 = 280.;
+
+/// Element id of the release notes' overlay scroll indicator.
+const NOTES_SCROLLBAR_ID: &str = "update-notes-scrollbar";
 
 /// Height of the download progress bar.
 const PROGRESS_BAR: f32 = 4.;
@@ -142,6 +163,10 @@ pub struct UpdateDialog {
     focus_handle: FocusHandle,
     /// Whether focus should move into the dialog on the next render.
     pending_focus: bool,
+    /// Scroll position of the release notes.
+    notes_scroll: ScrollHandle,
+    /// Whether the release notes' overlay scroll indicator is on screen.
+    notes_scrollbar: ScrollbarState,
 }
 
 impl UpdateDialog {
@@ -151,7 +176,16 @@ impl UpdateDialog {
             state: State::Closed,
             focus_handle: cx.focus_handle(),
             pending_focus: false,
+            notes_scroll: ScrollHandle::new(),
+            notes_scrollbar: ScrollbarState::new(),
         }
+    }
+
+    /// Puts `release` up, with its notes scrolled back to the top.
+    fn announce(&mut self, release: Release) {
+        self.notes_scroll = ScrollHandle::new();
+        self.notes_scrollbar = ScrollbarState::new();
+        self.state = State::Announce(release);
     }
 
     /// Shows the dialog, announcing `release`.
@@ -159,7 +193,7 @@ impl UpdateDialog {
     /// The start-up check's entry point: it has already decided there is
     /// something worth saying.
     pub fn open(&mut self, release: Release, cx: &mut Context<Self>) {
-        self.state = State::Announce(release);
+        self.announce(release);
         self.pending_focus = true;
         cx.notify();
     }
@@ -238,14 +272,16 @@ impl UpdateDialog {
         if !matches!(self.state, State::Checking) {
             return;
         }
-        self.state = match outcome {
-            Check::Newer(release) => State::Announce(release),
-            Check::UpToDate => State::UpToDate,
-            Check::Failed(message) => State::Failed {
-                release: None,
-                message,
-            },
-        };
+        match outcome {
+            Check::Newer(release) => self.announce(release),
+            Check::UpToDate => self.state = State::UpToDate,
+            Check::Failed(message) => {
+                self.state = State::Failed {
+                    release: None,
+                    message,
+                };
+            }
+        }
         cx.notify();
     }
 
@@ -411,6 +447,127 @@ impl UpdateDialog {
         cx.notify();
     }
 
+    /// The release notes on screen, when the dialog is showing any.
+    fn notes(&self) -> Option<&[Block]> {
+        match &self.state {
+            State::Announce(release) if !release.notes.is_empty() => Some(&release.notes),
+            _ => None,
+        }
+    }
+
+    /// The overlay scroll indicator of the release notes, as it stands.
+    fn notes_scrollbar(&self) -> Scrollbar {
+        Scrollbar::for_handle(
+            NOTES_SCROLLBAR_ID,
+            ScrollbarAxis::Vertical,
+            &self.notes_scroll,
+        )
+        .fade(self.notes_scrollbar.fade())
+    }
+
+    /// Puts the bar up whenever the notes have been scrolled, and starts the
+    /// clock that takes it down again.
+    fn watch_scroll(&mut self, cx: &mut Context<Self>) {
+        let scrolled = scrolled(&self.notes_scroll, ScrollbarAxis::Vertical);
+        if let Some(epoch) = self.notes_scrollbar.moved(scrolled) {
+            hide_later(epoch, cx, |dialog| Some(&mut dialog.notes_scrollbar));
+        }
+    }
+
+    /// Scrolls the notes while their thumb is dragged.
+    fn drag_scrollbar(&mut self, event: &DragMoveEvent<DraggedThumb>, cx: &mut Context<Self>) {
+        let Some(progress) = self.notes_scrollbar().dragged(event, cx) else {
+            return;
+        };
+        self.notes_scrollbar.hold();
+        scroll_to(&self.notes_scroll, ScrollbarAxis::Vertical, progress);
+        cx.notify();
+    }
+
+    /// Lets go of the thumb, and starts its clock again.
+    fn release_scrollbar(&mut self, cx: &mut Context<Self>) {
+        if let Some(epoch) = self.notes_scrollbar.release() {
+            hide_later(epoch, cx, |dialog| Some(&mut dialog.notes_scrollbar));
+            cx.notify();
+        }
+    }
+
+    /// Puts the bar up while the pointer rests on the edge it rides, and starts
+    /// it going the moment the pointer leaves.
+    fn hover_scrollbar(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if hovered {
+            if self.notes_scrollbar.hover_enter() {
+                cx.notify();
+            }
+            return;
+        }
+        if let Some(epoch) = self.notes_scrollbar.hover_leave() {
+            hide_now(self, epoch, cx, |dialog| Some(&mut dialog.notes_scrollbar));
+        }
+    }
+
+    /// The release notes under their heading, scrolling past a few screens'
+    /// worth, or `None` when the release has none to show.
+    fn notes_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let blocks = self.notes()?;
+        let theme = theme(cx);
+        let mono = monospace_family(cx);
+        let heading = label(cx, "update.notes");
+
+        let list = div()
+            .id("update-notes")
+            .track_scroll(&self.notes_scroll)
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .gap(px(6.))
+            .max_h(px(NOTES_MAX_HEIGHT))
+            .py(px(8.))
+            .pl(px(10.))
+            .pr(px(12.))
+            .overflow_y_scroll()
+            .smooth_scroll(&self.notes_scroll)
+            .restrict_scroll_to_axis()
+            .children(blocks.iter().map(|block| note_block(block, &theme, &mono)));
+
+        let bar =
+            self.notes_scrollbar()
+                .on_hover(cx.listener(|dialog, hovered: &bool, _window, cx| {
+                    dialog.hover_scrollbar(*hovered, cx);
+                }));
+
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pt(px(4.))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.text_muted)
+                        .child(heading),
+                )
+                .child(
+                    // The middle box holds the overlay bar: a scrolling box
+                    // cannot, because its children scroll away underneath it.
+                    div()
+                        .relative()
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.surface)
+                        .child(list)
+                        .children(bar.render(&theme)),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The heading the panel wears in the current state.
     ///
     /// "Update available" is only true where there is one; the states a manual
@@ -428,6 +585,8 @@ impl UpdateDialog {
 
     /// The paragraph above the buttons.
     fn message(&self, cx: &mut Context<Self>) -> AnyElement {
+        // Built first: it needs `cx` mutably, for its scrollbar's listener.
+        let notes = self.notes_section(cx);
         let theme = theme(cx);
         let app = identity(cx);
         let column = div().flex().flex_col().gap(px(6.));
@@ -470,6 +629,7 @@ impl UpdateDialog {
             State::Announce(release) => column
                 .child(line(available(release)))
                 .child(note(installed))
+                .children(notes)
                 .into_any_element(),
             State::Busy { release, phase } => {
                 let (heading, fraction, share) = match phase {
@@ -641,6 +801,68 @@ fn percent(done: u64, total: u64) -> u8 {
     u8::try_from(percent.min(100)).unwrap_or(100)
 }
 
+/// One block of release notes, drawn in the dialog's small type.
+fn note_block(block: &Block, theme: &Theme, mono: &SharedString) -> AnyElement {
+    let words = |inline: &Inline| styled(inline, theme, mono);
+    match block {
+        Block::Heading(inline) => div()
+            .pt(px(4.))
+            .text_size(px(12.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(theme.text)
+            .child(words(inline))
+            .into_any_element(),
+        Block::Paragraph(inline) => div()
+            .text_size(px(12.))
+            .text_color(theme.text)
+            .child(words(inline))
+            .into_any_element(),
+        Block::Item(inline) => div()
+            .flex()
+            .flex_row()
+            .gap(px(6.))
+            .text_size(px(12.))
+            .text_color(theme.text)
+            .child(div().flex_none().text_color(theme.text_muted).child("•"))
+            .child(div().flex_1().min_w_0().child(words(inline)))
+            .into_any_element(),
+    }
+}
+
+/// `inline` as styled text: strong spans in a heavier weight, code spans in
+/// the monospace face on a faint wash.
+fn styled(inline: &Inline, theme: &Theme, mono: &SharedString) -> StyledText {
+    let strong = inline.strong.iter().map(|range| {
+        (
+            range.clone(),
+            HighlightStyle {
+                font_weight: Some(FontWeight::SEMIBOLD),
+                ..HighlightStyle::default()
+            },
+        )
+    });
+    let code = inline.code.iter().map(|range| {
+        (
+            range.clone(),
+            HighlightStyle {
+                background_color: Some(theme.surface_active),
+                ..HighlightStyle::default()
+            },
+        )
+    });
+    let mut highlights: Vec<_> = strong.chain(code).collect();
+    // `StyledText` wants its highlights in order and merges overlapping ones.
+    highlights.sort_by_key(|(range, _)| range.start);
+    StyledText::new(inline.text.clone())
+        .with_highlights(highlights)
+        .with_font_family_overrides(
+            inline
+                .code
+                .iter()
+                .map(|range| (range.clone(), mono.clone())),
+        )
+}
+
 impl EventEmitter<UpdateDialogEvent> for UpdateDialog {}
 
 impl Focusable for UpdateDialog {
@@ -656,7 +878,13 @@ impl Render for UpdateDialog {
         }
 
         self.apply_pending_focus(window, cx);
+        self.watch_scroll(cx);
 
+        let width = if self.notes().is_some() {
+            NOTES_WIDTH
+        } else {
+            DIALOG_WIDTH
+        };
         let title = self.title(cx);
         let body = div()
             .flex()
@@ -681,13 +909,24 @@ impl Render for UpdateDialog {
             .size_full()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
-            .child(modal(
-                "update-modal",
-                title,
-                px(DIALOG_WIDTH),
-                body,
-                on_dismiss,
+            .on_drag_move::<DraggedThumb>(cx.listener(
+                |dialog, event: &DragMoveEvent<DraggedThumb>, _window, cx| {
+                    dialog.drag_scrollbar(event, cx);
+                },
             ))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|dialog, _: &MouseUpEvent, _window, cx| {
+                    dialog.release_scrollbar(cx);
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|dialog, _: &MouseUpEvent, _window, cx| {
+                    dialog.release_scrollbar(cx);
+                }),
+            )
+            .child(modal("update-modal", title, px(width), body, on_dismiss))
     }
 }
 

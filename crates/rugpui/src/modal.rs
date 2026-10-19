@@ -28,7 +28,9 @@ const MIN_PANEL_HEIGHT: f32 = 160.;
 /// Existing host key bindings keep their behaviour within that boundary.
 ///
 /// Clicks on the panel itself are swallowed; only clicks on the backdrop invoke
-/// `on_dismiss`.
+/// `on_dismiss`. The backdrop occludes everything under it, so while a dialog
+/// is up the window behind it hears no press, wheel or hover: a click that
+/// dismisses the dialog does not also land on whatever it was drawn over.
 ///
 /// The panel is as tall as its content but never taller than the window, so a
 /// `body` that can grow past that should put its own scroll area inside.
@@ -78,6 +80,11 @@ impl RenderOnce for Modal {
             .items_center()
             .justify_center()
             .bg(theme.overlay)
+            // The window behind a dialog is not to be used while the dialog is
+            // up: without this the dimmed surfaces still take the pointer, so
+            // a wheel scrolls them and a press on the backdrop reaches them as
+            // well as dismissing the dialog.
+            .occlude()
             .on_click(move |_, window, cx| on_dismiss(window, cx))
             .child(
                 div()
@@ -170,6 +177,9 @@ impl RenderOnce for FormRow {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::{Button, TextInput};
     use gpui::{
@@ -488,5 +498,86 @@ mod tests {
                 })
                 .unwrap();
         }
+    }
+
+    /// A surface behind a dialog, counting what reaches it.
+    struct Behind {
+        presses: Rc<Cell<usize>>,
+        wheels: Rc<Cell<usize>>,
+        dismissed: Rc<Cell<usize>>,
+    }
+
+    impl Render for Behind {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let (presses, wheels, dismissed) = (
+                self.presses.clone(),
+                self.wheels.clone(),
+                self.dismissed.clone(),
+            );
+            div()
+                .relative()
+                .size_full()
+                .child(
+                    div()
+                        .id("behind")
+                        .absolute()
+                        .inset_0()
+                        .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| {
+                            presses.set(presses.get() + 1);
+                        })
+                        .on_scroll_wheel(move |_, _, _| wheels.set(wheels.get() + 1)),
+                )
+                .child(modal("blocking", "Dialog", px(200.), div().h(px(40.)), {
+                    move |_, _| dismissed.set(dismissed.get() + 1)
+                }))
+        }
+    }
+
+    /// The backdrop keeps the pointer from the window behind it: a press on
+    /// it dismisses the dialog and reaches nothing else, and a wheel over it
+    /// scrolls nothing.
+    #[gpui::test]
+    fn the_backdrop_keeps_the_pointer_from_the_window_behind(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let presses = Rc::new(Cell::new(0));
+        let wheels = Rc::new(Cell::new(0));
+        let dismissed = Rc::new(Cell::new(0));
+        let window = cx.add_window({
+            let (presses, wheels, dismissed) = (presses.clone(), wheels.clone(), dismissed.clone());
+            move |_, _| Behind {
+                presses,
+                wheels,
+                dismissed,
+            }
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(600.), px(400.)));
+        cx.run_until_parked();
+
+        // A corner of the window: backdrop, well clear of the panel.
+        let corner = gpui::point(px(10.), px(10.));
+        cx.simulate_click(corner, gpui::Modifiers::none());
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: corner,
+            delta: gpui::ScrollDelta::Lines(gpui::point(0., 3.)),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+
+        assert_eq!(
+            dismissed.get(),
+            1,
+            "the backdrop did not dismiss the dialog"
+        );
+        assert_eq!(
+            presses.get(),
+            0,
+            "a press reached the window behind the dialog"
+        );
+        assert_eq!(
+            wheels.get(),
+            0,
+            "a wheel reached the window behind the dialog"
+        );
     }
 }

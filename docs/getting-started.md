@@ -87,11 +87,13 @@ application was built with. gpui's default source answers every path with
 error, no placeholder, an empty box where a folder should be. That covers the
 tree's row icons, a `TabItem::mark`, and the glyphs `WindowControls` draws.
 
-It also covers two icons that are *this crate's* rather than yours: the
+It also covers three icons that are *this crate's* rather than yours: the
 disclosure chevrons a `TreeView`, a `Collapsible` and every dropdown draw with,
-`rugpui::CARET_RIGHT` and `rugpui::CARET_DOWN`. Their bytes are in
-`rugpui::ICONS`, and a source that does not answer for them leaves trees with a
-column of blanks and dropdowns with no chevron; `rugpui::init` says so once in
+`rugpui::CARET_RIGHT` and `rugpui::CARET_DOWN`, and `rugpui::icons::MENU`, the
+hamburger a `MenuButton` draws when it is given no icon or glyph of its own.
+Their bytes are in `rugpui::ICONS`, and a source that does not answer for them
+leaves trees with a column of blanks, dropdowns with no chevron and that menu
+trigger empty; `rugpui::init` says so once in
 the log rather than leaving it to be found by squinting. So the source is your
 own table *and* that one, searched in order:
 
@@ -162,7 +164,7 @@ sequenceDiagram
     main->>rugpui: rugpui::init(cx)
     rugpui->>gpui: ThemeRegistry / EditorThemeRegistry globals
     rugpui->>gpui: Theme::dark(), EditorTheme::default(), window tint 1.0
-    rugpui->>gpui: TextInput and tree key bindings
+    rugpui->>gpui: TextInput, dropdown, list, tab-bar and tree key bindings
     main->>rugpui: rugpui_grid::init(cx)
     main->>rugpui: rugpui_editor::init(cx)
     main->>rugpui: theme_store::reload(&dirs, cx)
@@ -240,6 +242,7 @@ emit events you subscribe to:
 |---|---|---|
 | [`TextInput`](./widgets/text-input.md) | `rugpui` | the text, the caret, the selection, the IME state |
 | [`TreeView`](./widgets/tree.md) | `rugpui` | which nodes are expanded, which row is selected |
+| [`ListView`](./widgets/list.md) | `rugpui` | which row is selected, the scroll position |
 | [`GridView`](./grid.md) | `rugpui-grid` | the scroll position, the cell selection, the edit in progress |
 | [`EditorView`](./editor.md) | `rugpui-editor` | the rope, the history, the syntax cache |
 
@@ -300,8 +303,8 @@ cargo run -p rugpui-gallery -- --theme dark
 
 `--theme` takes any of `dark`, `light`, `solarized-dark`, `solarized-light`,
 `gruvbox-dark` and `dracula`, and picks the matching editor palette with it. The
-window shows every widget in an interesting state — a ticked checkbox, an open
-dropdown, a tree with two levels expanded, a grid with a range selected, an
+window shows every widget in an interesting state — a ticked checkbox, an
+unfolded section, a tree with two levels expanded, a grid with a range selected, an
 editor with a gutter mark on line 9 — so it doubles as a visual index. Its
 [`data.rs`](../crates/rugpui-gallery/src/data.rs) holds real `TreeSource` and
 `GridSource` implementations, which are the shortest correct examples of both

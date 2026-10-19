@@ -100,6 +100,7 @@ inside a render pass, would take the window down over a missing line of text. A
 | `update.downloading` | Progress heading | |
 | `update.installing` | Progress heading | |
 | `update.failed` | Error heading | |
+| `update.notes` | Heading over the release notes in an announcement | |
 | `update.update` `update.ignore` `update.open_release` | The three buttons | |
 | `settings.editor.name` | Theme editor's name field | |
 | `settings.editor.dark` | Theme editor's dark/light checkbox | |
@@ -147,6 +148,7 @@ is.
 | `draws_own_titlebar(style, window)` | `bool` | On Windows and macOS the style settles it. On Linux the *window's* actual decorations do: the ask for client-side decorations can be declined, and deciding from the style alone would draw a second caption under the compositor's. |
 | `titlebar_gestures(row)` | `Stateful<Div>` | Windows needs nothing — the row reports itself as `WindowControlArea::Drag` and the window procedure does the rest. macOS gets the double-click, routed through `Window::titlebar_double_click` so it follows System Settings. Linux gets all of it: `start_window_move` on press (the compositor takes the pointer, so a release would never arrive), `zoom_window` on double-click, `show_window_menu` on right-click. |
 | `client_tiling(window)` | `Option<gpui::Tiling>` | Always `None` off Linux. `Some` exactly when the compositor granted client-side decorations, with the edges that currently touch something marked tiled. |
+| `render_client_frame(content, tiling, border, active)` | `Div` | Frames a Linux client-decorated window's content: rounded corners clipped without a background-coloured rim, a one-pixel `border` outline, and a drop shadow outside the frame, stronger while `active`. Tiled edges get no rounding or border. Windows and macOS keep their native frames. Lives at `chrome::render_client_frame`. |
 | `render_resize_edges(tiling)` | `Vec<AnyElement>` | Four strips over the `SHADOW_BAND` and four `RESIZE_CORNER` squares, each starting `window.start_window_resize(edge)`; a tiled edge gets none. |
 | `window_appearance(blur, opacity)` | `WindowBackgroundAppearance` | Blur wins; failing that anything below fully opaque asks for `Transparent`; otherwise `Opaque`. |
 | `window_control_strips(icons, custom, window, cx)` | `(Option<WindowControls>, Option<WindowControls>)` | The caption buttons, split into the two ends a Linux desktop may ask for. Both `None` unless `custom`, and both `None` on macOS, where AppKit goes on drawing the traffic lights over your toolbar band. |
@@ -195,15 +197,16 @@ div().relative().size_full().children(
 
 [`IconSet`](../crates/rugpui-shell/src/icons.rs) is a `gpui::AssetSource` over
 several `const` tables, searched in order, so this crate's four caption glyphs,
-the widget layer's two disclosure marks and your own icons stay three slices in
-the three crates they belong to:
+the widget layer's disclosure marks and menu trigger, and your own icons stay
+three slices in the three crates they belong to:
 
 ```rust
 static SET: IconSet = IconSet::new(&[rugpui::ICONS, rugpui_shell::WINDOW_CONTROL_ICONS, ICONS]);
 ```
 
 `rugpui::ICONS` is not optional: leave it out and every tree, collapsible
-section and dropdown draws its arrow as nothing at all.
+section and dropdown draws its arrow as nothing at all, and a `MenuButton` given
+no icon of its own draws no trigger.
 
 Install it with `Application::with_assets`; without it gpui's default source
 answers every path with `None` and the icons paint as nothing at all. `icon(path,
@@ -269,13 +272,18 @@ reads as "gone" rather than as some other pane that took the slot.
 | `split(target, axis, payload)` | `Option<PaneId>` | Splits `target`; `None` when it is not in this tree. |
 | `merge_subtree(target, axis, subtree)` | `bool` | Puts a whole tree in the new half, ids and layout intact — how an open tab becomes a pane of another tab. |
 | `remove(target)` | `Option<T>` | Removes and *returns* the payload, so it doubles as "detach". Refuses the last pane: a tab with no panes has nothing to render, so the caller closes the tab instead. |
-| `set_ratio(id, ratio)` | `bool` | Moves a divider, clamped to `0..=1`. How much of a pane must stay visible is the view's question, so the view clamps to its own minimum first. |
+| `set_ratio(id, ratio)` | `bool` | Moves a divider, clamped to `0..=1`; a NaN ratio is refused and answers `false`. How much of a pane must stay visible is the view's question, so the view clamps to its own minimum first. |
+| `equalize(axis)` / `splits_along(axis)` | `bool` / `usize` | Evens out the panes along `axis` — only the dividers along it move — and answers whether any did; `splits_along` is what greys out an "even out" command with nothing to move. |
 | `get(id)` / `get_mut(id)` / `contains(id)` | | Payload lookups. |
 | `leaves()` / `leaf_ids()` / `leaf_count()` | | Layout order: first child before second, depth first. |
 | `first_leaf()` | `(PaneId, &T)` | The top-left pane; always present, so a caller holding a stale id has somewhere to fall back to. |
 | `next_leaf(from)` / `prev_leaf(from)` | `Option<PaneId>` | The focus cycle, wrapping at the ends. |
 
-`PaneId::as_u64` and `SplitId::as_u64` exist for building element ids. A split
+`PaneId::as_u64` and `SplitId::as_u64` exist for building element ids.
+`PaneId::from_u64` turns the integer back into an id, for a tab drag tag that
+round-trips through `rugpui::DraggedTab` and `TabDropState`: pass it only an
+integer that came from `as_u64`, and check the result with `contains` before
+trusting it, since a made-up number can name some other live pane. A split
 carries an id because a divider is *dragged*: the view starts a drag on one
 handle and then receives move events from every enclosing split as well, so it
 needs a way to tell "this is the divider being dragged" from "this is an
@@ -300,8 +308,12 @@ what a tab *is* differs per application — so you instantiate
 functions over `Pane::items` or through `Pane::position`.
 
 `new`, `items`, `is_empty`, `active_index`, `active`, `active_mut`, `get`,
-`get_mut`, `scroll_handle`, `activate`, `push`, `close`, `position`. Two of them
-have rules worth knowing:
+`get_mut`, `scroll_handle`, `activate`, `push`, `insert`, `relocate`, `close`,
+`position`. `insert(index, item)` and `relocate(from, to)` are what a dragged
+tab arrives and moves through: `insert` clamps an index past the end to the end,
+and `relocate` takes `to` in the strip's coordinates as drawn, keeps the top tab
+on the tab it was on unless that is the one moved, and answers `false` when
+nothing changed. Two more have rules worth knowing:
 
 * `activate(index)` answers `false` for an index that names no tab *and* for one
   already on top, which is what lets a caller skip the focus dance around a
@@ -318,8 +330,9 @@ side by side each scroll their own strip.
 
 ## Menus as rows
 
-A `rugpui::MenuEntry` is write-only: it carries a boxed callback and a private
-label, so nothing can be read back out of one. What a menu offers on a given
+A `rugpui::MenuEntry` is all but write-only: it carries a boxed callback, and
+nothing beyond its label and whether it is a rule can be read back out of one —
+not whether it is greyed or ticked, and its callback cannot be run. What a menu offers on a given
 table row, tab or document is exactly the decision worth testing, and a test
 that had to click at a computed pixel to find out would be testing the menu's
 line height.
@@ -446,7 +459,7 @@ flowchart TD
     N --> O
 ```
 
-`Release { tag, version, url, asset }` and
+`Release { tag, version, url, asset, notes }` and
 `Asset { name, url, size, digest }` are what the API parsed to; `asset` is
 `None` on a target the project does not publish for, which is what makes
 "Update" hand off to the browser instead. `Progress` is `Downloading { done,
@@ -547,7 +560,7 @@ adjusted to the bundle root.
 The macOS backend waits for the old PID to exit, then uses `open -n -a` with
 that exact bundle path. The new-instance flag prevents a stale LaunchServices
 registration from turning the restart into activation of the exiting app.
-Failed launch requests are retried up to five times, 200 ms apart. The helper
+A failed launch request is tried up to five times in all, 200 ms apart. The helper
 has its own process group, null standard streams and `/` as its working
 directory so it can outlive the old app and its renamed bundle. Bare development
 executables are executed directly. Arguments are passed without shell expansion.
@@ -603,6 +616,13 @@ the user to close the window exactly then. Closing it would not stop the
 background task anyway, only hide it. The error text under the translated "the
 update failed" heading is *not* translated: it is a `tar` message or an OS
 error, produced on a thread that has no business reaching into locale state.
+
+An announcement also shows the release's own notes, read from its GitHub body
+by [`release_notes::parse`](../crates/rugpui-shell/src/release_notes.rs) into
+headings, paragraphs and list items with `**strong**` and `` `code` `` spans.
+GitHub's generated tail — "What's Changed", "New Contributors", "Full
+Changelog" — is cut off, and a body with nothing else in it shows no notes at
+all. Long notes scroll inside the dialog rather than pushing the buttons away.
 
 Structurally it is a twin of `AboutDialog` — same `open`/`close`/`is_open`
 shape, same `Escape` handling, same "renders nothing while closed" contract — so

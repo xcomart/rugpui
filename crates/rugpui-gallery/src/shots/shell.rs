@@ -52,8 +52,8 @@ pub const SHOTS: &[Shot] = &[
     },
     Shot {
         name: "shell/update",
-        width: 560.,
-        height: 300.,
+        width: 640.,
+        height: 400.,
         per_theme: "",
         motion: Motion::Still,
         build: update,
@@ -135,6 +135,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("update.ignore", "Skip this version"),
     ("update.update", "Update"),
     ("update.open_release", "Open the release page"),
+    ("update.notes", "What's new"),
     ("menu.check_updates", "Check for updates"),
     ("settings.editor.theme_title", "Theme"),
     ("settings.editor.editor_theme_title", "Editor theme"),
@@ -315,6 +316,13 @@ fn update(_window: &mut Window, cx: &mut App) -> AnyView {
                 version: "0.3.0".to_owned(),
                 url: "https://github.com/xcomart/rugpui/releases/tag/v0.3.0".to_owned(),
                 asset: None,
+                notes: rugpui_shell::release_notes::parse(
+                    "rugpui 0.3.0 — release notes in the update dialog.\n\n\
+                     - **The update dialog shows what is new.** The release body \
+                     is read for its summary and bullets.\n\
+                     - **Generated sections are left out.** `What's Changed` and \
+                     the compare link stay on the release page.",
+                ),
             },
             cx,
         );

@@ -113,7 +113,7 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 
 ## Keyboard and mouse
 
-Identical to `Select`. One tab stop; `Enter`/`Space` toggle the list; `Up`/`Down` while open move without wrapping, scroll the row into view through the handle, and fire `on_select` immediately. Modified keystrokes are ignored. `Escape` is the parent's to handle. A click outside closes through a full-window backdrop.
+Identical to `Select`. One tab stop; `Enter`/`Space` toggle the list; `Up`/`Down` while open move without wrapping, scroll the row into view through the handle, and fire `on_select` immediately. Typing searches the displayed names with the same case-insensitive prefix search, one-second timeout and repeated-character cycling, open or closed. Modified keystrokes are ignored. `Escape` closes an open list through `on_open_change(false)` without reaching the dialog around it; while the list is closed it is the parent's to handle. A click outside closes through a full-window backdrop.
 
 ## Theme slots
 

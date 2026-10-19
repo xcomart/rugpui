@@ -374,6 +374,85 @@ fn undo_puts_the_caret_back_where_the_typing_started(cx: &mut TestAppContext) {
     assert_eq!(editor.caret(&mut cx), 7);
 }
 
+#[gpui::test]
+fn undoing_back_to_the_saved_text_reads_clean(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(8, cx));
+    cx.simulate_input("x");
+    editor.update(&mut cx, |editor, cx| editor.mark_clean(cx));
+    assert!(!editor.read(&mut cx, EditorView::is_dirty));
+
+    // Typing straight on after the save is a step of its own, so one press
+    // lands exactly on what was saved rather than before it.
+    cx.simulate_input("y");
+    assert!(editor.read(&mut cx, EditorView::is_dirty));
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select 1x");
+    assert!(
+        !editor.read(&mut cx, EditorView::is_dirty),
+        "back on the save"
+    );
+
+    // Away from it in either direction is dirty, and back again clean.
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select 1");
+    assert!(
+        editor.read(&mut cx, EditorView::is_dirty),
+        "before the save"
+    );
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert!(!editor.read(&mut cx, EditorView::is_dirty));
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "select 1xy");
+    assert!(editor.read(&mut cx, EditorView::is_dirty), "past the save");
+}
+
+#[gpui::test]
+fn undoing_every_edit_after_opening_reads_clean(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1", cx);
+    cx.simulate_input("x");
+    assert!(editor.read(&mut cx, EditorView::is_dirty));
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select 1");
+    assert!(!editor.read(&mut cx, EditorView::is_dirty));
+}
+
+#[gpui::test]
+fn a_save_that_was_undone_and_replaced_is_never_clean_again(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    cx.simulate_input("a");
+    editor.update(&mut cx, |editor, cx| editor.mark_clean(cx));
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    // A new edit drops the redo stack, and the saved state was on it.
+    cx.simulate_input("b");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "");
+    assert!(editor.read(&mut cx, EditorView::is_dirty));
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "b");
+    assert!(editor.read(&mut cx, EditorView::is_dirty));
+}
+
+#[gpui::test]
+fn the_history_limit_drops_the_oldest_steps(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("", cx);
+    editor.update(&mut cx, |editor, _| {
+        editor.set_history_limits(crate::HistoryLimits::new(1, usize::MAX));
+    });
+    cx.simulate_input("sel");
+    cx.simulate_keystrokes("left right");
+    cx.simulate_input("ect");
+
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "sel");
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "sel", "the first step was dropped");
+    assert!(
+        editor.read(&mut cx, EditorView::is_dirty),
+        "the opened text is out of undo's reach"
+    );
+}
+
 // --- the IME -----------------------------------------------------------------
 
 /// Runs one composition step, the way a platform IME does.

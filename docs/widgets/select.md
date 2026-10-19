@@ -15,16 +15,21 @@ use gpui::SharedString;
 use rugpui::{Select, SelectOption};
 
 Select::new("driver")
-    // Only the first row is marked here; drop the `SelectOption` and pass
-    // the bare strings — `.options(["PostgreSQL", "MySQL", …])` — for a list
-    // with no icons at all.
-    .options([
-        SelectOption::new("PostgreSQL").leading("icons/database.svg"),
-        SelectOption::new("MySQL"),
-        SelectOption::new("Oracle"),
-        SelectOption::new("SQLite"),
-        SelectOption::new("SQL Server"),
-    ])
+    // Every driver gets the same leading mark and the first a trailing one;
+    // pass the bare strings — `.options(["PostgreSQL", "MySQL", …])` — for a
+    // list with no icons at all.
+    .options(
+        ["PostgreSQL", "MySQL", "Oracle", "SQLite", "SQL Server"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let option = SelectOption::new(name).leading("icons/database.svg");
+                match index {
+                    0 => option.trailing("icons/warning.svg"),
+                    _ => option,
+                }
+            }),
+    )
     .selected(Some(self.choice.clone()))
     .placeholder("Pick a driver")
     .open(self.select_open)
@@ -79,7 +84,7 @@ struct Gallery {
 
 `on_select` hands over **both** the zero-based index and the text. Key off the index when the list has a fixed shape — a leading "no choice" row, say — because the text is translated and comparing against it would break in every language but one. Key off the text for a list discovered at runtime.
 
-`on_open_change` fires with `true` when the trigger is activated while closed, and with `false` when it is activated again, when a row is clicked, or when the pointer goes down anywhere outside the list.
+`on_open_change` fires with `true` when the trigger is activated while closed, and with `false` when it is activated again, when a row is clicked, when `Escape` closes the list, or when the pointer goes down anywhere outside the list.
 
 ![A closed trigger naming the picked option](../screenshots/select/closed.png)
 
@@ -130,12 +135,15 @@ The control takes a single tab stop by default; `.tab_index(…)` changes its or
 | keys | effect |
 | --- | --- |
 | `Up` / `Down` (while open) | move the selection by one, **without wrapping**, scroll the row into view, and fire `on_select` |
-| `Enter` / `Space` | toggle the list (gpui's default activation) |
-| `Escape` | **not handled** — see below |
+| typing text | select the next option whose label starts with what was typed (case-insensitive), scroll it into view, and fire `on_select` — open or closed |
+| `Enter` / `Space` | toggle the list (gpui's default activation); a `Space` typed in the middle of a search is text instead |
+| `Escape` (while open) | close the list through `on_open_change(false)` — see below |
 
 Arrow keys are ignored when any modifier is down, or when there are no options. They select immediately rather than deferring to a confirm key, so the parent sees each step as the user walks the list.
 
-Closing on `Escape` is left to the parent on purpose, so a dialog can decide whether the key belongs to the dropdown or to itself.
+The type-ahead search keeps its prefix per control: consecutive characters refine it, a one-second pause starts a new search, and repeating one character cycles through the options that start with it. A keystroke with Ctrl, Alt, the platform key or Fn held is left to the host.
+
+`Escape` closes an *open* dropdown without reaching the dialog around it: `rugpui::init` binds it to a `Dismiss` action in the focused trigger's key context, which only exists while the list is showing, so it stops there instead of also closing the dialog. While the dropdown is closed, `Escape` is left to the parent.
 
 Mouse: a click on the trigger toggles; a click on a row fires `on_select` and then `on_open_change(false)`; a press anywhere outside the list closes it through a full-window backdrop.
 
@@ -167,8 +175,8 @@ The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a c
 
 - **Nothing opens itself.** Store `open` and pass it back, or the list will never appear.
 - **Set a width if the trigger is not full-width.** Otherwise the list is 320 px whatever the trigger is.
-- **Arrow keys fire `on_select` as they move.** If your handler is expensive, debounce it — the widget will not.
-- **`Escape` is yours to handle.**
+- **Arrow keys and typed prefixes fire `on_select` as they move.** If your handler is expensive, debounce it — the widget will not.
+- **`Escape` is the dropdown's only while it is open.** A closed one leaves the key to you.
 - **Icons do not affect matching.** `.selected` and `on_select` see the label alone; two options with the same label and different icons are the same option as far as this widget is concerned.
 - **`.selected` is a value, not an index.** Passing a string no option matches is legal and shows on the trigger; that is how a stale setting stays visible instead of looking like nothing was chosen.
 

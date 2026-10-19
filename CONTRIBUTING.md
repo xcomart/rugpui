@@ -18,7 +18,9 @@ public APIs or vendored framework changes before implementing them.
 
 ## Development environment
 
-Use Git, stable Rust with `rustfmt` and `clippy`, and a native compiler toolchain:
+Use Git, stable Rust with `rustfmt` and `clippy` (CI pins the toolchain in
+`RUST_TOOLCHAIN` in [the workflow](.github/workflows/ci.yml), currently 1.98.0),
+and a native compiler toolchain:
 MSVC and the Windows SDK on Windows, Xcode command line tools on macOS, or a C
 compiler on Linux. The workspace uses edition 2024. The first build downloads
 pinned Git dependencies and compiles gpui from source.
@@ -74,6 +76,11 @@ cargo test --workspace --locked
 cargo test -p rugpui-editor --features custom-syntax --locked
 ```
 
+CI also runs `cargo deny --locked check` against [deny.toml](deny.toml)
+(advisories are non-blocking there), the macOS relaunch helper's tests (see
+[shell](docs/shell.md#the-install)) and a non-blocking `cargo check` of each
+consumer application's `dev` branch against the change.
+
 When editing public APIs or documentation, also run:
 
 ```sh
@@ -101,13 +108,33 @@ vendor changes minimal, preserve upstream notices and the existing
 revision update must account for all carried patches and platform siblings.
 Check the relevant platform; Linux tests do not validate Windows or macOS code.
 
+After any change under `vendor/` or to the patch list, run the vendor check. It
+diffs each patched crate against upstream Zed at the revision the root manifest
+pins, and fails on a changed hunk without a `RULOGMAN PATCH` marker on or next to
+it, or on a patched file the patch list in `Cargo.toml` does not name:
+
+```sh
+python3 scripts/vendor_check.py                       # fetches upstream (sparse, shallow)
+python3 scripts/vendor_check.py --upstream ../zed     # or uses a checkout at that revision
+```
+
+It needs Python 3.11 and Git, plus network access when it fetches. The flattened
+`Cargo.toml` of each vendored crate is not compared, and neither is
+`vendor/unicode-width`. A follow-on edit away from its patch's main hunk, such as
+an import, needs a short marker of its own. The check is not part of CI yet; a
+job could run it as a single step after checkout.
+
 `vendor/unicode-width` is not patched into or built by this workspace. Its
 consumer is rulogman, so changes there need validation through rulogman too.
 
 For a shared API or behavior change, test affected consumers before they adopt
 the new revision. Put sibling checkouts next to each other and add the following
-table to each consumer's uncommitted `.cargo/config.toml`, merging with any
-existing configuration:
+tables to each consumer's uncommitted `.cargo/config.toml`, merging with any
+existing configuration. The vendored gpui crates go under the Zed source rather
+than the rugpui one: the consumer already patches them to rugpui's Git source,
+and Cargo does not patch a patch, so an entry under the rugpui table would be
+reported unused and leave them at the pinned revision. The same CI job does the
+same thing.
 
 ```toml
 [patch."https://github.com/xcomart/rugpui"]
@@ -115,16 +142,19 @@ rugpui = { path = "../rugpui/crates/rugpui" }
 rugpui-grid = { path = "../rugpui/crates/rugpui-grid" }
 rugpui-editor = { path = "../rugpui/crates/rugpui-editor" }
 rugpui-shell = { path = "../rugpui/crates/rugpui-shell" }
+
+[patch."https://github.com/zed-industries/zed"]
 gpui = { path = "../rugpui/vendor/gpui" }
 gpui_linux = { path = "../rugpui/vendor/gpui_linux" }
 gpui_macos = { path = "../rugpui/vendor/gpui_macos" }
 gpui_windows = { path = "../rugpui/vendor/gpui_windows" }
 ```
 
-For rulogman, omit the unused `rugpui-grid` entry and add this entry to the same
-table to override its additional patch:
+For rulogman, omit the unused `rugpui-grid` entry and override its additional
+patch, which it takes from crates.io's source, in a third table:
 
 ```toml
+[patch.crates-io]
 unicode-width = { path = "../rugpui/vendor/unicode-width" }
 ```
 
@@ -148,6 +178,13 @@ patch. Submit intended manifest and lockfile updates together.
 Follow the surrounding Rust style and run `cargo fmt --all`. Keep a contribution
 focused on one behavior or API change, with its tests and documentation.
 
+Add notable changes to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md)
+in the same change, especially public API changes, behavior that a consumer
+observes, and vendored patch changes. Name the crate and say what a consumer
+must update when it moves its pinned revision. A release moves those entries
+under the new version heading. The crates are used only by Git revision and
+are not published to crates.io.
+
 `dev` is the integration branch. Fork if needed, branch from the latest upstream
 `dev`, and open a pull request targeting `dev`. Maintainers working directly in
 this workspace validate and commit on `dev`, then push to `origin/dev`.
@@ -165,8 +202,8 @@ pull request. Include gallery screenshots for visible changes, list consumer
 checks and identify anything not tested. Exclude unrelated formatting, build
 artifacts and local configuration.
 
-CI runs on pull requests and pushes to `main`, so a direct `dev` push needs local
-validation. Routine work ends at `origin/dev`. Promotion and releases are
+CI runs on pull requests and on pushes to `dev` and `main`, but a direct `dev`
+push still needs local validation first, since CI reports only after it lands. Routine work ends at `origin/dev`. Promotion and releases are
 separate maintainer actions: merge the `dev` → `main` PR after required checks,
 fetch `origin/main`, and tag its verified latest commit. Do not move an existing
 release tag.

@@ -143,7 +143,7 @@ host's to choose.
 | `insert_at_caret` | `&str`, `cx` | | Inserts at the caret, replacing the selection. One undo step. |
 | `replace_range` | `Range<usize>`, `&str`, `cx` | | Replaces a range, caret past it. How a completion is accepted. |
 | `line_count` | — | `usize` | Lines, counting the empty one after a trailing newline. |
-| `is_dirty` / `mark_clean` | — / `cx` | `bool` / | Changed since it was set or last marked clean. |
+| `is_dirty` / `mark_clean` | — / `cx` | `bool` / | Changed since it was set or last marked clean; undoing back to that point reads clean again. |
 | `set_read_only` / `is_read_only` | `bool`, `cx` / — | / `bool` | Refuse changes, or stop refusing. |
 | `set_word_wrap` / `is_word_wrap` | `bool`, `cx` / — | / `bool` | Break long lines at the width of the text area, or stop breaking them. See [Word wrap](#word-wrap). |
 | **selection and caret** | | | |
@@ -157,6 +157,10 @@ host's to choose.
 | **statements and history** | | | |
 | `statement_at_caret` | — | `Option<StatementSpan>` | `None` for a plain-text buffer and for any highlighter whose `statements()` is false. |
 | `can_undo` / `can_redo` | — | `bool` | For greying out a host menu. |
+| `set_history_limits` | `HistoryLimits` | | Caps the undo history by steps and by bytes of text, oldest steps dropped first. `HistoryLimits::DEFAULT` (10,000 steps or 64 MiB) unless changed; `HistoryLimits::UNBOUNDED` keeps everything. |
+| **scrolling** | | | |
+| `scroll_progress` | `ScrollbarAxis` | `f32` | How far along one axis's scrollable range the view is, from zero to one. |
+| `set_scroll_progress` | `ScrollbarAxis`, `f32`, `cx` | | Scrolls a linked view to that position without moving its caret or emitting `EditorScrollEvent`. |
 | **marks** | | | |
 | `set_marks` | `Vec<(usize, MarkKind)>`, `cx` | | Replaces the gutter marks. Zero-based lines. |
 | `marks` | — | `&[(usize, MarkKind)]` | The marks in force, sorted by line. |
@@ -195,6 +199,11 @@ Subscribe with `cx.subscribe(&editor, |_, editor, event: &EditorEvent, cx| ...)`
 | `RunAll` | — | Run the whole buffer. |
 | `Intercepted` | `NavKey` | One of `Up`, `Down`, `Enter`, `Tab`, `Escape`, while `set_intercept(true)`. |
 | `ContextMenu` | `position: Point<Pixels>` | A right click. The editor took the focus and said where; the host draws the menu. |
+
+A second event type, `EditorScrollEvent { axis, progress }`, is emitted when a
+wheel or a scrollbar drag moves one axis. Subscribe to it separately — a host
+keeping two views in step applies it to the other one with
+`set_scroll_progress`, which emits nothing back.
 
 The editor never runs anything — it has no connection and no notion of one. The
 three `Run` variants are requests, and their spans are byte ranges into what
@@ -825,8 +834,8 @@ and rows are then what the editor counts in:
 * `PageUp` and `PageDown` move a screenful of rows.
 * A click lands on the row it was aimed at, and past the right edge of a row it
   lands at the end of that row.
-* The horizontal scrollbar goes away, and `scroll_offset().x` stays at zero:
-  with nothing off to the right there is nothing to scroll to.
+* The horizontal scrollbar goes away, and the horizontal scroll offset stays
+  at zero: with nothing off to the right there is nothing to scroll to.
 
 Everything else is unchanged. A wrapped line is still one line: `line_count()`,
 `caret_position()`, the gutter number, `set_marks` and every byte offset in the
@@ -874,7 +883,11 @@ caret move, an indent, a comment toggle, a replace-all, the commit of an IME
 composition — is its own `Transaction`. A composition is not recorded while it
 runs: typing `ㅎ`, `하`, `한` is one edit, not three, because the intermediate
 states are not text anyone typed. A `Transaction` carries the selection before
-and after, so undo puts the caret back where the typing *started*.
+and after, so undo puts the caret back where the typing *started*. The history
+is capped — `HistoryLimits::DEFAULT` is ten thousand steps or 64 MiB of text,
+and `set_history_limits` changes it — and drops its oldest steps beyond that, so
+undo cannot return past a dropped step and a save older than the oldest kept
+step cannot read clean again.
 
 **Statements** are `statement_at_caret()`, gated on `Highlighter::statements()`.
 A statement runs from the first non-blank byte after the previous semicolon to

@@ -1,9 +1,9 @@
 //! The rows of a right-click menu, before they become widget entries.
 //!
 //! Every surface of a window has a menu, and none of them is built as
-//! [`MenuEntry`] directly — because that type is write-only: a row of it
-//! carries a boxed callback and a private label, so nothing can be read back
-//! out of one. What a menu offers on a given table row, a given tab or a given
+//! [`MenuEntry`] directly — because that type is nearly write-only: a row of
+//! it carries a boxed callback, and only its label and whether it is a
+//! separator can be read back out of one. What a menu offers on a given table row, a given tab or a given
 //! document is exactly the decision worth testing, and a test that had to click
 //! at a computed pixel to find out would be testing the menu's line height.
 //!

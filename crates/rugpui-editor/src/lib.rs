@@ -118,7 +118,7 @@ pub use editor::{EditorEvent, EditorScrollEvent, EditorView, MarkKind, NavKey, i
 pub use element::EditorElement;
 pub use find::{FindState, find_all};
 pub use highlight::{Highlighter, LineState, Span, SyntaxCache, Token, color_for, runs_for_spans};
-pub use history::{Edit, EditKind, History, SelectionState, Transaction};
+pub use history::{Edit, EditKind, History, HistoryLimits, SelectionState, Transaction};
 pub use lang::{FileMatch, LanguageEntry, LanguageRegistry, highlighter_for_extension};
 pub use snippet::{CodeSnippet, tooltip_code};
 pub use sql_syntax::SqlHighlighter;

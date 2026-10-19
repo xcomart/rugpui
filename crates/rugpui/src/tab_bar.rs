@@ -2594,7 +2594,7 @@ mod tests {
     #[gpui::test]
     fn an_unfocused_strip_ignores_the_keys(cx: &mut TestAppContext) {
         let (harness, mut cx) = open_keys(cx, vec!["a", "b", "c"]);
-        cx.update(|window, _| window.blur());
+        cx.update(|window, cx| window.blur(cx));
         cx.run_until_parked();
 
         cx.simulate_keystrokes("right");

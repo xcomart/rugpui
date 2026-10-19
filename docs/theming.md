@@ -417,7 +417,7 @@ for the shell alone, and only for a fill it has reasoned about;
 legible than see-through simply does not ask and paints itself opaque, which is
 the choice the code editor made.
 
-## Two helpers
+## Three helpers
 
 - `shift_lightness(color, delta) -> Hsla` — lightness moved by `delta`, clamped
   to `[0, 1]`. How a widget derives a hover or pressed shade from a base colour
@@ -426,6 +426,10 @@ the choice the code editor made.
   symmetric in its arguments so a caller need not know which is the foreground.
   Alpha plays no part: a translucent colour would have to be composited against
   a specific background before its luminance meant anything.
+- `lerp(from, to, fraction) -> Hsla` — `from` mixed into `to`, channel by
+  channel in sRGB, with `fraction` clamped to `[0, 1]`. What a widget animating
+  between two slots draws with — the switch's track and knob — and sRGB rather
+  than HSL so a fade between unrelated hues goes straight there.
 
 ## How a colour reaches a widget
 

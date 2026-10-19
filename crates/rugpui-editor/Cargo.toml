@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "The code editor widget, with pluggable syntax highlighting"
+# Consumed by git revision only, never from crates.io: its gpui is a git
+# dependency patched from `vendor/`, which a registry package cannot carry.
+publish = false
 
 [dependencies]
 # The document. See the workspace manifest for why a rope and why these

@@ -11,12 +11,17 @@
 //! open flag — and, for a context menu, the position that goes with it — passes
 //! it in on every render, and closes the menu from
 //! [`MenuButton::on_open_change`] or [`ContextMenu::on_dismiss`].
+//!
+//! An open menu also closes on `Escape`, wherever the focus is: neither menu
+//! takes the focus from the surface it was opened over, so the key is caught
+//! ahead of that surface's own bindings rather than at the menu.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ElementId, Pixels, Point, SharedString, Size, Window, anchored, deferred, div,
-    point, prelude::*, px, svg,
+    AnyElement, App, Div, ElementId, Hsla, Keystroke, Pixels, Point, SharedString, Size,
+    Subscription, Window, anchored, deferred, div, point, prelude::*, px, svg,
 };
 
 use crate::theme::{Theme, theme};
@@ -79,6 +84,26 @@ const PANEL_MAX_WIDTH: f32 = 360.;
 /// Width of the column a check mark sits in.
 const CHECK_WIDTH: f32 = 16.;
 
+/// Edge length of the colour square a row can lead with; see
+/// [`MenuEntry::swatch`].
+pub(crate) const SWATCH_SIZE: f32 = 12.;
+
+/// Space between a row's colour square and its label.
+const SWATCH_GAP: f32 = 8.;
+
+/// A square of `color`, framed so that a colour close to the panel's own still
+/// reads as a square: what [`MenuEntry::swatch`] and
+/// [`SelectOption::swatch`](crate::select::SelectOption::swatch) draw.
+pub(crate) fn color_swatch(color: Hsla, theme: &Theme) -> Div {
+    div()
+        .flex_none()
+        .size(px(SWATCH_SIZE))
+        .rounded_sm()
+        .border_1()
+        .border_color(theme.border)
+        .bg(color)
+}
+
 /// What a checked row is marked with.
 ///
 /// A glyph rather than an asset: the mark has to line up with a row of text and
@@ -128,6 +153,8 @@ pub struct MenuEntry {
     disabled: bool,
     /// Whether the row carries a check mark.
     checked: bool,
+    /// The colour square drawn before the label, if any.
+    swatch: Option<Hsla>,
 }
 
 impl MenuEntry {
@@ -140,6 +167,7 @@ impl MenuEntry {
             separator: false,
             disabled: false,
             checked: false,
+            swatch: None,
         }
     }
 
@@ -162,6 +190,7 @@ impl MenuEntry {
             separator: true,
             disabled: false,
             checked: false,
+            swatch: None,
         }
     }
 
@@ -208,6 +237,18 @@ impl MenuEntry {
         self.checked = checked;
         self
     }
+
+    /// Leads the label with a square of `color`.
+    ///
+    /// For the menus whose rows *are* colours, where the name alone says less
+    /// than the colour it stands for. Like the check mark, the square has a
+    /// column of its own that is laid out on every row of a menu that has one,
+    /// so a row without a colour — "none", say — keeps its label in line with
+    /// the rest.
+    pub fn swatch(mut self, color: Hsla) -> Self {
+        self.swatch = Some(color);
+        self
+    }
 }
 
 /// How wide a dropdown panel draws itself.
@@ -233,6 +274,71 @@ enum PanelWidth {
 /// ends up.
 fn panel_max_height(viewport: Size<Pixels>) -> Pixels {
     viewport.height - px(2. * WINDOW_MARGIN)
+}
+
+/// What keeps `Escape` closing one open menu.
+///
+/// Held in the menu's element state, so it lives exactly as long as the menu is
+/// drawn in consecutive frames: a menu the host stops rendering drops the
+/// interceptor with it, and nothing has to be unregistered by hand.
+struct EscapeDismiss {
+    /// The handler of the menu as last drawn; taken when it fires, so a second
+    /// `Escape` before the host has redrawn reaches the surface underneath.
+    handler: Rc<RefCell<Option<DismissHandler>>>,
+    _interceptor: Subscription,
+}
+
+/// Whether `keystroke` is a bare `Escape`. Shift is allowed, the way a menu
+/// row's click allows it; a chord with a command modifier is somebody else's.
+fn is_escape(keystroke: &Keystroke) -> bool {
+    let modifiers = &keystroke.modifiers;
+    keystroke.key == "escape"
+        && !modifiers.control
+        && !modifiers.alt
+        && !modifiers.platform
+        && !modifiers.function
+}
+
+/// Has `Escape` call `on_dismiss` for as long as the menu `id` is drawn.
+///
+/// A keystroke interceptor rather than a key binding: the focus stays on the
+/// editor, grid or terminal the menu was opened over, so a binding would have
+/// to be made by every one of them, and theirs would run first — the editor's
+/// own `Escape` closes its find bar. An interceptor runs before any binding,
+/// and stopping propagation there keeps the key from also closing whatever is
+/// under the menu. Only `Escape` pressed in the menu's own window counts.
+fn dismiss_on_escape(
+    id: ElementId,
+    on_dismiss: Option<DismissHandler>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // A menu with nobody to tell cannot close itself, and taking no state here
+    // also drops an interceptor left from a frame that had a handler.
+    let Some(on_dismiss) = on_dismiss else {
+        return;
+    };
+    let state = window.use_keyed_state((id, "escape"), cx, |window, cx| {
+        let handler: Rc<RefCell<Option<DismissHandler>>> = Rc::default();
+        let owner = window.window_handle();
+        let current = handler.clone();
+        let interceptor = cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle() != owner || !is_escape(&event.keystroke) {
+                return;
+            }
+            // Out of the cell before the call: the handler may well redraw.
+            let Some(dismiss) = current.borrow_mut().take() else {
+                return;
+            };
+            dismiss(window, cx);
+            cx.stop_propagation();
+        });
+        EscapeDismiss {
+            handler,
+            _interceptor: interceptor,
+        }
+    });
+    *state.read(cx).handler.borrow_mut() = Some(on_dismiss);
 }
 
 /// Builds the full-window sheet that sits under an open menu.
@@ -281,6 +387,8 @@ fn menu_panel(
     // only indented its own row would leave the labels stepping sideways down
     // the list.
     let checkable = entries.iter().any(|entry| entry.checked);
+    // The same, for the colour column.
+    let swatched = entries.iter().any(|entry| entry.swatch.is_some());
     // Only a panel that may run out of room truncates. A fixed-width one was
     // measured for its own rows, and an ellipsis there would be a regression
     // rather than a fallback.
@@ -306,6 +414,7 @@ fn menu_panel(
             on_activate,
             disabled,
             checked,
+            swatch,
             ..
         } = entry;
 
@@ -352,11 +461,32 @@ fn menu_panel(
             })
             .child(
                 div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
                     .flex_1()
                     .min_w_0()
-                    .whitespace_nowrap()
-                    .when(truncates, |this| this.text_ellipsis())
-                    .child(label),
+                    .gap(px(SWATCH_GAP))
+                    // Inside the label's box rather than a column of the row:
+                    // the row's gap is sized for the space before a shortcut,
+                    // and a square that far from its name would read as
+                    // belonging to neither.
+                    .when(swatched, |this| {
+                        this.child(
+                            div()
+                                .flex_none()
+                                .w(px(SWATCH_SIZE))
+                                .children(swatch.map(|color| color_swatch(color, theme))),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .whitespace_nowrap()
+                            .when(truncates, |this| this.text_ellipsis())
+                            .child(label),
+                    ),
             )
             .children(shortcut.map(|shortcut| {
                 div()
@@ -490,8 +620,8 @@ impl ContextMenu {
         self
     }
 
-    /// Called when the menu should go away: after a row is activated, or when
-    /// the pointer goes down outside the panel.
+    /// Called when the menu should go away: after a row is activated, when the
+    /// pointer goes down outside the panel, or on `Escape`.
     pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_dismiss = Some(Rc::new(handler));
         self
@@ -502,6 +632,7 @@ impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let viewport = window.viewport_size();
+        dismiss_on_escape(self.id.clone(), self.on_dismiss.clone(), window, cx);
         let backdrop = menu_backdrop(
             ElementId::from((self.id.clone(), "backdrop")),
             viewport,
@@ -656,6 +787,10 @@ impl RenderOnce for MenuButton {
             Rc::new(move |window: &mut Window, cx: &mut App| handler(false, window, cx))
                 as DismissHandler
         });
+        // Only while the dropdown is out: a closed button leaves `Escape` alone.
+        if open {
+            dismiss_on_escape(self.id.clone(), on_dismiss.clone(), window, cx);
+        }
 
         // A trigger only ever wears a mark — an icon, or a glyph standing in
         // for one — never a word, so its resting colour is the theme's icon
@@ -777,8 +912,9 @@ mod tests {
     use std::ops::Deref;
 
     use gpui::{
-        Context, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, ScrollDelta,
-        ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
+        Context, FocusHandle, KeyBinding, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+        Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
+        actions,
     };
 
     use super::*;
@@ -829,6 +965,7 @@ mod tests {
         label: SharedString,
         disabled: bool,
         checked: bool,
+        swatched: bool,
     }
 
     impl Row {
@@ -838,7 +975,14 @@ mod tests {
                 label: SharedString::new_static(label),
                 disabled: false,
                 checked: false,
+                swatched: false,
             }
+        }
+
+        /// The same row, led by a colour square.
+        fn swatched(mut self) -> Self {
+            self.swatched = true;
+            self
         }
 
         /// The same row, greyed out.
@@ -883,10 +1027,15 @@ mod tests {
                 .enumerate()
                 .map(|(index, row)| {
                     let activated = self.activated.clone();
-                    MenuEntry::new(row.label.clone())
+                    let entry = MenuEntry::new(row.label.clone())
                         .disabled(row.disabled)
                         .checked(row.checked)
-                        .on_activate(move |_, _| activated.borrow_mut().push(index))
+                        .on_activate(move |_, _| activated.borrow_mut().push(index));
+                    if row.swatched {
+                        entry.swatch(gpui::red())
+                    } else {
+                        entry
+                    }
                 })
                 .collect()
         }
@@ -1044,6 +1193,95 @@ mod tests {
             .into()
     }
 
+    /// `Escape` closes either menu without a click, and without the focus
+    /// having to be on it — the harness never focuses anything.
+    #[gpui::test]
+    fn escape_dismisses_either_menu(cx: &mut TestAppContext) {
+        for surface in [Surface::Context, Surface::Button] {
+            let (menu, mut cx) = open(surface, vec![Row::new(SHORT)], cx);
+            cx.simulate_keystrokes("escape");
+            cx.run_until_parked();
+            assert_eq!(menu.drain(), Vec::<usize>::new(), "no row runs");
+            assert_eq!(menu.dismissals(), 1);
+
+            // A chord is not `Escape`.
+            cx.simulate_keystrokes("ctrl-escape");
+            cx.run_until_parked();
+            assert_eq!(menu.dismissals(), 1);
+        }
+    }
+
+    actions!(menu_escape_test, [HostEscape]);
+
+    /// A focused surface with an `Escape` binding of its own, and a context
+    /// menu over it that closes for real.
+    struct Host {
+        focus: FocusHandle,
+        menu_open: bool,
+        host_escapes: usize,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            div()
+                .size_full()
+                .key_context("MenuEscapeHost")
+                .track_focus(&self.focus)
+                .on_action(cx.listener(|host, _: &HostEscape, _, _| host.host_escapes += 1))
+                .when(self.menu_open, |this_div| {
+                    this_div.child(
+                        ContextMenu::new("menu")
+                            .position(point(px(MENU_X), px(MENU_Y)))
+                            .entries(vec![MenuEntry::new(SHORT)])
+                            .on_dismiss(move |_, cx| {
+                                this.update(cx, |host, cx| {
+                                    host.menu_open = false;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                })
+        }
+    }
+
+    /// The menu is on top, so it takes the key before the surface under it —
+    /// and once it has gone, the surface's own `Escape` works again.
+    #[gpui::test]
+    fn escape_closes_the_menu_before_the_surface_under_it(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.bind_keys([KeyBinding::new(
+                "escape",
+                HostEscape,
+                Some("MenuEscapeHost"),
+            )]);
+        });
+        let window = cx.add_window(|_, cx| Host {
+            focus: cx.focus_handle(),
+            menu_open: true,
+            host_escapes: 0,
+        });
+        let host = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.update(|window, cx| {
+            let focus = host.read(cx).focus.clone();
+            focus.focus(window, cx);
+        });
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            assert!(!host.read(cx).menu_open, "the menu closed");
+            assert_eq!(host.read(cx).host_escapes, 0, "and kept the key");
+        });
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|_, cx| assert_eq!(host.read(cx).host_escapes, 1));
+    }
+
     /// The two halves of what disabled means: the callback never runs, and the
     /// menu is still there afterwards — a row that did nothing *and* closed the
     /// menu would read as a command that silently failed.
@@ -1104,6 +1342,26 @@ mod tests {
             CHECK_WIDTH + ROW_GAP,
             "the column is laid out once for the menu, on the checked row and \
              the unchecked one alike"
+        );
+    }
+
+    /// The colour column is the menu's too, and sits closer to its label than
+    /// the row's gap: one square widens every row by the square and its own
+    /// gap.
+    #[gpui::test]
+    fn the_swatch_column_is_laid_out_for_the_whole_menu(cx: &mut TestAppContext) {
+        let rows = vec![Row::new(MEDIUM), Row::new(MEDIUM)];
+        let (_, mut bare_cx) = open(Surface::Context, rows.clone(), cx);
+        let bare = panel_width(&mut bare_cx);
+
+        let swatched = vec![rows[0].clone(), rows[1].clone().swatched()];
+        let (_, mut swatched_cx) = open(Surface::Context, swatched, cx);
+
+        assert_eq!(
+            panel_width(&mut swatched_cx) - bare,
+            SWATCH_SIZE + SWATCH_GAP,
+            "the column is laid out once for the menu, on the coloured row and \
+             the plain one alike"
         );
     }
 

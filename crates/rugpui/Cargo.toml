@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Reusable gpui widgets and the theme layer they draw with"
+# Consumed by git revision only, never from crates.io: its gpui is a git
+# dependency patched from `vendor/`, which a registry package cannot carry.
+publish = false
 
 [dependencies]
 anyhow.workspace = true

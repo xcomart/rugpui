@@ -120,8 +120,8 @@ A source that cannot tell says `GridColumnKind::Text`, which is the safe answer 
 | --- | --- | --- |
 | `GridCell::Null` | `NULL_TEXT` (`"NULL"`) | yes |
 | `GridCell::Default` | `DEFAULT_TEXT` (`"DEFAULT"`) | yes |
-| `GridCell::Text(&str)` | the text, possibly empty | no |
-| `GridCell::Lob { size: Option<u64> }` | `lob_label(size)` — `[LOB 4096]` or `[LOB]` | yes |
+| `GridCell::Text(&str)` | the text, possibly empty, on one row — a line break is drawn as `\n` | no |
+| `GridCell::Lob { size: Option<u64>, preview: Option<&str> }` | the `preview` when there is one, drawn like `Text`; otherwise `lob_label(size)` — `[LOB 4096]` or `[LOB]` | only without a `preview` |
 
 `GridCell::Default` is never returned by a source over a result set: a row that exists on the server has a value in every column, and that value may be `Null`. It exists for a staging layer holding a row that is not inserted yet, where a column left out means "the server will supply it" — which is not the same as writing `NULL` over an auto-increment key.
 
@@ -256,7 +256,7 @@ let grid = cx.new(|cx| {
 });
 ```
 
-Give it a bounded box to live in — the gallery puts it in a bordered `div().h(px(256.))` — and render it with `self.grid.clone()`.
+Give it a bounded box to live in — the gallery puts it in a bordered box that fills its half of a vertical [`Splitter`](./widgets/splitter.md) — and render it with `self.grid.clone()`.
 
 ![A result grid with fitted columns and a coloured key column](./screenshots/grid/default.png)
 
@@ -412,7 +412,7 @@ With nothing picked yet, the first keystroke lands on the first cell rather than
 
 The grid draws edit state and hosts the editor; it stages nothing and sends nothing. The editor has to live here for one reason: it is placed over a cell, and nothing else knows where a cell is.
 
-`begin_edit(row, column, window, cx) -> bool` refuses when the cell is not there, its column is hidden, `cell_editable` says no (the default), or the cell holds a `GridCell::Lob` whose body is not in the grid. Then it asks [`cell_editor`](#choosing-the-editor) which of the three to open. The field — the default, and what every source got before there was a choice — is seeded with the cell's text; a `Null` or `Default` cell seeds an empty one, but the grid remembers that the cell held no value, so leaving that field empty commits nothing rather than quietly turning `NULL` into `''`.
+`begin_edit(row, column, window, cx) -> bool` refuses when the cell is not there, its column is hidden, or `cell_editable` says no (the default). Then it asks [`cell_editor`](#choosing-the-editor) which of the four to open; for anything but `External` it also refuses a cell that holds a `GridCell::Lob`, whose body is not in the grid. The field — the default, and what every source got before there was a choice — is seeded with the cell's text; a `Null` or `Default` cell seeds an empty one, but the grid remembers that the cell held no value, so leaving that field empty commits nothing rather than quietly turning `NULL` into `''`.
 
 **A close commits.** `Enter`, `Tab`, the focus going elsewhere, a sort, a refresh, a scroll that takes the row off screen, a column dragged — all of them raise `GridEvent::EditCommitted`. Only `Escape` throws the typing away. This is about the *field*: a dropdown and a custom editor have nothing half-finished in them, because both stage the moment the user picks, so the same gestures simply take them down with nothing staged. The asymmetry is deliberate: what is committed is *staged*, not sent, so the cost of committing something the user did not mean is one undo in the pending changes, while the cost of discarding is the typing. Committing an unchanged field raises nothing at all, so opening a cell, looking at it and moving on is silent either way.
 
@@ -427,18 +427,21 @@ While the editor is open a second key context, `GridCellEditor`, exists — `Esc
 ```rust
 pub enum CellEditor {
     Text,
+    External,
     Choice { options: Vec<SharedString>, nullable: bool },
     Custom(Rc<dyn Fn(&CellEditorContext, &mut Window, &mut App) -> AnyElement>),
 }
 ```
 
-All three land in the same box over the cell, for the same reason: only the grid knows where a cell is. What differs is **when they stage**. A field stages on the close; a dropdown and a custom editor stage the moment the user picks, so everything that merely *closes* one of those — a scroll, a sort, a column dragged out from under it — takes it down with nothing staged.
+`Text`, `Choice` and `Custom` land in the same box over the cell, for the same reason: only the grid knows where a cell is. What differs is **when they stage**. A field stages on the close; a dropdown and a custom editor stage the moment the user picks, so everything that merely *closes* one of those — a scroll, a sort, a column dragged out from under it — takes it down with nothing staged.
 
 **`Text`** is the default and the field described above.
 
 ![A text field open over one cell of a grid](./screenshots/grid/text-editor.png)
 
 *`CellEditor::Text` after `begin_edit(..)`: a field in the cell's own box, seeded with what the cell held.*
+
+**`External`** opens nothing in the grid: the host shows an editor of its own somewhere else — a multiline dialog, say. `begin_edit` commits any field already open, moves the selection onto the cell and raises `GridEvent::CellActivated` for it, also when it was reached by `Tab` from the cell beside it, and leaves the focus to the host's editor. Answer that event without calling `begin_edit` again, and hand the value back through your staging layer.
 
 **`Choice`** is a [`Select`](./widgets/select.md) opened over the cell, already open on the value the cell holds — a trigger the user had to click again would be one gesture too many. Clicking a row stages it there and then, with no `Enter` to press. With `nullable: true` the list gains a leading `NULL` row that stages `EditValue::Null`, which is how a user reaches the null a nullable column can hold; the row is told from a value row by *position*, so a column whose values include the string `NULL` does not clear itself when the user picks the value they meant. `Escape`, or a press anywhere outside the list, dismisses it with nothing staged. Being a `Select`, its trigger wears `rugpui::CARET_DOWN` like every other dropdown, so the host's `AssetSource` needs `rugpui::ICONS` chained into it — see [getting started](./getting-started.md#with_assets).
 
@@ -614,7 +617,7 @@ The budget this buys is what `row_status`, `cell_dirty` and `render_cell` must r
 
 ## Testing without a window
 
-Half the crate needs no window at all. `selection.rs`, `copy.rs` and `source.rs` are pure, and their tests are plain `#[test]` functions over a twenty-line source — a struct of `Vec<Vec<Option<&'static str>>>` where `None` is a null and `Some("")` is the empty string:
+Half the crate needs no window at all. `selection.rs`, `copy.rs` and `source.rs` are pure, and their tests are plain `#[test]` functions over a twenty-line source — a struct of `Vec<Vec<Option<String>>>` where `None` is a null and `Some("")` is the empty string:
 
 ```rust
 struct Fixture {
@@ -642,6 +645,6 @@ impl GridSource for Fixture {
 
 For editing and staging, the tests add the three defaulted methods over plain fields — a `Vec<RowStatus>`, a `Vec<(usize, usize)>` of dirty cells and a `Vec<usize>` of editable columns — which is the shape of the overlay a host wraps a real result in.
 
-The widget's own tests do need a window, and use gpui's `TestAppContext`. The pattern in `grid.rs` is worth copying: a `Harness` view that does nothing but `div().size_full().child(self.grid.clone())`, an `Rc<RefCell<Vec<GridEvent>>>` filled by a `cx.subscribe` so a test can drain what the grid announced, and helpers that `cx.update(…)` then `cx.run_until_parked()`. Mouse gestures are simulated with `cx.simulate_event(MouseDownEvent { … })` at coordinates worked out from the row height and the column widths, so a click on a given cell is a one-line helper — which is why the shared `open` helper there builds its grid with `.fixed_widths()`: a grid that sized its own columns would slide the target out from under that arithmetic. The tests that are about fitting open theirs the way a host gets one.
+The widget's own tests do need a window, and use gpui's `TestAppContext`. The pattern in [`grid/tests/mod.rs`](../crates/rugpui-grid/src/grid/tests/mod.rs) is worth copying: a `Harness` view that does nothing but `div().size_full().child(self.grid.clone())`, an `Rc<RefCell<Vec<GridEvent>>>` filled by a `cx.subscribe` so a test can drain what the grid announced, and helpers that `cx.update(…)` then `cx.run_until_parked()`. Mouse gestures are simulated with `cx.simulate_event(MouseDownEvent { … })` at coordinates worked out from the row height and the column widths, so a click on a given cell is a one-line helper — which is why the shared `open` helper there builds its grid with `.fixed_widths()`: a grid that sized its own columns would slide the target out from under that arithmetic. The tests that are about fitting open theirs the way a host gets one.
 
 To count how often a source is touched, a source can note each call on a shared probe — which is how "does it still only touch the visible rows?" becomes an assertion rather than something to eyeball.
