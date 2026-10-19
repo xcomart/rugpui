@@ -9,6 +9,15 @@ revision past it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `rugpui-shell`: an update check the releases API turns away for its
+  anonymous rate limit (`403` or `429`) asks the releases page instead. The
+  `latest` redirect names the tag, and the release's `SHA256SUMS` (or the
+  registered `SignedChecksums` list) supplies the asset's digest, so the
+  update still installs. The size comes from a `HEAD` on the download, and
+  the release notes are unknown that way, so the dialog shows none.
+
 ## [0.1.9] - 2026-10-19
 
 ### Added
