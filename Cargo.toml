@@ -94,6 +94,13 @@ exclude = [
 #     with `open -n -a`. Retry transient LaunchServices failures and detach the
 #     helper's streams and working directory from the exiting app.
 #
+#   * `gpui/src/elements/anchored.rs` — the snapping fit modes check overflow
+#     against the viewport less `client_inset`, not the whole surface. Under
+#     client-side decorations the surface includes the transparent shadow
+#     band and the content is clipped at its inner edge, so a menu whose foot
+#     landed in the band was neither snapped nor shown in full. `SwitchAnchor`
+#     keeps the surface, which is what full-window backdrops are placed with.
+#
 #   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
 #     handlers, so reverse-order bubbling lets a wheel handler consume the event
 #     before the default offset update. Used by smooth form scrolling.

@@ -267,13 +267,16 @@ enum PanelWidth {
     },
 }
 
-/// The tallest a panel may draw in a window of `viewport`.
+/// The tallest a panel may draw in `window`.
 ///
 /// What is left of the window once the margin `anchored` snaps back to is taken
 /// off both edges: the most a panel can be and still be reachable wherever it
-/// ends up.
-fn panel_max_height(viewport: Size<Pixels>) -> Pixels {
-    viewport.height - px(2. * WINDOW_MARGIN)
+/// ends up. Under client-side decorations the viewport also holds the
+/// transparent shadow band on each side, which the content is clipped at, so
+/// that comes off too.
+fn panel_max_height(window: &Window) -> Pixels {
+    let inset = window.client_inset().unwrap_or(px(0.));
+    (window.viewport_size().height - (inset + px(WINDOW_MARGIN)) * 2.).max(px(0.))
 }
 
 /// What keeps `Escape` closing one open menu.
@@ -649,7 +652,7 @@ impl RenderOnce for ContextMenu {
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
             width,
-            panel_max_height(viewport),
+            panel_max_height(window),
             self.on_dismiss,
             &theme,
         );
@@ -861,7 +864,7 @@ impl RenderOnce for MenuButton {
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
             PanelWidth::Fixed(px(PANEL_WIDTH)),
-            panel_max_height(viewport),
+            panel_max_height(window),
             on_dismiss,
             &theme,
         );
@@ -1193,6 +1196,24 @@ mod tests {
             .into()
     }
 
+    /// The panel's bottom edge, in window coordinates.
+    fn panel_bottom(cx: &mut VisualTestContext) -> f32 {
+        cx.debug_bounds(PANEL_SELECTOR)
+            .expect("the panel is drawn")
+            .bottom()
+            .into()
+    }
+
+    /// Gives the window the transparent shadow band a client-decorated one
+    /// carries, and redraws it.
+    fn set_client_inset(cx: &mut VisualTestContext, inset: f32) {
+        cx.update(|window, _| {
+            window.set_client_inset(px(inset));
+            window.refresh();
+        });
+        cx.run_until_parked();
+    }
+
     /// `Escape` closes either menu without a click, and without the focus
     /// having to be on it — the harness never focuses anything.
     #[gpui::test]
@@ -1521,6 +1542,65 @@ mod tests {
         assert!(
             activated[0] > 0,
             "the wheel brought a later row under the pointer, got {activated:?}"
+        );
+    }
+
+    /// The band a client-decorated window paints its shadow into is part of the
+    /// viewport but not of the window: the content is clipped at its inner
+    /// edge. A panel whose foot lands in that band is lifted clear of it, the
+    /// same way one running off the surface is, instead of being cut off.
+    #[gpui::test]
+    fn a_panel_ending_in_the_shadow_band_is_lifted_above_it(cx: &mut TestAppContext) {
+        const INSET: f32 = 24.;
+        let rows = || vec![Row::new(SHORT), Row::new(MEDIUM)];
+
+        let (_, mut probe) = open(Surface::Context, rows(), cx);
+        let viewport: f32 = probe
+            .update(|window, _| window.viewport_size().height)
+            .into();
+        let height = panel_height(&mut probe);
+
+        // Inside the surface, ten pixels short of its bottom edge: in the band.
+        let foot = viewport - 10.;
+        let (_, mut cx) = open_placed(
+            Surface::Context,
+            rows(),
+            point(px(MENU_X), px(foot - height)),
+            Anchor::TopLeft,
+            None,
+            cx,
+        );
+        assert_eq!(
+            panel_bottom(&mut cx),
+            foot,
+            "without a band the panel fits and stays where it was put"
+        );
+
+        set_client_inset(&mut cx, INSET);
+        assert_eq!(
+            panel_bottom(&mut cx),
+            viewport - INSET - WINDOW_MARGIN,
+            "with one it stands a margin above the band"
+        );
+    }
+
+    /// The cap leaves out the shadow band on both edges as well as the margins,
+    /// so the tallest panel still fits inside what the window shows.
+    #[gpui::test]
+    fn the_height_cap_leaves_out_the_shadow_band(cx: &mut TestAppContext) {
+        const INSET: f32 = 24.;
+        let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+        let (_, mut cx) = open(Surface::Context, rows, cx);
+        set_client_inset(&mut cx, INSET);
+
+        let viewport: f32 = cx.update(|window, _| window.viewport_size().height).into();
+        let cap = viewport - 2. * (INSET + WINDOW_MARGIN);
+        let height = panel_height(&mut cx);
+        assert!(height <= cap, "capped inside the band: {height} > {cap}");
+        assert!(height > cap - ROW_HEIGHT, "and grown to the cap: {height}");
+        assert!(
+            panel_bottom(&mut cx) <= viewport - INSET - WINDOW_MARGIN,
+            "and its foot clears the band"
         );
     }
 }
