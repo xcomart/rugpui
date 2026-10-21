@@ -226,17 +226,26 @@ mod tests {
     #[gpui::test]
     fn painted_shadows_reach_every_edge_without_filling_the_content(cx: &mut TestAppContext) {
         for active in [false, true] {
-            let window = cx.open_window(size(px(248.), px(148.)), |_, _| ShadowFrame {
-                active,
-                tiling: Tiling::default(),
-            });
+            let band = SHADOW_BAND;
+            let window =
+                cx.open_window(size(px(200. + 2. * band), px(100. + 2. * band)), |_, _| {
+                    ShadowFrame {
+                        active,
+                        tiling: Tiling::default(),
+                    }
+                });
             let cx = &mut VisualTestContext::from_window(*window.deref(), cx);
             cx.run_until_parked();
             cx.update(|window, _| {
                 let scale = window.scale_factor();
                 let shadows = window.painted_shadows();
-                let frame = Bounds::new(point(px(24.), px(24.)), size(px(200.), px(100.)));
-                for (x, y) in [(124., 16.), (124., 132.), (16., 74.), (232., 74.)] {
+                let frame = Bounds::new(point(px(band), px(band)), size(px(200.), px(100.)));
+                for (x, y) in [
+                    (band + 100., band - 8.),
+                    (band + 100., band + 108.),
+                    (band - 8., band + 50.),
+                    (band + 208., band + 50.),
+                ] {
                     let sample = point(px(x), px(y)).scale(scale);
                     assert_eq!(
                         shadows
@@ -329,7 +338,10 @@ mod tests {
     fn shadows_never_change_content_alpha_and_keep_the_exterior_covered_once() {
         for scale in [1., 1.25, 1.5, 2.] {
             for width in [3., 12., 200.] {
-                let bounds = Bounds::new(point(px(24.2), px(24.3)), size(px(width), px(width)));
+                let bounds = Bounds::new(
+                    point(px(SHADOW_BAND + 0.2), px(SHADOW_BAND + 0.3)),
+                    size(px(width), px(width)),
+                );
                 let interior = rounded_regions(bounds, Tiling::default(), scale, 0.);
                 let shadow = shadow_regions(bounds, Tiling::default(), scale);
                 let body = clip_regions(bounds, Tiling::default(), scale);

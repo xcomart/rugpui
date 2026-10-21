@@ -45,7 +45,13 @@ use rounded_clip::RoundedClip;
 /// understands it: [`Window::set_client_inset`] publishes the visible bounds
 /// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximises and stacks
 /// by the visible edge, exactly as it does for GTK's frames.
-pub const SHADOW_BAND: f32 = 24.;
+///
+/// gpui paints a shadow as a Gaussian whose sigma is the blur radius, so its
+/// tail runs out to three blurs past the frame. The band has to hold all but
+/// the last fraction of a percent of it — `window_shadow` checks this in its
+/// test — or the shadow visibly stops short at the surface edge, worst below
+/// the window where the offset pushes it furthest.
+pub const SHADOW_BAND: f32 = 36.;
 
 /// Radius of the four exposed corners of a client-decorated window.
 pub const WINDOW_CORNER_RADIUS: f32 = 10.;
@@ -179,6 +185,17 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
     }
 }
 
+/// The drop shadow of a client-decorated window, darker and wider while active.
+fn window_shadow(active: bool) -> gpui::BoxShadow {
+    gpui::BoxShadow {
+        color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
+        blur_radius: px(if active { 12. } else { 10. }),
+        spread_radius: px(0.),
+        offset: gpui::point(px(0.), px(3.)),
+        inset: false,
+    }
+}
+
 /// Frames a Linux client-decorated window, including its content and overlays.
 ///
 /// Content fills the frame up to its one-pixel outline. Rounded clipping trims
@@ -186,15 +203,9 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
 /// only outside the frame, and the outline is deferred above dialog backdrops.
 /// Tiled edges have no border or rounding. Windows and macOS use native frames.
 pub fn render_client_frame(content: Div, tiling: gpui::Tiling, border: Hsla, active: bool) -> Div {
-    let shadow =
-        frame_shape(div().absolute().inset_0(), tiling, 0.).when(!tiling.is_tiled(), |frame| {
-            frame.shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0., 0., 0., if active { 0.72 } else { 0.40 }),
-                blur_radius: px(if active { 14. } else { 10. }),
-                spread_radius: px(0.),
-                offset: gpui::point(px(0.), px(3.)),
-                inset: false,
-            }])
+    let shadow = frame_shape(div().absolute().inset_0(), tiling, 0.)
+        .when(!tiling.is_tiled(), |frame| {
+            frame.shadow(vec![window_shadow(active)])
         });
     let content = RoundedClip::new(
         frame_shape(
@@ -454,6 +465,25 @@ pub fn window_control_strips(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shadow_band_holds_the_shadow_tail() {
+        // A Gaussian edge leaves `Q(d / sigma)` of the shadow's alpha at `d`
+        // past the shadow's edge; past 2.75 sigma that is under 0.3%, below
+        // one step of an 8-bit channel at the darkest shadow.
+        for active in [false, true] {
+            let shadow = window_shadow(active);
+            let blur = f32::from(shadow.blur_radius);
+            let offset = f32::from(shadow.offset.y)
+                .abs()
+                .max(f32::from(shadow.offset.x).abs());
+            assert!(
+                SHADOW_BAND - offset >= 2.75 * blur,
+                "shadow (active={active}) is cut off {} px into its tail",
+                SHADOW_BAND - offset
+            );
+        }
+    }
 
     #[test]
     fn a_blurred_window_is_blurred_whatever_its_opacity() {
