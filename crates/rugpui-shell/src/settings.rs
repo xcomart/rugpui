@@ -181,11 +181,16 @@ impl WindowGeometry {
 /// either way, so the size survives: coming back fullscreen with no title bar
 /// and no way to tell why would read as a broken window.
 ///
+/// The bounds are the *inner* ones: on Linux a window that draws its own
+/// decorations sits inside a transparent band for its shadow, and opening a
+/// window at a size adds that band around it. Recording the outer size would
+/// grow the window by the band's width on every launch.
+///
 /// The caller decides what to do with the answer — an application records it in
 /// its own settings global and writes the file when the last window closes,
 /// which is what keeps a file write out of the middle of a resize drag.
 pub fn window_geometry(window: &Window) -> WindowGeometry {
-    let (bounds, maximized) = match window.window_bounds() {
+    let (bounds, maximized) = match window.inner_window_bounds() {
         WindowBounds::Windowed(bounds) => (bounds, false),
         WindowBounds::Maximized(bounds) => (bounds, true),
         WindowBounds::Fullscreen(bounds) => (bounds, false),
