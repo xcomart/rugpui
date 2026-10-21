@@ -62,7 +62,9 @@ pub struct WindowsWindowState {
     pub last_reported_capslock: Cell<Option<Capslock>>,
     pub hovered: Cell<bool>,
     pub last_visibility: Cell<Option<WindowVisibility>>,
-    pub direct_manipulation: DirectManipulationHandler,
+    // RULOGMAN PATCH: `None` where the system has no Direct Manipulation (Wine,
+    // stripped-down installs); the window then opens without touchpad gestures.
+    pub direct_manipulation: Option<DirectManipulationHandler>,
 
     pub renderer: RefCell<DirectXRenderer>,
     /// Set when the next `draw_window` call must be treated as a forced
@@ -160,8 +162,10 @@ impl WindowsWindowState {
         let fullscreen = None;
         let initial_placement = None;
 
+        // RULOGMAN PATCH: a missing Direct Manipulation is not fatal; see the field.
         let direct_manipulation = DirectManipulationHandler::new(hwnd, scale_factor)
-            .context("initializing Direct Manipulation")?;
+            .context("initializing Direct Manipulation")
+            .log_err();
 
         Ok(Self {
             origin: Cell::new(origin),
