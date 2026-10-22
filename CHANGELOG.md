@@ -9,6 +9,24 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- The vendored gpui has `Window::client_content_bounds`, the viewport less
+  `client_inset` on every side: what a client-decorated window shows, in
+  window coordinates. `anchored` snaps against it, and rugpui's menus,
+  dropdown lists and dialogs take their height caps from it, so all of them
+  agree on where the window ends.
+
+### Fixed
+
+- `rugpui`: a `modal` taller than a client-decorated window keeps its top and
+  bottom edges. Its height cap came off the whole viewport, which since the
+  shadow band widened to 36 px is taller than the content it is centered in,
+  so a settings dialog in a short window lost its title row and footer edge.
+- `rugpui`: an open `Select` or `SchemeSelect` list is no taller than the
+  window shows, less its margins, and scrolls inside that instead of running
+  into the shadow band and being cut off there.
+
 ## [0.1.10] - 2026-10-22
 
 ### Changed

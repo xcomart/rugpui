@@ -94,8 +94,12 @@ exclude = [
 #     with `open -n -a`. Retry transient LaunchServices failures and detach the
 #     helper's streams and working directory from the exiting app.
 #
+#   * `gpui/src/window.rs` — `Window::client_content_bounds`, the viewport less
+#     `client_inset` on every side: the one definition of what a
+#     client-decorated window shows, which `anchored` below and rugpui's menus,
+#     dropdown lists and dialogs all fit against.
 #   * `gpui/src/elements/anchored.rs` — the snapping fit modes check overflow
-#     against the viewport less `client_inset`, not the whole surface. Under
+#     against `client_content_bounds`, not the whole surface. Under
 #     client-side decorations the surface includes the transparent shadow
 #     band and the content is clipped at its inner edge, so a menu whose foot
 #     landed in the band was neither snapped nor shown in full. `SwitchAnchor`

@@ -3068,6 +3068,35 @@ impl Window {
         self.client_inset
     }
 
+    /// RULOGMAN PATCH: the part of the viewport the content is drawn in, in
+    /// window coordinates: the viewport less [`Self::client_inset`] on every
+    /// side that is not tiled.
+    ///
+    /// Under client-side decorations the surface keeps a transparent band
+    /// round the window for its shadow, and the content is clipped at the
+    /// band's inner edge. A tiled edge (maximized, snapped or fullscreen)
+    /// carries no band. Anything that has to stay in sight (a snapped popup,
+    /// the height of a menu or a dialog) fits these bounds rather than the
+    /// viewport. Without a client inset they are the viewport.
+    pub fn client_content_bounds(&self) -> Bounds<Pixels> {
+        let inset = self.client_inset.unwrap_or(px(0.));
+        let tiling = match self.window_decorations() {
+            Decorations::Client { tiling } => tiling,
+            Decorations::Server => crate::Tiling::default(),
+        };
+        let band = |tiled: bool| if tiled { px(0.) } else { inset };
+        let (top, left) = (band(tiling.top), band(tiling.left));
+        let (bottom, right) = (band(tiling.bottom), band(tiling.right));
+        let viewport = self.viewport_size();
+        Bounds {
+            origin: point(left, top),
+            size: size(
+                (viewport.width - left - right).max(px(0.)),
+                (viewport.height - top - bottom).max(px(0.)),
+            ),
+        }
+    }
+
     /// Returns whether the title bar window controls need to be rendered by the application (Wayland and X11)
     pub fn window_decorations(&self) -> Decorations {
         self.platform_window.window_decorations()

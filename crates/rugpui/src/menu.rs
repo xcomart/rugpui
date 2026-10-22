@@ -24,6 +24,7 @@ use gpui::{
     Subscription, Window, anchored, deferred, div, point, prelude::*, px, svg,
 };
 
+use crate::overlay;
 use crate::theme::{Theme, theme};
 use crate::tooltip::tooltip_label;
 
@@ -271,12 +272,9 @@ enum PanelWidth {
 ///
 /// What is left of the window once the margin `anchored` snaps back to is taken
 /// off both edges: the most a panel can be and still be reachable wherever it
-/// ends up. Under client-side decorations the viewport also holds the
-/// transparent shadow band on each side, which the content is clipped at, so
-/// that comes off too.
+/// ends up, inside the client-side shadow band if the window has one.
 fn panel_max_height(window: &Window) -> Pixels {
-    let inset = window.client_inset().unwrap_or(px(0.));
-    (window.viewport_size().height - (inset + px(WINDOW_MARGIN)) * 2.).max(px(0.))
+    overlay::max_height(window, px(WINDOW_MARGIN))
 }
 
 /// What keeps `Escape` closing one open menu.

@@ -58,6 +58,7 @@ pub mod icons;
 pub mod list;
 pub mod menu;
 pub mod modal;
+mod overlay;
 pub mod progress;
 pub mod range_slider;
 pub mod resize_handle;

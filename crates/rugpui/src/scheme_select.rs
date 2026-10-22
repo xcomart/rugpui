@@ -24,6 +24,7 @@ use gpui::{
 };
 
 use crate::icons::CARET_DOWN;
+use crate::overlay;
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::{Theme, theme};
@@ -590,6 +591,10 @@ impl RenderOnce for SchemeSelect {
                     ))
             });
 
+        // Never taller than the window shows, less the margins `anchored` snaps
+        // back to: a longer list scrolls instead of running past the content.
+        let list_max_height =
+            px(LIST_MAX_HEIGHT).min(overlay::max_height(window, px(WINDOW_MARGIN)));
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
             .occlude()
@@ -597,7 +602,7 @@ impl RenderOnce for SchemeSelect {
             .flex_col()
             .flex_none()
             .w(list_width)
-            .max_h(px(LIST_MAX_HEIGHT))
+            .max_h(list_max_height)
             .py(px(4.))
             .overflow_y_scroll()
             .restrict_scroll_to_axis()
