@@ -9,25 +9,15 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-22
+
 ### Added
 
 - The vendored gpui has `Window::client_content_bounds`, the viewport less
-  `client_inset` on every side: what a client-decorated window shows, in
-  window coordinates. `anchored` snaps against it, and rugpui's menus,
+  `client_inset` on every edge that is not tiled: what a client-decorated
+  window shows, in window coordinates. `anchored` snaps against it, and rugpui's menus,
   dropdown lists and dialogs take their height caps from it, so all of them
   agree on where the window ends.
-
-### Fixed
-
-- `rugpui`: a `modal` taller than a client-decorated window keeps its top and
-  bottom edges. Its height cap came off the whole viewport, which since the
-  shadow band widened to 36 px is taller than the content it is centered in,
-  so a settings dialog in a short window lost its title row and footer edge.
-- `rugpui`: an open `Select` or `SchemeSelect` list is no taller than the
-  window shows, less its margins, and scrolls inside that instead of running
-  into the shadow band and being cut off there.
-
-## [0.1.10] - 2026-10-22
 
 ### Changed
 
@@ -55,7 +45,7 @@ revision past it.
   bounds are recorded there and it no longer shrinks.
 - `rugpui`: under client-side decorations, snapped popups and menus stay clear
   of the transparent shadow band. The vendored `gpui/src/elements/anchored.rs`
-  checks the snapping fit modes against the viewport less `client_inset`
+  checks the snapping fit modes against `Window::client_content_bounds`
   (`SwitchAnchor` keeps the whole surface), and the menu height cap leaves the
   band out on both edges.
 - Windows builds open under Wine. The vendored `gpui_windows` opens a window
@@ -66,6 +56,13 @@ revision past it.
 - rustls-webpki was updated to 0.103.16 and webpki-roots to 1.0.10 for
   RUSTSEC-2026-0382 and -0381. A consumer running `cargo deny` updates both in
   its own lockfile with `cargo update -p rustls-webpki -p webpki-roots`.
+- `rugpui`: a `modal` taller than a client-decorated window keeps its top and
+  bottom edges. Its height cap came off the whole viewport, which since the
+  shadow band widened to 36 px is taller than the content it is centered in,
+  so a settings dialog in a short window lost its top and bottom edges.
+- `rugpui`: an open `Select` or `SchemeSelect` list is no taller than the
+  window shows, less its margins, and scrolls inside that instead of running
+  into the shadow band and being cut off there.
 
 ## [0.1.9] - 2026-10-19
 
