@@ -2,13 +2,14 @@
 
 use gpui::{AnyElement, App, ElementId, Pixels, SharedString, Window, div, prelude::*, px};
 
+use crate::overlay;
 use crate::theme::theme;
 
 /// Callback fired when the backdrop is clicked.
 type DismissHandler = Box<dyn Fn(&mut Window, &mut App)>;
 
 /// Space kept clear above and below the panel, in pixels, top and bottom
-/// combined.
+/// combined, inside the client-side shadow band if the window has one.
 const VIEWPORT_MARGIN: f32 = 64.;
 
 /// Floor for the panel's height cap, in pixels.
@@ -68,8 +69,8 @@ impl RenderOnce for Modal {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let on_dismiss = self.on_dismiss;
-        let viewport_height = f32::from(window.viewport_size().height);
-        let max_height = px((viewport_height - VIEWPORT_MARGIN).max(MIN_PANEL_HEIGHT));
+        let max_height =
+            overlay::max_height(window, px(VIEWPORT_MARGIN / 2.)).max(px(MIN_PANEL_HEIGHT));
 
         div()
             .id(self.id.clone())
@@ -250,6 +251,77 @@ mod tests {
                     assert_eq!(first.size.width, second.size.width);
                     assert_eq!(first.left(), second.left());
                     assert!(second.top() >= first.bottom() + px(8.));
+                })
+                .unwrap();
+        }
+    }
+
+    /// A form taller than any window, inside a client-side frame: the content
+    /// sits inside the shadow band, as `rugpui-shell`'s chrome lays it out.
+    struct Framed {
+        content: gpui::ScrollHandle,
+        footer: gpui::ScrollHandle,
+    }
+
+    const BAND: f32 = 36.;
+
+    impl Render for Framed {
+        fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            window.set_client_inset(px(BAND));
+            let body = div()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .child(
+                    div()
+                        .id("framed-body")
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .child(div().flex_none().h(px(2000.))),
+                )
+                .child(
+                    div()
+                        .id("framed-footer")
+                        .track_scroll(&self.footer)
+                        .flex_none()
+                        .h(px(32.)),
+                );
+            div().size_full().p(px(BAND)).child(
+                div()
+                    .id("framed-content")
+                    .track_scroll(&self.content)
+                    .relative()
+                    .size_full()
+                    .child(modal("framed", "Framed", px(420.), body, |_, _| {})),
+            )
+        }
+    }
+
+    /// The panel's cap leaves out the shadow band, so a tall dialog in a short
+    /// window keeps its margin inside the content instead of being cut off at
+    /// the top and bottom.
+    #[gpui::test]
+    fn a_tall_dialog_stays_inside_the_shadow_band(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, _| Framed {
+            content: gpui::ScrollHandle::new(),
+            footer: gpui::ScrollHandle::new(),
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        for height in [700., 480., 320.] {
+            cx.simulate_resize(gpui::size(px(800.), px(height)));
+            cx.run_until_parked();
+            window
+                .update(&mut cx, |framed, _, _| {
+                    let content = framed.content.bounds();
+                    let footer = framed.footer.bounds();
+                    assert!(
+                        content.bottom() - footer.bottom() >= px(VIEWPORT_MARGIN / 2.),
+                        "at {height} px the footer ends {} px above the content edge",
+                        f32::from(content.bottom() - footer.bottom())
+                    );
                 })
                 .unwrap();
         }

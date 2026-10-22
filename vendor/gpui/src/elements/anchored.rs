@@ -157,19 +157,12 @@ impl Element for Anchored {
         // anchored at the origin stays where it is.
         let client_inset = window.client_inset.unwrap_or(px(0.));
         let snaps = self.fit_mode != AnchoredFitMode::SwitchAnchor;
-        let viewport = window.viewport_size();
         let limits = if snaps {
-            Bounds {
-                origin: point(client_inset, client_inset),
-                size: Size {
-                    width: (viewport.width - client_inset * 2.).max(px(0.)),
-                    height: (viewport.height - client_inset * 2.).max(px(0.)),
-                },
-            }
+            window.client_content_bounds()
         } else {
             Bounds {
                 origin: Point::default(),
-                size: viewport,
+                size: window.viewport_size(),
             }
         };
 

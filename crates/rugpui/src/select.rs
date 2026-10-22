@@ -19,6 +19,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::menu::color_swatch;
+use crate::overlay;
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
@@ -45,6 +46,10 @@ const ROW_HEIGHT: f32 = 26.;
 
 /// Distance the list keeps from the window edges when it would overflow.
 const WINDOW_MARGIN: f32 = 6.;
+
+/// Key a test looks the drawn list's bounds up by. gpui compiles the call that
+/// records it away outside a test build.
+const LIST_SELECTOR: &str = "rugpui-select-list";
 
 /// Draw order of the click-catching backdrop, relative to other deferred draws.
 const BACKDROP_PRIORITY: usize = 1;
@@ -587,6 +592,10 @@ impl RenderOnce for Select {
                     }))
             });
 
+        // Never taller than the window shows, less the margins `anchored` snaps
+        // back to: a longer list scrolls instead of running past the content.
+        let list_max_height =
+            px(LIST_MAX_HEIGHT).min(overlay::max_height(window, px(WINDOW_MARGIN)));
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
             .occlude()
@@ -594,7 +603,7 @@ impl RenderOnce for Select {
             .flex_col()
             .flex_none()
             .w(list_width)
-            .max_h(px(LIST_MAX_HEIGHT))
+            .max_h(list_max_height)
             .py(px(4.))
             .overflow_y_scroll()
             .restrict_scroll_to_axis()
@@ -605,6 +614,7 @@ impl RenderOnce for Select {
             .shadow_lg()
             .text_color(theme.text)
             .track_scroll(&scroll_handle)
+            .debug_selector(|| LIST_SELECTOR.to_string())
             .children(rows);
 
         // The bar cannot go inside the list, whose children are what scroll
@@ -733,6 +743,51 @@ mod tests {
         });
         let cx = VisualTestContext::from_window(*window.deref(), cx);
         cx.run_until_parked();
+    }
+
+    /// A long open list in a short, client-decorated window.
+    struct LongHarness;
+
+    impl Render for LongHarness {
+        fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            window.set_client_inset(px(BAND));
+            div().size_full().p(px(BAND)).child(
+                Select::new("select")
+                    .options((0..20).map(|row| SharedString::from(format!("Row {row}"))))
+                    .selected(Some("Row 0"))
+                    .open(true),
+            )
+        }
+    }
+
+    const BAND: f32 = 36.;
+
+    /// The list is capped by what the window shows, not by the surface, so in a
+    /// short window it scrolls inside the content rather than running into the
+    /// shadow band and being cut off there.
+    #[gpui::test]
+    fn a_long_list_stays_inside_the_shadow_band(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+
+        let window = cx.open_window(size(px(HARNESS_WIDTH), px(HARNESS_HEIGHT)), |_, _| {
+            LongHarness
+        });
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+
+        let list = cx.debug_bounds(LIST_SELECTOR).expect("the list is drawn");
+        assert!(
+            list.top() >= px(BAND + WINDOW_MARGIN),
+            "the list starts in the band at {:?}",
+            list.top()
+        );
+        assert!(
+            list.bottom() <= px(HARNESS_HEIGHT - BAND - WINDOW_MARGIN),
+            "the list ends in the band at {:?}",
+            list.bottom()
+        );
     }
 
     /// The `From` impls are what keep every pre-icon caller compiling, so they
