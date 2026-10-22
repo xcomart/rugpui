@@ -94,9 +94,26 @@ exclude = [
 #     with `open -n -a`. Retry transient LaunchServices failures and detach the
 #     helper's streams and working directory from the exiting app.
 #
+#   * `gpui/src/elements/anchored.rs` — the snapping fit modes check overflow
+#     against the viewport less `client_inset`, not the whole surface. Under
+#     client-side decorations the surface includes the transparent shadow
+#     band and the content is clipped at its inner edge, so a menu whose foot
+#     landed in the band was neither snapped nor shown in full. `SwitchAnchor`
+#     keeps the surface, which is what full-window backdrops are placed with.
+#
 #   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
 #     handlers, so reverse-order bubbling lets a wheel handler consume the event
 #     before the default offset update. Used by smooth form scrolling.
+#
+#   * `gpui_windows/src/window.rs` and `gpui_windows/src/events.rs` — a window
+#     opens without Direct Manipulation when the system cannot create it, rather
+#     than failing to open at all. Wine answers `E_NOTIMPL`, which made the
+#     Windows builds impossible to run there; touchpad scrolling and pinch then
+#     fall back to the plain wheel messages.
+#   * `gpui_windows/src/direct_write.rs` — fonts resolve through the
+#     collection's family lookup when it has no font set. Wine answers
+#     `E_NOTIMPL` to `IDWriteFontCollection1::GetFontSet`, so no font, not even
+#     the system UI one, resolved and the first text layout panicked.
 #
 # `gpui_platform` is taken from git unpatched — it is a hundred lines of
 # `cfg`-directed re-exports — but a consumer still has to name it in its own
@@ -123,7 +140,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]

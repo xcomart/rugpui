@@ -462,6 +462,37 @@ impl DirectWriteState {
         Ok(direct_write_features)
     }
 
+    // RULOGMAN PATCH: the face `GetMatchingFonts` would have found, through the
+    // collection's own family lookup, for a DirectWrite without font sets (Wine
+    // answers `E_NOTIMPL` to `IDWriteFontCollection1::GetFontSet`).
+    unsafe fn font_face_by_family(
+        collection: &IDWriteFontCollection1,
+        family: &HSTRING,
+        weight: FontWeight,
+        style: FontStyle,
+    ) -> Option<IDWriteFontFace3> {
+        unsafe {
+            let mut index = 0;
+            let mut exists = BOOL::default();
+            collection
+                .FindFamilyName(family, &mut index, &mut exists)
+                .log_err()?;
+            if !exists.as_bool() {
+                return None;
+            }
+            let font = collection
+                .GetFontFamily(index)
+                .log_err()?
+                .GetFirstMatchingFont(
+                    font_weight_to_dwrite(weight),
+                    DWRITE_FONT_STRETCH_NORMAL,
+                    font_style_to_dwrite(style),
+                )
+                .log_err()?;
+            font.CreateFontFace().log_err()?.cast().log_err()
+        }
+    }
+
     unsafe fn make_font_from_font_collection(
         &Font {
             ref family,
@@ -481,7 +512,25 @@ impl DirectWriteState {
         } else {
             gpui::font_name_with_fallbacks_shared(&family, &system_ui_font_name)
         };
-        let fontset = unsafe { collection.GetFontSet().log_err()? };
+        // RULOGMAN PATCH: Wine has no `GetFontSet`; see `font_face_by_family`.
+        let Ok(fontset) = (unsafe { collection.GetFontSet() }) else {
+            let font_family_h = HSTRING::from(family.as_str());
+            let font_face =
+                unsafe { Self::font_face_by_family(collection, &font_family_h, weight, style) }?;
+            let features = unsafe { Self::generate_font_features(factory, features).log_err()? };
+            let fallbacks = fallbacks.as_ref().and_then(|fallbacks| {
+                Self::generate_font_fallbacks(fallbacks, factory, system_font_collection)
+                    .log_err()
+                    .flatten()
+            });
+            return Some(FontInfo {
+                font_family_h,
+                font_face,
+                features,
+                fallbacks,
+                font_collection: collection.clone(),
+            });
+        };
         let font_family_h = HSTRING::from(family.as_str());
         let font = unsafe {
             fontset

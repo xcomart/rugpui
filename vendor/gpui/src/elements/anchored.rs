@@ -147,9 +147,30 @@ impl Element for Anchored {
             self.offset,
         );
 
-        let limits = Bounds {
-            origin: Point::default(),
-            size: window.viewport_size(),
+        // RULOGMAN PATCH: a snapping element fits the visible window, not the
+        // surface. Under client-side decorations the viewport includes the
+        // transparent band `client_inset` describes, and the content is clipped
+        // at its inner edge; checking overflow against the surface left an
+        // element ending inside the band unsnapped and cut off. The snapped
+        // position itself is unchanged: upstream already adds the inset to the
+        // margins. `SwitchAnchor` keeps the surface, so a full-window backdrop
+        // anchored at the origin stays where it is.
+        let client_inset = window.client_inset.unwrap_or(px(0.));
+        let snaps = self.fit_mode != AnchoredFitMode::SwitchAnchor;
+        let viewport = window.viewport_size();
+        let limits = if snaps {
+            Bounds {
+                origin: point(client_inset, client_inset),
+                size: Size {
+                    width: (viewport.width - client_inset * 2.).max(px(0.)),
+                    height: (viewport.height - client_inset * 2.).max(px(0.)),
+                },
+            }
+        } else {
+            Bounds {
+                origin: Point::default(),
+                size: viewport,
+            }
         };
 
         if self.fit_mode == AnchoredFitMode::SwitchAnchor {
@@ -179,12 +200,16 @@ impl Element for Anchored {
             }
         }
 
-        let client_inset = window.client_inset.unwrap_or(px(0.));
         let edges = match self.fit_mode {
             AnchoredFitMode::SnapToWindowWithMargin(edges) => edges,
             _ => Edges::default(),
-        }
-        .map(|edge| *edge + client_inset);
+        };
+        // RULOGMAN PATCH: snapping limits already exclude the inset.
+        let edges = if snaps {
+            edges
+        } else {
+            edges.map(|edge| *edge + client_inset)
+        };
 
         // Snap the horizontal edges of the anchored element to the horizontal edges of the window if
         // its horizontal bounds overflow, aligning to the left if it is wider than the limits.

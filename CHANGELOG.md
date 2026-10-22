@@ -9,6 +9,46 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-22
+
+### Changed
+
+- `rugpui-shell`: `window_geometry` takes the `App` as well as the `Window`,
+  `window_geometry(window, cx)`, to tell the Linux backends apart. A consumer
+  that records its window geometry passes `cx` at the call site.
+- `rugpui-shell`: `SHADOW_BAND` is 36 px instead of 24 px, and the focused
+  window's shadow blurs over 12 px instead of 14 px. Code that lays anything out
+  against the band reads the constant rather than repeating the number.
+
+### Fixed
+
+- `rugpui-shell`: an update check the releases API turns away for its
+  anonymous rate limit (`403` or `429`) asks the releases page instead. The
+  `latest` redirect names the tag, and the release's `SHA256SUMS` (or the
+  registered `SignedChecksums` list) supplies the asset's digest, so the
+  update still installs. The size comes from a `HEAD` on the download, and
+  the release notes are unknown that way, so the dialog shows none.
+- `rugpui-shell`: the focused window's shadow is no longer cut off at the edge
+  of its band; a test checks that the band holds the tail past 2.75 sigma.
+- `rugpui-shell`: `window_geometry` records the size the platform opens the
+  window back at. X11 adds the shadow band around the size asked for, so the
+  inner bounds are recorded there and the window no longer grows by the band
+  on every launch; Wayland opens a window at its outer size, so the outer
+  bounds are recorded there and it no longer shrinks.
+- `rugpui`: under client-side decorations, snapped popups and menus stay clear
+  of the transparent shadow band. The vendored `gpui/src/elements/anchored.rs`
+  checks the snapping fit modes against the viewport less `client_inset`
+  (`SwitchAnchor` keeps the whole surface), and the menu height cap leaves the
+  band out on both edges.
+- Windows builds open under Wine. The vendored `gpui_windows` opens a window
+  without Direct Manipulation when the system cannot create it, falling back
+  to plain wheel messages for touchpad scrolling and pinch, and
+  `gpui_windows/src/direct_write.rs` resolves fonts through the collection's
+  family lookup when it has no font set.
+- rustls-webpki was updated to 0.103.16 and webpki-roots to 1.0.10 for
+  RUSTSEC-2026-0382 and -0381. A consumer running `cargo deny` updates both in
+  its own lockfile with `cargo update -p rustls-webpki -p webpki-roots`.
+
 ## [0.1.9] - 2026-10-19
 
 ### Added
@@ -120,6 +160,7 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.9...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.10...dev
+[0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/xcomart/rugpui/compare/v0.1.7...v0.1.8

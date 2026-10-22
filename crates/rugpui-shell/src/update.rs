@@ -8,6 +8,13 @@
 //! the user picks "Check for updates" from a menu. Its whole visible outcome is
 //! the [`UpdateDialog`](crate::UpdateDialog) appearing.
 //!
+//! An anonymous caller gets 60 API requests an hour per address, shared by
+//! every application and machine behind it. When the API turns the check away
+//! for that, the check asks the releases page instead: its `latest` redirect
+//! names the tag, and the release's `SHA256SUMS` supplies the digest the API
+//! would have. Neither is an API call. Only the release notes are lost, and
+//! the dialog shows none.
+//!
 //! The **install** is what "Update" does: fetch the release asset built for
 //! this exact target triple, verify it against what the API said it should be,
 //! unpack it beside the installed copy, and move the new one into the old one's
@@ -530,20 +537,36 @@ pub enum Progress {
 /// This is the *manual* check: it reports every outcome, and it knows nothing
 /// about the ignore list. [`check`] is the start-up wrapper around it.
 pub fn check_now() -> Check {
-    let body = match fetch_latest() {
-        Ok(body) => body,
+    let (mut release, from_page) = match fetch_latest() {
+        Ok(body) => match parse_release(&body) {
+            Some(release) => (release, false),
+            None => {
+                return Check::Failed("GitHub answered with no readable release".to_string());
+            }
+        },
+        Err(err) if is_rate_limited(&err) => {
+            log::debug!("update check: {err}; asking the releases page instead");
+            match release_from_page() {
+                Ok(release) => (release, true),
+                Err(fallback) => {
+                    log::debug!("update check: {fallback}");
+                    return Check::Failed(format!("{err} (rate limited); {fallback}"));
+                }
+            }
+        }
         Err(err) => {
             log::debug!("update check: {err}");
             return Check::Failed(err.to_string());
         }
     };
 
-    let Some(release) = parse_release(&body) else {
-        return Check::Failed("GitHub answered with no readable release".to_string());
-    };
-
     let current = inject::current_identity().version;
     if is_newer(&release.tag, current) {
+        // Settled only for a release worth announcing: an up-to-date check
+        // costs the page fallback one request and not three.
+        if from_page {
+            release.asset = checksummed_asset(&release.tag);
+        }
         Check::Newer(release)
     } else {
         log::debug!("update check: {} is not newer than {current}", release.tag);
@@ -1715,6 +1738,154 @@ fn fetch_latest() -> Result<String, ureq::Error> {
         .read_to_string()
 }
 
+/// The checksum list the release workflows publish beside the archives, read
+/// when the releases API is out of reach and no [`SignedChecksums`] names one.
+const CHECKSUM_LIST: &str = "SHA256SUMS";
+
+/// Whether `error` is the releases API turning the address away for having
+/// asked too often.
+///
+/// An anonymous caller gets 60 requests an hour per address, shared by every
+/// application and machine behind it, and GitHub answers the 61st with `403`
+/// (the primary limit) or `429` (a secondary one). A `403` for any other reason
+/// is not one the API gives a public repository's latest release, so the code
+/// alone is taken as the answer rather than the headers `ureq` does not keep.
+fn is_rate_limited(error: &ureq::Error) -> bool {
+    matches!(error, ureq::Error::StatusCode(403 | 429))
+}
+
+/// The latest release as the releases page names it, for when the API is
+/// rate-limited.
+///
+/// `<releases page>/latest` is a web page and not an API call, so it is not
+/// counted against the API's limit, and it answers with a redirect to the
+/// latest release's tag page. That redirect is read and not followed: the tag
+/// is all it is asked for. What the page cannot say — the release notes, the
+/// asset sizes, their digests — is left empty here, and [`checksummed_asset`]
+/// fills in the asset for a release worth announcing.
+fn release_from_page() -> Result<Release, String> {
+    let latest = format!(
+        "{}/latest",
+        inject::current_identity()
+            .releases_page
+            .trim_end_matches('/')
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .max_redirects(0)
+        .build()
+        .into();
+    let response = agent
+        .head(&latest)
+        .header("User-Agent", user_agent())
+        .call()
+        .map_err(|error| format!("the releases page did not answer either: {error}"))?;
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "the releases page named no latest release".to_string())?;
+    let tag = tag_from_location(location)
+        .ok_or_else(|| format!("the releases page pointed at {location}, not a release"))?;
+    Ok(Release {
+        version: strip_v(&tag).to_string(),
+        url: location.to_string(),
+        tag,
+        asset: None,
+        notes: Vec::new(),
+    })
+}
+
+/// The tag a `…/releases/tag/<tag>` redirect names.
+///
+/// `None` for anything else — the releases index a repository without releases
+/// redirects to, or a tag that would need decoding, which no tag the release
+/// workflows push does.
+fn tag_from_location(location: &str) -> Option<String> {
+    let (_, rest) = location.rsplit_once("/releases/tag/")?;
+    let tag = rest.split(['?', '#']).next()?.trim();
+    if tag.is_empty() || tag.contains(['/', '%']) {
+        return None;
+    }
+    Some(tag.to_string())
+}
+
+/// This platform's asset of `tag`, vouched for by the release's checksum list,
+/// when the releases API could not be asked.
+///
+/// The list is the signed one's when [`SignedChecksums`] are registered —
+/// [`install`] then verifies its signature as always — and [`CHECKSUM_LIST`]
+/// otherwise. Unsigned, it vouches for exactly what the API's digest does: that
+/// the bytes are the ones uploaded to the release, by whoever can upload. An
+/// asset the list does not name, or a list that cannot be fetched, answers
+/// `None`, which is the dialog's browser fallback.
+fn checksummed_asset(tag: &str) -> Option<Asset> {
+    let target = TARGET?;
+    let name = asset_name(tag, target);
+    let url = format!(
+        "{}/download/{tag}/{name}",
+        inject::current_identity()
+            .releases_page
+            .trim_end_matches('/')
+    );
+    let list = SIGNED_CHECKSUMS
+        .get()
+        .map_or(CHECKSUM_LIST, |checksums| checksums.list);
+    let fetched = sibling_url(&url, list)
+        .ok_or_else(|| format!("{url} has no download directory"))
+        .and_then(|list_url| fetch_small(&list_url, list));
+    let text = match fetched {
+        Ok(bytes) => String::from_utf8(bytes).ok()?,
+        Err(error) => {
+            log::debug!("update check: {error}");
+            return None;
+        }
+    };
+    let mut asset = asset_from_list(&text, name, url)?;
+    asset.size = asset_size(&asset.url);
+    Some(asset)
+}
+
+/// The asset called `name` at `url`, with the digest `list` gives for it.
+///
+/// Split from [`checksummed_asset`] so everything but the requests can be
+/// tested. The size is left at zero, the "not said" of [`Asset::size`], for
+/// [`asset_size`] to fill in.
+fn asset_from_list(list: &str, name: String, url: String) -> Option<Asset> {
+    let digest = listed_digest(list, &name)?;
+    Some(Asset {
+        name,
+        url,
+        size: 0,
+        digest: Some(digest),
+    })
+}
+
+/// The `Content-Length` the download URL answers a `HEAD` with, after its
+/// redirect to storage, or zero when it says nothing.
+///
+/// Only for the progress bar and the byte count [`download`] checks; the
+/// digest is what vouches for the content, so a size that cannot be had is not
+/// a reason to refuse the asset.
+fn asset_size(url: &str) -> u64 {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .build()
+        .into();
+    match agent.head(url).header("User-Agent", user_agent()).call() {
+        Ok(response) => response
+            .headers()
+            .get("content-length")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(0),
+        Err(error) => {
+            log::debug!("update check: no size for {url}: {error}");
+            0
+        }
+    }
+}
+
 /// Pick the tag, the release page and this platform's asset out of a
 /// latest-release response.
 ///
@@ -2748,6 +2919,63 @@ mod tests {
         assert!(
             verified_digest(&checksums(accept), list.as_bytes(), b"sig", "other.zip").is_err(),
             "an asset the signed list leaves out"
+        );
+    }
+
+    #[test]
+    fn only_a_rate_limit_sends_the_check_to_the_releases_page() {
+        assert!(is_rate_limited(&ureq::Error::StatusCode(403)));
+        assert!(is_rate_limited(&ureq::Error::StatusCode(429)));
+        assert!(!is_rate_limited(&ureq::Error::StatusCode(404)));
+        assert!(!is_rate_limited(&ureq::Error::StatusCode(500)));
+        assert!(!is_rate_limited(&ureq::Error::HostNotFound));
+    }
+
+    #[test]
+    fn the_latest_redirect_names_the_tag() {
+        assert_eq!(
+            tag_from_location("https://github.com/o/r/releases/tag/v0.6.0").as_deref(),
+            Some("v0.6.0")
+        );
+        assert_eq!(
+            tag_from_location("/o/r/releases/tag/v1.2.3?x=1#notes").as_deref(),
+            Some("v1.2.3")
+        );
+        // A repository without releases redirects to the index instead.
+        assert_eq!(tag_from_location("https://github.com/o/r/releases"), None);
+        assert_eq!(
+            tag_from_location("https://github.com/o/r/releases/tag/"),
+            None
+        );
+        assert_eq!(
+            tag_from_location("https://github.com/o/r/releases/tag/v1%2F2"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_checksum_list_vouches_for_an_asset_it_names() {
+        let name = "app-v9.9.9-x86_64-unknown-linux-gnu.tar.gz";
+        let url = format!("https://github.com/o/r/releases/download/v9.9.9/{name}");
+        let digest = "ab".repeat(32);
+        let list = format!(
+            "{}  app-v9.9.9-x86_64-pc-windows-msvc.zip\n{}  {name}\n",
+            "cd".repeat(32),
+            digest.to_ascii_uppercase()
+        );
+        let asset = asset_from_list(&list, name.to_string(), url.clone())
+            .expect("the list names the asset");
+        assert_eq!(asset.url, url);
+        assert_eq!(asset.size, 0);
+        assert_eq!(asset.digest.as_deref(), Some(digest.as_str()));
+        assert_eq!(
+            expected_digest(&asset, None).as_deref(),
+            Ok(digest.as_str())
+        );
+
+        assert_eq!(
+            asset_from_list("cd  other.tar.gz\n", name.to_string(), url),
+            None
         );
     }
 
