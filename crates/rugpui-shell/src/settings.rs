@@ -181,21 +181,38 @@ impl WindowGeometry {
 /// either way, so the size survives: coming back fullscreen with no title bar
 /// and no way to tell why would read as a broken window.
 ///
-/// The bounds are the *inner* ones: on Linux a window that draws its own
-/// decorations sits inside a transparent band for its shadow, and opening a
-/// window at a size adds that band around it. Recording the outer size would
-/// grow the window by the band's width on every launch.
+/// The bounds are the ones the same platform will open the window back at. On
+/// Linux a window that draws its own decorations sits inside a transparent band
+/// for its shadow, and the two backends disagree about whether the size a
+/// window is opened at includes it: Wayland takes it as the whole surface, band
+/// and all, while X11 hands it to the window manager as the visible window and
+/// the band is added around it. Recording the other one would shrink the
+/// window by the band on every Wayland launch, or grow it on every X11 one.
 ///
 /// The caller decides what to do with the answer — an application records it in
 /// its own settings global and writes the file when the last window closes,
 /// which is what keeps a file write out of the middle of a resize drag.
-pub fn window_geometry(window: &Window) -> WindowGeometry {
-    let (bounds, maximized) = match window.inner_window_bounds() {
+pub fn window_geometry(window: &Window, cx: &App) -> WindowGeometry {
+    let bounds = if opens_at_outer_size(cx) {
+        window.window_bounds()
+    } else {
+        window.inner_window_bounds()
+    };
+    let (bounds, maximized) = match bounds {
         WindowBounds::Windowed(bounds) => (bounds, false),
         WindowBounds::Maximized(bounds) => (bounds, true),
         WindowBounds::Fullscreen(bounds) => (bounds, false),
     };
     WindowGeometry::of(bounds, maximized)
+}
+
+/// Whether the platform opens a window at its outer size, shadow band included.
+///
+/// Only Wayland does. Everywhere else there is either no band to speak of —
+/// Windows and macOS keep their own frames — or, on X11, the window manager
+/// adds it around the size asked for.
+fn opens_at_outer_size(cx: &App) -> bool {
+    cx.compositor_name() == "Wayland"
 }
 
 /// The placement to open a window at.
