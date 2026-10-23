@@ -68,6 +68,14 @@ exclude = [
 #     to the Wayland one's `org_kde_kwin_blur`, so a blurred background
 #     appearance did nothing on KDE X11; `update_blur_region` keeps KWin's
 #     `_KDE_NET_WM_BLUR_BEHIND_REGION` in step with the window.
+#   * `gpui_linux/src/linux/x11/window.rs` and
+#     `gpui_linux/src/linux/wayland/window.rs` — `set_input_region` on X11,
+#     through the input shape of the X Shape extension (the vendored manifest
+#     turns on x11rb's `shape` feature for it), and on both backends a region
+#     the window already has is not sent again. The shell narrows the pointer
+#     to the resize grip around a client-decorated window and restates it on
+#     every frame; upstream implements the region on Wayland only, where each
+#     call also commits the surface.
 #   * `gpui/src/platform.rs`, `gpui/src/app.rs` and `gpui_macos/src/platform.rs`
 #     — `on_service_request`, which is the other half of `on_open_urls`. macOS
 #     lets a bundle declare entries under `NSServices` that appear in the

@@ -9,6 +9,28 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- `rugpui-shell`: `apply_client_inset(window, tiling)` sets the client inset
+  and the input region of a client-decorated window together, and clears both
+  under server-side decorations. A consumer replaces its own
+  `window.set_client_inset(...)` branch on `client_tiling` with this one call.
+- The vendored gpui implements `Window::set_input_region` on X11, through the
+  input shape of the X Shape extension, and neither Linux backend sends a
+  region the window already has again.
+
+### Changed
+
+- `rugpui-shell`: the resize grip of a client-decorated window is the
+  `RESIZE_GRIP` (10 px) strip along the inner edge of the shadow band instead
+  of the whole 36 px band, and `RESIZE_CORNER` is `RESIZE_GRIP + 12`. The band
+  keeps its width, so the shadow is unchanged.
+
+### Fixed
+
+- `rugpui-shell`: a click in a client-decorated window's shadow, outside the
+  resize grip, reaches the window underneath instead of starting a resize.
+
 ## [0.1.10] - 2026-10-22
 
 ### Added
