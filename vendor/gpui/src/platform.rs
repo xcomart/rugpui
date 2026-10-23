@@ -2676,6 +2676,20 @@ pub struct WindowOptions {
     /// The platform may ignore requests it cannot satisfy.
     pub window_decorations: Option<WindowDecorations>,
 
+    /// RULOGMAN PATCH: the inset the window will pass to
+    /// [`Window::set_client_inset`](crate::Window::set_client_inset) once it
+    /// draws its own decorations (X11 only).
+    ///
+    /// X11 window managers disagree about frame extents that arrive after the
+    /// window is mapped: Mutter keeps the visible window and grows the X window
+    /// around it, xfwm4 keeps the X window and shrinks the visible one. Given
+    /// the inset up front, the X window is created that much larger than
+    /// `window_bounds` all round and `_GTK_FRAME_EXTENTS` is set before it is
+    /// mapped, the way GTK does it, so `window_bounds` is the visible window
+    /// under every window manager. Ignored when the window does not end up
+    /// with client-side decorations.
+    pub client_inset: Option<Pixels>,
+
     /// Icon image (X11 only)
     pub icon: Option<Arc<image::RgbaImage>>,
 
@@ -2747,6 +2761,10 @@ pub struct WindowParams {
 
     pub window_min_size: Option<Size<Pixels>>,
 
+    /// RULOGMAN PATCH: see [`WindowOptions::client_inset`].
+    #[cfg_attr(feature = "wayland", allow(dead_code))]
+    pub client_inset: Option<Pixels>,
+
     #[cfg(target_os = "macos")]
     pub tabbing_identifier: Option<String>,
 
@@ -2812,6 +2830,8 @@ impl Default for WindowOptions {
             app_id: None,
             window_min_size: None,
             window_decorations: None,
+            // RULOGMAN PATCH: see `client_inset`.
+            client_inset: None,
             tabbing_identifier: None,
             use_display_p3: false,
         }

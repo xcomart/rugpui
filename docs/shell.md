@@ -149,7 +149,9 @@ is.
 | `titlebar_gestures(row)` | `Stateful<Div>` | Windows needs nothing — the row reports itself as `WindowControlArea::Drag` and the window procedure does the rest. macOS gets the double-click, routed through `Window::titlebar_double_click` so it follows System Settings. Linux gets all of it: `start_window_move` on press (the compositor takes the pointer, so a release would never arrive), `zoom_window` on double-click, `show_window_menu` on right-click. |
 | `client_tiling(window)` | `Option<gpui::Tiling>` | Always `None` off Linux. `Some` exactly when the compositor granted client-side decorations, with the edges that currently touch something marked tiled. |
 | `render_client_frame(content, tiling, border, active)` | `Div` | Frames a Linux client-decorated window's content: rounded corners clipped without a background-coloured rim, a one-pixel `border` outline, and a drop shadow outside the frame, stronger while `active`. Tiled edges get no rounding or border. Windows and macOS keep their native frames. Lives at `chrome::render_client_frame`. |
-| `render_resize_edges(tiling)` | `Vec<AnyElement>` | Four strips over the `SHADOW_BAND` and four `RESIZE_CORNER` squares, each starting `window.start_window_resize(edge)`; a tiled edge gets none. |
+| `opening_client_inset(style)` | `Option<Pixels>` | For `WindowOptions::client_inset`: `SHADOW_BAND` under `Custom`, `None` under `System`. X11 then creates the window with the band around the bounds asked for and sets `_GTK_FRAME_EXTENTS` before mapping it, so every window manager takes those bounds as the visible window. Without it, extents arriving with the first frame grow the window under Mutter and shrink it under xfwm4. |
+| `apply_client_inset(window, tiling)` | — | Call on every render with what `client_tiling` answered. Under a client-side frame it sets `client_inset` to `SHADOW_BAND` (so `_GTK_FRAME_EXTENTS` names the visible edge) and narrows the input region to the frame plus `RESIZE_GRIP`, so a click in the rest of the shadow reaches the window underneath; otherwise it clears both. The platforms only send a value that changed. |
+| `render_resize_edges(tiling)` | `Vec<AnyElement>` | Four `RESIZE_GRIP` (10 px) strips along the inner edge of the `SHADOW_BAND` and four `RESIZE_CORNER` squares, each starting `window.start_window_resize(edge)`; a tiled edge gets none. The band outside the grip takes no pointer once `apply_client_inset` has run. |
 | `window_appearance(blur, opacity)` | `WindowBackgroundAppearance` | Blur wins; failing that anything below fully opaque asks for `Transparent`; otherwise `Opaque`. |
 | `window_control_strips(icons, custom, window, cx)` | `(Option<WindowControls>, Option<WindowControls>)` | The caption buttons, split into the two ends a Linux desktop may ask for. Both `None` unless `custom`, and both `None` on macOS, where AppKit goes on drawing the traffic lights over your toolbar band. |
 
@@ -183,13 +185,14 @@ before whatever it starts with, trailing after whatever it ends with. Build
 *The pieces together: a `MenuButton` at the leading end, the window's title in
 the middle, and the trailing `WindowControls` strip.*
 
-The shadow band, when the window carries one, goes at the window root:
+The shadow band, when the window carries one, goes at the window root, and the
+platform is told where it is on the same render:
 
 ```rust
+let tiling = rugpui_shell::client_tiling(window);
+rugpui_shell::apply_client_inset(window, tiling);
 div().relative().size_full().children(
-    rugpui_shell::client_tiling(window)
-        .map(rugpui_shell::render_resize_edges)
-        .unwrap_or_default(),
+    tiling.map(rugpui_shell::render_resize_edges).unwrap_or_default(),
 )
 ```
 
@@ -783,9 +786,14 @@ either coordinate is missing — a first run, or a window that was never moved.
 maximised and with the restore bounds either way, so the size survives.
 `window_bounds(saved, width, height, maximized, cx)` turns the pair back into a
 `WindowBounds`, centring the saved *size* on the active display when there is no
-saved position. Record the geometry into your own settings global and write the
-file when the last window closes, which is what keeps a file write out of the
-middle of a resize drag.
+saved position. `window_bounds_at_least(saved, width, height, maximized,
+min_size, client_inset, cx)` is the same placement with the size first grown to
+`min_size`, the visible minimum you also pass as `WindowOptions::window_min_size`,
+so a smaller saved size opens at the minimum. Pass the `client_inset` the window
+opens with (`opening_client_inset(style)`): Wayland opens at the outer size, so
+the band is added to the minimum there. Record the geometry into your own
+settings global and write the file when the last window closes, which is what
+keeps a file write out of the middle of a resize drag.
 
 `monospace_family(cx)` is the fixed-pitch family to draw code with when the user
 has named none. The naive answer — the literal `"monospace"` — is a *fontconfig*

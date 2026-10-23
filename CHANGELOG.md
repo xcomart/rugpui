@@ -9,6 +9,48 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-23
+
+### Added
+
+- `rugpui-shell`: `apply_client_inset(window, tiling)` sets the client inset
+  and the input region of a client-decorated window together, and clears both
+  under server-side decorations. A consumer replaces its own
+  `window.set_client_inset(...)` branch on `client_tiling` with this one call.
+- The vendored gpui implements `Window::set_input_region` on X11, through the
+  input shape of the X Shape extension, and neither Linux backend sends a
+  region the window already has again.
+- The vendored gpui has `WindowOptions::client_inset`, and `rugpui-shell`
+  `opening_client_inset(style)` to fill it. On X11 a window opened with it is
+  created with the band around its bounds and `_GTK_FRAME_EXTENTS` already
+  set when it is mapped. A consumer adds
+  `client_inset: opening_client_inset(titlebar)` to its `WindowOptions`.
+- `rugpui-shell`: `window_bounds_at_least(saved, width, height, maximized,
+  min_size, client_inset, cx)`, `window_bounds` with the opening size held to
+  a visible minimum (the shadow band added on Wayland, which opens at the outer
+  size). A consumer that sets `WindowOptions::window_min_size` opens with this
+  instead, so a smaller saved size comes back at the minimum.
+
+### Changed
+
+- `rugpui-shell`: the resize grip of a client-decorated window is the
+  `RESIZE_GRIP` (10 px) strip along the inner edge of the shadow band instead
+  of the whole 36 px band, and `RESIZE_CORNER` is `RESIZE_GRIP + 12`. The band
+  keeps its width, so the shadow is unchanged.
+
+### Fixed
+
+- `rugpui-shell`: a click in a client-decorated window's shadow, outside the
+  resize grip, reaches the window underneath instead of starting a resize.
+- A client-decorated window no longer shrinks by the shadow band on every
+  launch under xfwm4 (Xfce on X11). The frame extents arrived after the window
+  was mapped, which xfwm4 takes out of the visible window where Mutter grows
+  the window around them; opened with `client_inset`, they are there before.
+- The vendored gpui holds `WindowOptions::window_min_size` to the visible
+  window on X11, as Wayland does: the size hint is scaled to device pixels and
+  carries the frame extents, where it used to be the logical size of the whole
+  X window, band included.
+
 ## [0.1.10] - 2026-10-22
 
 ### Added
@@ -175,7 +217,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.10...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.11...dev
+[0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/xcomart/rugpui/compare/v0.1.7...v0.1.8

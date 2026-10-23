@@ -17,8 +17,11 @@
 //!   wired onto the row that stands in for the caption.
 //! * [`client_tiling`] — whether the window carries the shadow band, and which
 //!   of its edges currently touch something.
+//! * [`apply_client_inset`] — tells the platform where the band is, and which
+//!   part of it still takes the pointer.
 //! * [`render_client_frame`] — rounded corners, the outline and drop shadow.
-//! * [`render_resize_edges`] — the resize grips that band doubles as.
+//! * [`render_resize_edges`] — the resize grips along the inner edge of that
+//!   band.
 //! * [`window_appearance`] — blur, translucency or neither.
 //! * [`window_control_strips`] — the caption buttons, split into the two ends a
 //!   Linux desktop may ask for.
@@ -40,8 +43,9 @@ use rounded_clip::RoundedClip;
 /// Width of the transparent band around a self-decorated window.
 ///
 /// The band carries the drop shadow the compositor no longer draws once the
-/// window asks for client-side decorations, and doubles as the resize grip. It
-/// is part of the window's surface but not of the window as the user
+/// window asks for client-side decorations, and its inner [`RESIZE_GRIP`]
+/// pixels are the resize grip. It is part of the window's surface but not of
+/// the window as the user
 /// understands it: [`Window::set_client_inset`] publishes the visible bounds
 /// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximises and stacks
 /// by the visible edge, exactly as it does for GTK's frames.
@@ -59,8 +63,21 @@ pub const WINDOW_CORNER_RADIUS: f32 = 10.;
 /// Visible outline width, independent of the window's corner radius.
 const WINDOW_BORDER_WIDTH: f32 = 1.;
 
-/// Edge length of the corner squares, where the resize goes diagonal.
-pub const RESIZE_CORNER: f32 = SHADOW_BAND + 12.;
+/// How far the resize grip reaches out from the window's visible edge.
+///
+/// The band is as wide as the shadow needs, which is far wider than a grip
+/// should be: a band-wide grip turned a click a whole shadow's width from the
+/// window into a resize. The grip is the band's inner strip instead, as wide
+/// as the invisible borders GNOME's own frames carry, and [`apply_client_inset`]
+/// lets the pointer through the rest of the band to whatever is underneath.
+pub const RESIZE_GRIP: f32 = 10.;
+
+/// Edge length of the corner squares, where the resize goes diagonal: the grip
+/// and a further 12 px into the window, where the corner is rounded away.
+pub const RESIZE_CORNER: f32 = RESIZE_GRIP + 12.;
+
+/// The part of the band outside the grip, which takes no pointer input.
+const PASS_THROUGH: f32 = SHADOW_BAND - RESIZE_GRIP;
 
 /// Who draws the window's title bar.
 ///
@@ -185,6 +202,62 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
     }
 }
 
+/// The inset to open a window with, for `WindowOptions::client_inset`.
+///
+/// The band [`apply_client_inset`] sets on the first frame, announced when the
+/// window is created: X11 window managers disagree about frame extents that
+/// arrive after the window is mapped, and only extents already there at the
+/// map make every one of them take the size asked for as the visible window.
+/// `None` under the system title bar, which never carries the band; the
+/// backends that need no warning ignore it either way.
+pub fn opening_client_inset(style: TitlebarStyle) -> Option<gpui::Pixels> {
+    (style == TitlebarStyle::Custom).then_some(px(SHADOW_BAND))
+}
+
+/// Tells the platform where the shadow band is, and which part of it takes the
+/// pointer. Call it on every render with what [`client_tiling`] answered.
+///
+/// The inset keeps `_GTK_FRAME_EXTENTS` in step, so the compositor snaps,
+/// maximises and stacks by the visible edge rather than the surface's. The
+/// input region stops at the [`RESIZE_GRIP`] around that edge, so a click in
+/// the rest of the shadow reaches the window underneath, as it does next to
+/// any window the compositor frames. Both are cleared under server-side
+/// decorations, so a window the setting moves back to the system title bar
+/// keeps no band and takes the pointer to its edges again.
+///
+/// Calling it every frame is cheap: the platforms only send a value that
+/// changed. Off Linux the band never exists, and both calls are no-ops.
+pub fn apply_client_inset(window: &mut Window, tiling: Option<gpui::Tiling>) {
+    match tiling {
+        Some(tiling) => {
+            window.set_client_inset(px(SHADOW_BAND));
+            window.set_input_region(Some(&[input_bounds(window.viewport_size(), tiling)]));
+        }
+        None => {
+            window.set_client_inset(px(0.));
+            window.set_input_region(None);
+        }
+    }
+}
+
+/// The part of a client-decorated surface that takes the pointer: all of it
+/// but the band outside the grip, on the edges that have a band.
+fn input_bounds(
+    viewport: gpui::Size<gpui::Pixels>,
+    tiling: gpui::Tiling,
+) -> gpui::Bounds<gpui::Pixels> {
+    let margin = |tiled: bool| if tiled { px(0.) } else { px(PASS_THROUGH) };
+    let (top, bottom) = (margin(tiling.top), margin(tiling.bottom));
+    let (left, right) = (margin(tiling.left), margin(tiling.right));
+    gpui::Bounds::new(
+        gpui::point(left, top),
+        gpui::size(
+            (viewport.width - left - right).max(px(0.)),
+            (viewport.height - top - bottom).max(px(0.)),
+        ),
+    )
+}
+
 /// The drop shadow of a client-decorated window, darker and wider while active.
 fn window_shadow(active: bool) -> gpui::BoxShadow {
     gpui::BoxShadow {
@@ -267,17 +340,21 @@ fn frame_shape(frame: Div, tiling: gpui::Tiling, edge_width: f32) -> Div {
 /// Asking for client-side decorations takes the frame away, resize borders
 /// included, so the shadow band has to start the resize itself — the compositor
 /// takes over once told, exactly as it does for the title-bar drag. The strips
-/// cover the band, the corner squares reach past it into the window, and every
-/// tiled edge goes without: a maximised or snapped window has no border to drag
-/// there.
+/// cover the inner [`RESIZE_GRIP`] of the band, the corner squares reach past it
+/// into the window, and every tiled edge goes without: a maximised or snapped
+/// window has no border to drag there. The band outside the grip is left to
+/// [`apply_client_inset`]'s input region, which lets the pointer through it.
 pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
     use gpui::{CursorStyle, ResizeEdge};
 
-    let strip = px(SHADOW_BAND);
+    let strip = px(RESIZE_GRIP);
     let corner = px(RESIZE_CORNER);
+    // Every handle starts where the grip does, at the inner edge of the part
+    // of the band that passes the pointer through.
+    let outer = px(PASS_THROUGH);
     // A strip stops short of a corner square only where that square exists;
     // against a tiled perpendicular edge it runs to the end of the band.
-    let inset = |tiled: bool| if tiled { px(0.) } else { corner };
+    let inset = |tiled: bool| if tiled { px(0.) } else { outer + corner };
     let handle = |id: &'static str, cursor: CursorStyle, edge: ResizeEdge| {
         div()
             .id(id)
@@ -293,7 +370,7 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
     if !tiling.top {
         handles.push(
             handle("resize-top", CursorStyle::ResizeUpDown, ResizeEdge::Top)
-                .top_0()
+                .top(outer)
                 .left(inset(tiling.left))
                 .right(inset(tiling.right))
                 .h(strip)
@@ -307,7 +384,7 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeUpDown,
                 ResizeEdge::Bottom,
             )
-            .bottom_0()
+            .bottom(outer)
             .left(inset(tiling.left))
             .right(inset(tiling.right))
             .h(strip)
@@ -321,7 +398,7 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeLeftRight,
                 ResizeEdge::Left,
             )
-            .left_0()
+            .left(outer)
             .top(inset(tiling.top))
             .bottom(inset(tiling.bottom))
             .w(strip)
@@ -335,7 +412,7 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeLeftRight,
                 ResizeEdge::Right,
             )
-            .right_0()
+            .right(outer)
             .top(inset(tiling.top))
             .bottom(inset(tiling.bottom))
             .w(strip)
@@ -349,8 +426,8 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeUpLeftDownRight,
                 ResizeEdge::TopLeft,
             )
-            .top_0()
-            .left_0()
+            .top(outer)
+            .left(outer)
             .size(corner)
             .into_any_element(),
         );
@@ -362,8 +439,8 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeUpRightDownLeft,
                 ResizeEdge::TopRight,
             )
-            .top_0()
-            .right_0()
+            .top(outer)
+            .right(outer)
             .size(corner)
             .into_any_element(),
         );
@@ -375,8 +452,8 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeUpRightDownLeft,
                 ResizeEdge::BottomLeft,
             )
-            .bottom_0()
-            .left_0()
+            .bottom(outer)
+            .left(outer)
             .size(corner)
             .into_any_element(),
         );
@@ -388,8 +465,8 @@ pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {
                 CursorStyle::ResizeUpLeftDownRight,
                 ResizeEdge::BottomRight,
             )
-            .bottom_0()
-            .right_0()
+            .bottom(outer)
+            .right(outer)
             .size(corner)
             .into_any_element(),
         );
@@ -483,6 +560,38 @@ mod tests {
                 SHADOW_BAND - offset
             );
         }
+    }
+
+    #[test]
+    fn the_pointer_reaches_only_the_grip_of_the_band() {
+        let viewport = gpui::size(px(1000.), px(700.));
+        let free = input_bounds(viewport, gpui::Tiling::default());
+        let edge = SHADOW_BAND - RESIZE_GRIP;
+        assert_eq!(free.origin, gpui::point(px(edge), px(edge)));
+        assert_eq!(
+            free.size,
+            gpui::size(px(1000. - 2. * edge), px(700. - 2. * edge))
+        );
+        // The grip is all that is left of the band, and the frame starts where
+        // the grip ends.
+        assert_eq!(f32::from(free.origin.x) + RESIZE_GRIP, SHADOW_BAND);
+
+        // A tiled edge has no band, so the region runs to the surface edge.
+        let snapped = input_bounds(
+            viewport,
+            gpui::Tiling {
+                left: true,
+                top: true,
+                bottom: true,
+                right: false,
+            },
+        );
+        assert_eq!(snapped.origin, gpui::point(px(0.), px(0.)));
+        assert_eq!(snapped.size, gpui::size(px(1000. - edge), px(700.)));
+        assert_eq!(
+            input_bounds(viewport, gpui::Tiling::tiled()),
+            gpui::Bounds::new(gpui::point(px(0.), px(0.)), viewport)
+        );
     }
 
     #[test]

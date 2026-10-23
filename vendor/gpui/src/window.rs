@@ -1602,6 +1602,8 @@ impl Window {
             app_id,
             window_min_size,
             window_decorations,
+            // RULOGMAN PATCH: see `WindowOptions::client_inset`.
+            client_inset,
             #[cfg_attr(
                 not(any(target_os = "linux", target_os = "freebsd")),
                 allow(unused_variables)
@@ -1632,6 +1634,8 @@ impl Window {
                 show,
                 display_id,
                 window_min_size,
+                // RULOGMAN PATCH: see `WindowOptions::client_inset`.
+                client_inset,
                 app_id: app_id.clone(),
                 icon,
                 #[cfg(target_os = "macos")]

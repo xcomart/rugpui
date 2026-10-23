@@ -21,6 +21,8 @@ use x11rb::{
     errors::ConnectionError,
     properties::{WmHints, WmSizeHints},
     protocol::{
+        // RULOGMAN PATCH: see `set_input_region`.
+        shape::{self, ConnectionExt as _},
         sync,
         xinput::{self, ConnectionExt as _},
         xproto::{self, ClientMessageEvent, ConnectionExt, TranslateCoordinatesReply},
@@ -293,6 +295,9 @@ pub struct X11WindowState {
     edge_constraints: Option<EdgeConstraints>,
     pub handle: AnyWindowHandle,
     last_insets: [u32; 4],
+    // RULOGMAN PATCH: the input shape `set_input_region` last set, in device
+    // pixels, `None` for the whole window.
+    input_region: Option<Vec<Bounds<i32>>>,
     accesskit_adapter: Option<accesskit_unix::Adapter>,
 }
 
@@ -541,6 +546,28 @@ impl X11WindowState {
             bounds.size.height = 600.into();
         }
 
+        // RULOGMAN PATCH: the frame extents a client-decorated window will
+        // carry, set before the window is mapped so that every window manager
+        // takes the bounds asked for as the visible window. See
+        // `WindowOptions::client_inset`: extents that only arrive with the
+        // first frame make Mutter grow the X window around the visible one,
+        // and xfwm4 shrink the visible one inside it, so a size recorded on
+        // one launch reopened 72 px smaller on the next under xfwm4. The X
+        // window is the bounds plus the band all round, as GTK makes it, and
+        // the inset is scaled the way `set_client_inset` scales it, so the
+        // first frame finds the extents already in place.
+        let frame_extent = params
+            .client_inset
+            .filter(|_| client_side_decorations_supported)
+            .map_or(0, |inset| (f32::from(inset) * scale_factor) as u32);
+        if frame_extent > 0 {
+            let extent = frame_extent as i32;
+            bounds.origin.x.0 -= extent;
+            bounds.origin.y.0 -= extent;
+            bounds.size.width.0 += 2 * extent;
+            bounds.size.height.0 += 2 * extent;
+        }
+
         check_reply(
             || {
                 format!(
@@ -582,6 +609,20 @@ impl X11WindowState {
                     &[pid],
                 ),
             )?;
+
+            // RULOGMAN PATCH: see `frame_extent` above.
+            if frame_extent > 0 {
+                check_reply(
+                    || "X11 ChangeProperty for _GTK_FRAME_EXTENTS failed.",
+                    xcb.change_property32(
+                        xproto::PropMode::REPLACE,
+                        x_window,
+                        atoms._GTK_FRAME_EXTENTS,
+                        xproto::AtomEnum::CARDINAL,
+                        &[frame_extent; 4],
+                    ),
+                )?;
+            }
 
             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
             if reply.x == 0 && reply.y == 0 {
@@ -794,8 +835,15 @@ impl X11WindowState {
             let max_texture_size = renderer.max_texture_size();
             let mut size_hints = WmSizeHints::new();
             if let Some(size) = params.window_min_size {
-                size_hints.min_size =
-                    Some((f32::from(size.width) as i32, f32::from(size.height) as i32));
+                // RULOGMAN PATCH: the minimum is of the visible window, as on
+                // Wayland, where it is set in window geometry coordinates. The
+                // hint is of the X window, so it is scaled to device pixels and
+                // carries the frame extents set above on top.
+                let extent = 2 * frame_extent as i32;
+                size_hints.min_size = Some((
+                    (f32::from(size.width) * scale_factor) as i32 + extent,
+                    (f32::from(size.height) * scale_factor) as i32 + extent,
+                ));
             }
             size_hints.max_size = Some((max_texture_size as i32, max_texture_size as i32));
             check_reply(
@@ -861,7 +909,11 @@ impl X11WindowState {
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 client_side_decorations_supported,
                 decorations: WindowDecorations::Server,
-                last_insets: [0, 0, 0, 0],
+                // RULOGMAN PATCH: the extents set before mapping, see
+                // `frame_extent` above.
+                last_insets: [frame_extent; 4],
+                // RULOGMAN PATCH: see `set_input_region`.
+                input_region: None,
                 edge_constraints: None,
                 accesskit_adapter: None,
                 counter_id: sync_request_counter,
@@ -1977,6 +2029,62 @@ impl PlatformWindow for X11Window {
             // RULOGMAN PATCH: see `update_blur_region`.
             self.0.update_blur_region(&state);
         }
+    }
+
+    // RULOGMAN PATCH: the input region, which upstream implements on Wayland
+    // only, through the input shape of the X Shape extension. Without it the
+    // whole transparent shadow band around a client-decorated window took
+    // the pointer, and a click in the shadow never reached the window under
+    // it. Coordinates are in window pixels, scaled like everything else here;
+    // a shape the window already has is not sent again, because a
+    // client-decorated window restates its region on every frame.
+    fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
+        let mut state = self.0.state.borrow_mut();
+        let scale_factor = state.scale_factor;
+        let region = region.map(|rects| {
+            rects
+                .iter()
+                .map(|rect| rect.map(|pixels| (f32::from(pixels) * scale_factor).round() as i32))
+                .collect::<Vec<_>>()
+        });
+        if state.input_region == region {
+            return;
+        }
+        state.input_region = region.clone();
+        drop(state);
+
+        let result = match region {
+            // No shape at all is the whole window again.
+            None => self.0.xcb.shape_mask(
+                shape::SO::SET,
+                shape::SK::INPUT,
+                self.0.x_window,
+                0,
+                0,
+                x11rb::NONE,
+            ),
+            Some(rects) => {
+                let rects = rects
+                    .iter()
+                    .map(|rect| xproto::Rectangle {
+                        x: rect.origin.x.clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+                        y: rect.origin.y.clamp(i16::MIN as i32, i16::MAX as i32) as i16,
+                        width: rect.size.width.clamp(0, u16::MAX as i32) as u16,
+                        height: rect.size.height.clamp(0, u16::MAX as i32) as u16,
+                    })
+                    .collect::<Vec<_>>();
+                self.0.xcb.shape_rectangles(
+                    shape::SO::SET,
+                    shape::SK::INPUT,
+                    xproto::ClipOrdering::UNSORTED,
+                    self.0.x_window,
+                    0,
+                    0,
+                    &rects,
+                )
+            }
+        };
+        check_reply(|| "X11 input shape request failed.", result).log_err();
     }
 
     fn request_decorations(&self, mut decorations: gpui::WindowDecorations) {

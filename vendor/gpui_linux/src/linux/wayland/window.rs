@@ -139,6 +139,9 @@ pub struct WaylandWindowState {
     in_progress_window_controls: Option<WindowControls>,
     window_controls: WindowControls,
     client_inset: Option<Pixels>,
+    // RULOGMAN PATCH: the region `set_input_region` last sent, `None` for the
+    // whole surface.
+    input_region: Option<Vec<Bounds<i32>>>,
     accesskit_adapter: Option<accesskit_unix::Adapter>,
 }
 
@@ -639,6 +642,8 @@ impl WaylandWindowState {
             in_progress_window_controls: None,
             window_controls: WindowControls::default(),
             client_inset: None,
+            // RULOGMAN PATCH: see `set_input_region`.
+            input_region: None,
             accesskit_adapter: None,
         })
     }
@@ -2132,6 +2137,19 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn set_input_region(&self, region: Option<&[Bounds<Pixels>]>) {
+        // RULOGMAN PATCH: a region the surface already has is not sent again.
+        // A client-decorated window restates its region on every frame, and
+        // each region sent commits the surface.
+        let region = region.map(|rects| {
+            rects
+                .iter()
+                .map(|rect| rect.map(|pixels| f32::from(pixels) as i32))
+                .collect::<Vec<_>>()
+        });
+        if self.borrow().input_region == region {
+            return;
+        }
+        self.borrow_mut().input_region = region.clone();
         let state = self.borrow();
         match region {
             // No region means the whole surface receives input.
@@ -2143,8 +2161,8 @@ impl PlatformWindow for WaylandWindow {
                     .globals
                     .compositor
                     .create_region(&state.globals.qh, ());
+                // RULOGMAN PATCH: already in surface pixels, see above.
                 for rect in rects {
-                    let rect = rect.map(|pixels| f32::from(pixels) as i32);
                     wl_region.add(
                         rect.origin.x,
                         rect.origin.y,

@@ -185,9 +185,16 @@ impl WindowGeometry {
 /// Linux a window that draws its own decorations sits inside a transparent band
 /// for its shadow, and the two backends disagree about whether the size a
 /// window is opened at includes it: Wayland takes it as the whole surface, band
-/// and all, while X11 hands it to the window manager as the visible window and
-/// the band is added around it. Recording the other one would shrink the
-/// window by the band on every Wayland launch, or grow it on every X11 one.
+/// and all, while X11 takes it as the visible window and adds the band around
+/// it. Recording the other one would shrink the window by the band on every
+/// Wayland launch, or grow it on every X11 one.
+///
+/// On X11 that holds under every window manager only for a window opened with
+/// [`chrome::opening_client_inset`](crate::chrome::opening_client_inset): the
+/// band then goes around the window before it is mapped. Extents that arrive
+/// with the first frame instead are a window manager's to interpret, and xfwm4
+/// takes them out of the visible window, which shrank it by the band on every
+/// launch there.
 ///
 /// The caller decides what to do with the answer — an application records it in
 /// its own settings global and writes the file when the last window closes,
@@ -209,8 +216,8 @@ pub fn window_geometry(window: &Window, cx: &App) -> WindowGeometry {
 /// Whether the platform opens a window at its outer size, shadow band included.
 ///
 /// Only Wayland does. Everywhere else there is either no band to speak of —
-/// Windows and macOS keep their own frames — or, on X11, the window manager
-/// adds it around the size asked for.
+/// Windows and macOS keep their own frames — or, on X11, the backend adds it
+/// around the size asked for.
 fn opens_at_outer_size(cx: &App) -> bool {
     cx.compositor_name() == "Wayland"
 }
@@ -220,6 +227,9 @@ fn opens_at_outer_size(cx: &App) -> bool {
 /// A saved position is used as it stands; without one the saved *size* is
 /// centred on the active display, which is what a first run does and what a
 /// window that has never been moved deserves.
+///
+/// Takes the size as saved, however small; [`window_bounds_at_least`] is the
+/// same placement held to the window's minimum size.
 pub fn window_bounds(
     saved: Option<WindowGeometry>,
     width: u32,
@@ -227,15 +237,63 @@ pub fn window_bounds(
     maximized: bool,
     cx: &mut App,
 ) -> WindowBounds {
+    window_bounds_at_least(saved, width, height, maximized, Size::default(), None, cx)
+}
+
+/// The placement to open a window at, no smaller than `min_size` where it
+/// shows.
+///
+/// [`window_bounds`], with the saved size first grown to the minimum the window
+/// is opened with (`WindowOptions::window_min_size`), so a size saved before
+/// the minimum existed, or one a window manager shrank, comes back at the
+/// minimum rather than below it. The size grows before a window without a
+/// saved position is centred, so it is still centred.
+///
+/// `min_size` is the visible window, which is what the platforms hold a
+/// window's minimum to. Pass the `client_inset` the window is opened with
+/// ([`chrome::opening_client_inset`](crate::chrome::opening_client_inset)):
+/// Wayland opens a window at its outer size, shadow band included, so the band
+/// is added to the minimum there.
+pub fn window_bounds_at_least(
+    saved: Option<WindowGeometry>,
+    width: u32,
+    height: u32,
+    maximized: bool,
+    min_size: Size<Pixels>,
+    client_inset: Option<Pixels>,
+    cx: &mut App,
+) -> WindowBounds {
+    let min_size = opening_min_size(min_size, client_inset, opens_at_outer_size(cx));
     let bounds = match saved {
-        Some(geometry) => geometry.bounds(),
-        None => Bounds::centered(None, size(px(width as f32), px(height as f32)), cx),
+        Some(geometry) => {
+            let bounds = geometry.bounds();
+            Bounds::new(bounds.origin, bounds.size.max(&min_size))
+        }
+        None => Bounds::centered(
+            None,
+            size(px(width as f32), px(height as f32)).max(&min_size),
+            cx,
+        ),
     };
     if maximized {
         WindowBounds::Maximized(bounds)
     } else {
         WindowBounds::Windowed(bounds)
     }
+}
+
+/// The smallest size to open a window at so that its visible part is at least
+/// `min_size`: the band on both sides added where the opened size includes it.
+fn opening_min_size(
+    min_size: Size<Pixels>,
+    client_inset: Option<Pixels>,
+    outer: bool,
+) -> Size<Pixels> {
+    let band = match client_inset {
+        Some(inset) if outer => inset * 2.,
+        _ => px(0.),
+    };
+    size(min_size.width + band, min_size.height + band)
 }
 
 /// Applies the configured window opacity to a background fill.
@@ -274,6 +332,53 @@ pub fn window_tint(color: Hsla, cx: &App) -> Hsla {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_minimum_counts_the_band_only_where_the_opened_size_has_it() {
+        let min = size(px(640.), px(400.));
+        assert_eq!(
+            opening_min_size(min, Some(px(36.)), true),
+            size(px(712.), px(472.))
+        );
+        // X11 adds the band around the size asked for, and a window under the
+        // system title bar has none.
+        assert_eq!(opening_min_size(min, Some(px(36.)), false), min);
+        assert_eq!(opening_min_size(min, None, true), min);
+    }
+
+    #[gpui::test]
+    fn a_saved_size_below_the_minimum_opens_at_the_minimum(cx: &mut gpui::TestAppContext) {
+        let min = size(px(640.), px(400.));
+        cx.update(|cx| {
+            let saved = WindowGeometry::saved(Some(10), Some(20), 300, 900, false);
+            let WindowBounds::Windowed(bounds) =
+                window_bounds_at_least(saved, 1100, 700, false, min, None, cx)
+            else {
+                panic!("a windowed placement came back otherwise");
+            };
+            assert_eq!(
+                bounds.origin,
+                Point {
+                    x: px(10.),
+                    y: px(20.)
+                }
+            );
+            assert_eq!(bounds.size, size(px(640.), px(900.)));
+
+            let WindowBounds::Maximized(bounds) =
+                window_bounds_at_least(None, 200, 100, true, min, None, cx)
+            else {
+                panic!("a maximized placement came back otherwise");
+            };
+            assert_eq!(bounds.size, min);
+
+            // Without a minimum the saved size stands, however small.
+            let WindowBounds::Windowed(bounds) = window_bounds(saved, 1100, 700, false, cx) else {
+                panic!("a windowed placement came back otherwise");
+            };
+            assert_eq!(bounds.size, size(px(300.), px(900.)));
+        });
+    }
 
     #[test]
     fn a_placement_round_trips_through_whole_pixels() {
