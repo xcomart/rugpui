@@ -835,8 +835,15 @@ impl X11WindowState {
             let max_texture_size = renderer.max_texture_size();
             let mut size_hints = WmSizeHints::new();
             if let Some(size) = params.window_min_size {
-                size_hints.min_size =
-                    Some((f32::from(size.width) as i32, f32::from(size.height) as i32));
+                // RULOGMAN PATCH: the minimum is of the visible window, as on
+                // Wayland, where it is set in window geometry coordinates. The
+                // hint is of the X window, so it is scaled to device pixels and
+                // carries the frame extents set above on top.
+                let extent = 2 * frame_extent as i32;
+                size_hints.min_size = Some((
+                    (f32::from(size.width) * scale_factor) as i32 + extent,
+                    (f32::from(size.height) * scale_factor) as i32 + extent,
+                ));
             }
             size_hints.max_size = Some((max_texture_size as i32, max_texture_size as i32));
             check_reply(

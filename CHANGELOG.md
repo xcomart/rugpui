@@ -23,6 +23,11 @@ revision past it.
   created with the band around its bounds and `_GTK_FRAME_EXTENTS` already
   set when it is mapped. A consumer adds
   `client_inset: opening_client_inset(titlebar)` to its `WindowOptions`.
+- `rugpui-shell`: `window_bounds_at_least(saved, width, height, maximized,
+  min_size, client_inset, cx)`, `window_bounds` with the opening size held to
+  a visible minimum (the shadow band added on Wayland, which opens at the outer
+  size). A consumer that sets `WindowOptions::window_min_size` opens with this
+  instead, so a smaller saved size comes back at the minimum.
 
 ### Changed
 
@@ -39,6 +44,10 @@ revision past it.
   launch under xfwm4 (Xfce on X11). The frame extents arrived after the window
   was mapped, which xfwm4 takes out of the visible window where Mutter grows
   the window around them; opened with `client_inset`, they are there before.
+- The vendored gpui holds `WindowOptions::window_min_size` to the visible
+  window on X11, as Wayland does: the size hint is scaled to device pixels and
+  carries the frame extents, where it used to be the logical size of the whole
+  X window, band included.
 
 ## [0.1.10] - 2026-10-22
 

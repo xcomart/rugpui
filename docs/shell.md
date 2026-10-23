@@ -786,9 +786,14 @@ either coordinate is missing — a first run, or a window that was never moved.
 maximised and with the restore bounds either way, so the size survives.
 `window_bounds(saved, width, height, maximized, cx)` turns the pair back into a
 `WindowBounds`, centring the saved *size* on the active display when there is no
-saved position. Record the geometry into your own settings global and write the
-file when the last window closes, which is what keeps a file write out of the
-middle of a resize drag.
+saved position. `window_bounds_at_least(saved, width, height, maximized,
+min_size, client_inset, cx)` is the same placement with the size first grown to
+`min_size`, the visible minimum you also pass as `WindowOptions::window_min_size`,
+so a smaller saved size opens at the minimum. Pass the `client_inset` the window
+opens with (`opening_client_inset(style)`): Wayland opens at the outer size, so
+the band is added to the minimum there. Record the geometry into your own
+settings global and write the file when the last window closes, which is what
+keeps a file write out of the middle of a resize drag.
 
 `monospace_family(cx)` is the fixed-pitch family to draw code with when the user
 has named none. The naive answer — the literal `"monospace"` — is a *fontconfig*
