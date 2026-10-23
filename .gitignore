@@ -5,3 +5,7 @@
 .claude
 __pycache__/
 *.pyc
+
+# graft/trail local data — not committed.
+/graft/
+/.trail/
