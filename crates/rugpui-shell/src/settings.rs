@@ -185,9 +185,16 @@ impl WindowGeometry {
 /// Linux a window that draws its own decorations sits inside a transparent band
 /// for its shadow, and the two backends disagree about whether the size a
 /// window is opened at includes it: Wayland takes it as the whole surface, band
-/// and all, while X11 hands it to the window manager as the visible window and
-/// the band is added around it. Recording the other one would shrink the
-/// window by the band on every Wayland launch, or grow it on every X11 one.
+/// and all, while X11 takes it as the visible window and adds the band around
+/// it. Recording the other one would shrink the window by the band on every
+/// Wayland launch, or grow it on every X11 one.
+///
+/// On X11 that holds under every window manager only for a window opened with
+/// [`chrome::opening_client_inset`](crate::chrome::opening_client_inset): the
+/// band then goes around the window before it is mapped. Extents that arrive
+/// with the first frame instead are a window manager's to interpret, and xfwm4
+/// takes them out of the visible window, which shrank it by the band on every
+/// launch there.
 ///
 /// The caller decides what to do with the answer — an application records it in
 /// its own settings global and writes the file when the last window closes,
@@ -209,8 +216,8 @@ pub fn window_geometry(window: &Window, cx: &App) -> WindowGeometry {
 /// Whether the platform opens a window at its outer size, shadow band included.
 ///
 /// Only Wayland does. Everywhere else there is either no band to speak of —
-/// Windows and macOS keep their own frames — or, on X11, the window manager
-/// adds it around the size asked for.
+/// Windows and macOS keep their own frames — or, on X11, the backend adds it
+/// around the size asked for.
 fn opens_at_outer_size(cx: &App) -> bool {
     cx.compositor_name() == "Wayland"
 }

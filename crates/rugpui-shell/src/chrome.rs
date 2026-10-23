@@ -202,6 +202,18 @@ pub fn client_tiling(window: &Window) -> Option<gpui::Tiling> {
     }
 }
 
+/// The inset to open a window with, for `WindowOptions::client_inset`.
+///
+/// The band [`apply_client_inset`] sets on the first frame, announced when the
+/// window is created: X11 window managers disagree about frame extents that
+/// arrive after the window is mapped, and only extents already there at the
+/// map make every one of them take the size asked for as the visible window.
+/// `None` under the system title bar, which never carries the band; the
+/// backends that need no warning ignore it either way.
+pub fn opening_client_inset(style: TitlebarStyle) -> Option<gpui::Pixels> {
+    (style == TitlebarStyle::Custom).then_some(px(SHADOW_BAND))
+}
+
 /// Tells the platform where the shadow band is, and which part of it takes the
 /// pointer. Call it on every render with what [`client_tiling`] answered.
 ///

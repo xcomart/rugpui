@@ -100,8 +100,8 @@ pub use catalog::{
 };
 pub use catalog_ui::{CatalogActionEvent, CatalogActions, export_directory};
 pub use chrome::{
-    TitlebarStyle, apply_client_inset, client_tiling, draws_own_titlebar, render_resize_edges,
-    titlebar_gestures, window_appearance, window_control_strips,
+    TitlebarStyle, apply_client_inset, client_tiling, draws_own_titlebar, opening_client_inset,
+    render_resize_edges, titlebar_gestures, window_appearance, window_control_strips,
 };
 pub use icons::{
     IconSet, WINDOW_CLOSE, WINDOW_CONTROL_ICONS, WINDOW_MAXIMIZE, WINDOW_MINIMIZE, WINDOW_RESTORE,

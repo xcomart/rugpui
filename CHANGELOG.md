@@ -18,6 +18,11 @@ revision past it.
 - The vendored gpui implements `Window::set_input_region` on X11, through the
   input shape of the X Shape extension, and neither Linux backend sends a
   region the window already has again.
+- The vendored gpui has `WindowOptions::client_inset`, and `rugpui-shell`
+  `opening_client_inset(style)` to fill it. On X11 a window opened with it is
+  created with the band around its bounds and `_GTK_FRAME_EXTENTS` already
+  set when it is mapped. A consumer adds
+  `client_inset: opening_client_inset(titlebar)` to its `WindowOptions`.
 
 ### Changed
 
@@ -30,6 +35,10 @@ revision past it.
 
 - `rugpui-shell`: a click in a client-decorated window's shadow, outside the
   resize grip, reaches the window underneath instead of starting a resize.
+- A client-decorated window no longer shrinks by the shadow band on every
+  launch under xfwm4 (Xfce on X11). The frame extents arrived after the window
+  was mapped, which xfwm4 takes out of the visible window where Mutter grows
+  the window around them; opened with `client_inset`, they are there before.
 
 ## [0.1.10] - 2026-10-22
 

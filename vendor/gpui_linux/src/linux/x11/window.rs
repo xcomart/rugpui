@@ -546,6 +546,28 @@ impl X11WindowState {
             bounds.size.height = 600.into();
         }
 
+        // RULOGMAN PATCH: the frame extents a client-decorated window will
+        // carry, set before the window is mapped so that every window manager
+        // takes the bounds asked for as the visible window. See
+        // `WindowOptions::client_inset`: extents that only arrive with the
+        // first frame make Mutter grow the X window around the visible one,
+        // and xfwm4 shrink the visible one inside it, so a size recorded on
+        // one launch reopened 72 px smaller on the next under xfwm4. The X
+        // window is the bounds plus the band all round, as GTK makes it, and
+        // the inset is scaled the way `set_client_inset` scales it, so the
+        // first frame finds the extents already in place.
+        let frame_extent = params
+            .client_inset
+            .filter(|_| client_side_decorations_supported)
+            .map_or(0, |inset| (f32::from(inset) * scale_factor) as u32);
+        if frame_extent > 0 {
+            let extent = frame_extent as i32;
+            bounds.origin.x.0 -= extent;
+            bounds.origin.y.0 -= extent;
+            bounds.size.width.0 += 2 * extent;
+            bounds.size.height.0 += 2 * extent;
+        }
+
         check_reply(
             || {
                 format!(
@@ -587,6 +609,20 @@ impl X11WindowState {
                     &[pid],
                 ),
             )?;
+
+            // RULOGMAN PATCH: see `frame_extent` above.
+            if frame_extent > 0 {
+                check_reply(
+                    || "X11 ChangeProperty for _GTK_FRAME_EXTENTS failed.",
+                    xcb.change_property32(
+                        xproto::PropMode::REPLACE,
+                        x_window,
+                        atoms._GTK_FRAME_EXTENTS,
+                        xproto::AtomEnum::CARDINAL,
+                        &[frame_extent; 4],
+                    ),
+                )?;
+            }
 
             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
             if reply.x == 0 && reply.y == 0 {
@@ -866,7 +902,9 @@ impl X11WindowState {
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 client_side_decorations_supported,
                 decorations: WindowDecorations::Server,
-                last_insets: [0, 0, 0, 0],
+                // RULOGMAN PATCH: the extents set before mapping, see
+                // `frame_extent` above.
+                last_insets: [frame_extent; 4],
                 // RULOGMAN PATCH: see `set_input_region`.
                 input_region: None,
                 edge_constraints: None,

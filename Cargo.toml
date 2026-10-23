@@ -76,6 +76,14 @@ exclude = [
 #     to the resize grip around a client-decorated window and restates it on
 #     every frame; upstream implements the region on Wayland only, where each
 #     call also commits the surface.
+#   * `gpui/src/platform.rs`, `gpui/src/window.rs` and
+#     `gpui_linux/src/linux/x11/window.rs` — `WindowOptions::client_inset`,
+#     the inset a client-decorated window will set. X11 creates the window
+#     that much larger than its bounds and sets `_GTK_FRAME_EXTENTS` before
+#     mapping it, as GTK does. Extents that only arrive with the first frame
+#     are left to the window manager: Mutter grows the window around them,
+#     xfwm4 takes them out of the visible window, so a recorded size came back
+#     smaller on every launch there.
 #   * `gpui/src/platform.rs`, `gpui/src/app.rs` and `gpui_macos/src/platform.rs`
 #     — `on_service_request`, which is the other half of `on_open_urls`. macOS
 #     lets a bundle declare entries under `NSServices` that appear in the
