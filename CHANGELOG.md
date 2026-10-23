@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-23
+
 ### Added
 
 - `rugpui-shell`: `apply_client_inset(window, tiling)` sets the client inset
@@ -215,7 +217,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.10...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.11...dev
+[0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/xcomart/rugpui/compare/v0.1.7...v0.1.8
