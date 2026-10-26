@@ -324,13 +324,14 @@ impl SchemeSelect {
         self
     }
 
-    /// Draws `bar` down the open list as its overlay scroll indicator.
+    /// Draws `bar` down the open list in place of the one it draws itself.
     ///
-    /// Passed in rather than built here, and only while it should be on screen,
-    /// for the same reason the handle above is: a bar comes and goes with the
-    /// scrolling. The owner
-    /// answers drags of it too, since the id it built the bar with is what tells
-    /// that drag from any other.
+    /// Without it the list runs an overlay bar of its own, off the same
+    /// per-dropdown state that keeps its focus and keyboard search, and that is
+    /// what most callers want. Pass one only to drive it from a
+    /// [`ScrollbarState`](crate::ScrollbarState) the owner already keeps for
+    /// the handle above. The owner then answers drags of it too, since the id
+    /// it built the bar with is what tells that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
         self.scrollbar = Some(bar);
         self
@@ -398,6 +399,7 @@ impl RenderOnce for SchemeSelect {
         let on_select = self.on_select;
         let on_open_change = self.on_open_change;
         let keyboard = SelectKeyboard::state(id.clone(), open, window, cx);
+        let bar_state = keyboard.clone();
         let focus = keyboard.read(cx).focus.clone();
         let scroll_handle = self
             .scroll_handle
@@ -617,14 +619,23 @@ impl RenderOnce for SchemeSelect {
 
         // The bar cannot go inside the list, whose children are what scroll
         // away underneath it; this box is the list's own size, so it is what the
-        // thumb is placed against.
+        // thumb is placed against. An owner that brings a bar keeps answering
+        // for it; every other list runs one off the dropdown's own state, so no
+        // list scrolls without a bar.
+        let own_bar = self.scrollbar.is_none();
+        let bar = self
+            .scrollbar
+            .unwrap_or_else(|| SelectKeyboard::scrollbar(&bar_state, &id, &scroll_handle, cx));
         let list = div()
             .relative()
             .flex()
             .flex_col()
             .flex_none()
+            .when(own_bar, |this| {
+                SelectKeyboard::answer_scrollbar(&bar_state, &id, &scroll_handle, this)
+            })
             .child(list)
-            .children(self.scrollbar.and_then(|bar| bar.render(&theme)));
+            .children(bar.render(&theme));
 
         // The list hangs off a zero-sized box laid out *before* the trigger,
         // not off the trigger itself: an `anchored` element is positioned

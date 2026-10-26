@@ -9,6 +9,15 @@ revision past it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Select` and `SchemeSelect` draw the overlay scrollbar down a long open list
+  by themselves when the caller passes none through `.scrollbar(...)`, run off
+  the dropdown's own state: scrolling the list or resting the pointer on its
+  right edge puts the bar up, and the thumb can be dragged. Until now only the
+  lists whose owner kept a `ScrollbarState`, a hide timer and a drag listener
+  had one. A consumer changes nothing; one that passes its own bar keeps it.
+
 ## [0.1.11] - 2026-10-23
 
 ### Added
