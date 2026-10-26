@@ -20,6 +20,15 @@ revision past it.
   `GridView::expand_tooltip` / `set_expand_tooltip` label the button. Its mark
   is the new `rugpui::EXPAND`, in `rugpui::ICONS`.
 
+### Fixed
+
+- A single-line `TextInput` slides its text left under the field to keep the
+  caret in view. Until now a line longer than the field ran on past its
+  right-hand edge, caret and all, where it was cut off out of sight — and in
+  a grid field with an expand button beside it the caret seemed to go under
+  the button. The text is cut at the field's own edges, and a press, a
+  selection and an input method's candidate window all follow the slide.
+
 ### Changed
 
 - `TabBar` runs the parts of a strip its owner leaves to it, off its own

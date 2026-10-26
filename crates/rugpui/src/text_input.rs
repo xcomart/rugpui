@@ -42,7 +42,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, ElementId,
+    App, AvailableSpace, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
     InspectorElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PaintQuad, Pixels, Point, ScrollHandle, ShapedLine, SharedString, Size, Style,
@@ -54,6 +54,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::menu::{ContextMenu, MenuEntry};
 use crate::theme::theme;
 
+/// How wide the caret is drawn, and how much room a single-line field keeps
+/// for it at its right-hand edge.
+const CARET_WIDTH: Pixels = px(2.);
 actions!(
     rugpui_input,
     [
@@ -259,6 +262,9 @@ pub struct TextInput {
     rows: Option<usize>,
     /// Vertical scroll of a multiline field. Unused by the single-line one.
     scroll: ScrollHandle,
+    /// How far a single-line field's text has slid left under the field, to
+    /// keep the caret inside it. Unused by the multiline one, which wraps.
+    scroll_x: Pixels,
     /// Where the pointer was when a right-click opened the edit menu. `None`
     /// while no menu is showing.
     context: Option<Point<Pixels>>,
@@ -288,6 +294,7 @@ impl TextInput {
             invalid: false,
             rows: None,
             scroll: ScrollHandle::new(),
+            scroll_x: Pixels::ZERO,
             context: None,
             menu_labels: None,
             on_submit: None,
@@ -884,8 +891,9 @@ impl TextInput {
             return 0;
         };
         // `bounds` is where the text was *painted*, which in a scrolled
-        // multiline field is already shifted by the scroll offset — so the
-        // subtraction below needs no scroll term of its own.
+        // multiline field is already shifted by the scroll offset, and in a
+        // single-line one by the text having slid left — so the subtraction
+        // below needs no scroll term of its own.
         self.offset_for(position - bounds.origin)
     }
 
@@ -1176,6 +1184,9 @@ impl EntityInputHandler for TextInput {
         let end = self.point_for(range.end)?;
         let line_height = self.last_line_height;
         let same_row = (end.y - start.y).abs() < px(0.5);
+        // Measured from where the text was painted, which is the element's
+        // own origin less any scroll.
+        let bounds = self.last_bounds.unwrap_or(bounds);
         Some(Bounds::from_corners(
             bounds.origin + start,
             bounds.origin
@@ -1324,6 +1335,11 @@ struct PrepaintState {
     /// Where the caret is, relative to the top left of the text — what a
     /// multiline field scrolls itself by.
     caret: Point<Pixels>,
+    /// Where the text is painted: the element's own origin, less a
+    /// single-line field's horizontal scroll.
+    origin: Point<Pixels>,
+    /// A single-line field's horizontal scroll this frame, kept for the next.
+    scroll_x: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -1484,52 +1500,56 @@ impl Element for TextElement {
             );
         }
 
-        for selection in prepaint.selection.drain(..) {
-            window.paint_quad(selection);
-        }
-
         let shaped = prepaint.shaped.take().expect("prepaint always shapes");
-        match &shaped {
-            Shaped::Line(line) => {
-                line.paint(
-                    bounds.origin,
-                    line_height,
-                    TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                )
-                .ok();
+        let origin = prepaint.origin;
+        // A single line slid left under the field is cut at the element's own
+        // edges, rather than at the frame's, which would show it through the
+        // padding.
+        let mask = matches!(shaped, Shaped::Line(_)).then_some(ContentMask { bounds });
+        window.with_content_mask(mask, |window| {
+            for selection in prepaint.selection.drain(..) {
+                window.paint_quad(selection);
             }
-            Shaped::Lines(lines) => {
-                let mut top = bounds.top();
-                for line in lines {
-                    line.paint(
-                        point(bounds.left(), top),
-                        line_height,
-                        TextAlign::Left,
-                        None,
-                        window,
-                        cx,
-                    )
-                    .ok();
-                    top += line.size(line_height).height;
+
+            match &shaped {
+                Shaped::Line(line) => {
+                    line.paint(origin, line_height, TextAlign::Left, None, window, cx)
+                        .ok();
+                }
+                Shaped::Lines(lines) => {
+                    let mut top = origin.y;
+                    for line in lines {
+                        line.paint(
+                            point(origin.x, top),
+                            line_height,
+                            TextAlign::Left,
+                            None,
+                            window,
+                            cx,
+                        )
+                        .ok();
+                        top += line.size(line_height).height;
+                    }
                 }
             }
-        }
 
-        if !disabled
-            && focus_handle.is_focused(window)
-            && let Some(cursor) = prepaint.cursor.take()
-        {
-            window.paint_quad(cursor);
-        }
+            if !disabled
+                && focus_handle.is_focused(window)
+                && let Some(cursor) = prepaint.cursor.take()
+            {
+                window.paint_quad(cursor);
+            }
+        });
 
         let display_map = prepaint.display_map.take();
         let caret = prepaint.caret;
+        let scroll_x = prepaint.scroll_x;
         self.input.update(cx, |input, cx| {
             input.last_layout = Some(shaped);
-            input.last_bounds = Some(bounds);
+            // Where the text was painted, scroll and all, which is what every
+            // point-to-offset question below subtracts.
+            input.last_bounds = Some(Bounds::new(origin, bounds.size));
+            input.scroll_x = scroll_x;
             input.last_display_map = display_map;
             input.last_line_height = line_height;
             if let Some(rows) = input.rows
@@ -1646,13 +1666,30 @@ impl TextElement {
             .shape_line(display_text, font_size, &runs, None);
 
         let caret_x = line.x_for_index(to_display(map, cursor));
+        // A line longer than the field slides left under it, so that the caret
+        // stays inside the field's own width — which is all there is to type
+        // into, whatever a parent has put beside it. The scroll only moves as
+        // far as the caret needs, and never leaves empty space after the end of
+        // the text once that has been deleted back.
+        let width = bounds.size.width;
+        let mut scroll_x = input.scroll_x;
+        if caret_x - scroll_x > width - CARET_WIDTH {
+            scroll_x = caret_x - (width - CARET_WIDTH);
+        }
+        if caret_x < scroll_x {
+            scroll_x = caret_x;
+        }
+        let overflow = (line.width + CARET_WIDTH - width).max(Pixels::ZERO);
+        scroll_x = scroll_x.clamp(Pixels::ZERO, overflow);
+        let left = bounds.left() - scroll_x;
+
         let (selection, cursor) = if selected_range.is_empty() {
             (
                 Vec::new(),
                 Some(fill(
                     Bounds::new(
-                        point(bounds.left() + caret_x, bounds.top()),
-                        size(px(2.), bounds.bottom() - bounds.top()),
+                        point(left + caret_x, bounds.top()),
+                        size(CARET_WIDTH, bounds.bottom() - bounds.top()),
                     ),
                     theme.accent,
                 )),
@@ -1662,11 +1699,11 @@ impl TextElement {
                 vec![fill(
                     Bounds::from_corners(
                         point(
-                            bounds.left() + line.x_for_index(to_display(map, selected_range.start)),
+                            left + line.x_for_index(to_display(map, selected_range.start)),
                             bounds.top(),
                         ),
                         point(
-                            bounds.left() + line.x_for_index(to_display(map, selected_range.end)),
+                            left + line.x_for_index(to_display(map, selected_range.end)),
                             bounds.bottom(),
                         ),
                     ),
@@ -1683,6 +1720,8 @@ impl TextElement {
             display_map,
             line_height: window.line_height(),
             caret: point(caret_x, Pixels::ZERO),
+            origin: point(left, bounds.top()),
+            scroll_x,
         }
     }
 
@@ -1787,6 +1826,8 @@ impl TextElement {
             display_map: None,
             line_height,
             caret,
+            origin,
+            scroll_x: Pixels::ZERO,
         }
     }
 }
@@ -2146,6 +2187,73 @@ mod tests {
             (10..14).contains(&third),
             "the third row is offsets 10..14, got {third}"
         );
+    }
+
+    /// A single line longer than the field slides left to keep the caret
+    /// inside it, slides back when the caret goes home, and a press is still
+    /// mapped to the character under it while the text is slid.
+    #[gpui::test]
+    fn a_long_line_slides_to_keep_the_caret_in_view(cx: &mut TestAppContext) {
+        let text = "a long line that runs well past the end of the field ".repeat(4);
+        let (input, mut cx) = open(None, &text, cx);
+        let painted = |cx: &mut VisualTestContext| {
+            cx.update(|_window, cx| {
+                let input = input.read(cx);
+                (input.last_bounds.expect("painted"), input.scroll_x)
+            })
+        };
+        let redraw = |cx: &mut VisualTestContext| {
+            cx.refresh().expect("the window redraws");
+            cx.run_until_parked();
+        };
+
+        // Where the text starts with nothing slid.
+        place(&input, 0, &mut cx);
+        redraw(&mut cx);
+        let (home, scroll_x) = painted(&mut cx);
+        assert_eq!(scroll_x, Pixels::ZERO);
+        let left = home.origin.x;
+
+        place(&input, text.len(), &mut cx);
+        redraw(&mut cx);
+        let (end, scroll_x) = painted(&mut cx);
+        assert!(scroll_x > Pixels::ZERO, "the text slid left");
+        assert!(
+            (end.origin.x - (left - scroll_x)).abs() < px(0.5),
+            "painted at {end:?} with a scroll of {scroll_x:?}"
+        );
+        let caret_x = cx.update(|_window, cx| {
+            let input = input.read(cx);
+            input.point_for(input.cursor_offset()).expect("shaped").x
+        });
+        assert!(
+            caret_x - scroll_x <= end.size.width,
+            "the caret at {caret_x:?} is past the field's width {:?}",
+            end.size.width
+        );
+
+        // A press at the field's right-hand edge lands near the end of the
+        // text, not where that point would be with the text unslid.
+        cx.simulate_event(MouseDownEvent {
+            position: point(left + end.size.width - px(4.), end.origin.y + px(10.)),
+            modifiers: Modifiers::none(),
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.run_until_parked();
+        assert!(
+            caret(&input, &mut cx) + 3 >= text.len(),
+            "a press at the right edge put the caret at {}",
+            caret(&input, &mut cx)
+        );
+
+        // And going home slides it back.
+        place(&input, 0, &mut cx);
+        redraw(&mut cx);
+        let (back, scroll_x) = painted(&mut cx);
+        assert_eq!(scroll_x, Pixels::ZERO, "home slides the text back");
+        assert!((back.origin.x - left).abs() < px(0.5));
     }
 
     #[gpui::test]
