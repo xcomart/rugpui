@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-10-26
+
 ### Added
 
 - `rugpui-editor`: `EditorView::set_tab_width(width, cx)` and
@@ -252,7 +254,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.11...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.12...dev
+[0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
