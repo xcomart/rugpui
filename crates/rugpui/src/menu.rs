@@ -116,7 +116,7 @@ const CHECK_MARK: &str = "\u{2713}";
 /// gpui compiles the call that records it away outside a test build, so this
 /// costs the application nothing; it is here because the width of a panel is
 /// now a decision rather than a constant, and a decision wants a test.
-const PANEL_SELECTOR: &str = "rugpui-menu-panel";
+pub(crate) const PANEL_SELECTOR: &str = "rugpui-menu-panel";
 
 /// Distance the dropdown keeps from the window edges when it would overflow.
 const WINDOW_MARGIN: f32 = 6.;

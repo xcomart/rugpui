@@ -3,13 +3,12 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, Div, ElementId, Entity, FocusHandle, InteractiveElement, KeyBinding, KeyDownEvent,
-    MouseButton, MouseUpEvent, ScrollHandle, Subscription, Window, actions,
+    App, Div, ElementId, Entity, FocusHandle, KeyBinding, KeyDownEvent, ScrollHandle, Subscription,
+    Window, actions,
 };
 
 use crate::scrollbar::{
-    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
-    scrolled,
+    Scrollbar, ScrollbarAxis, ScrollbarState, answer_own_scrollbar, own_scrollbar,
 };
 
 pub(crate) const KEY_CONTEXT: &str = "RugpuiSelect";
@@ -177,80 +176,41 @@ impl SelectKeyboard {
 
     /// The open list's overlay bar, for an owner that brought none of its own.
     ///
-    /// Run off this per-dropdown state, so a list scrolls with the same bar as
-    /// every other surface without its owner keeping a [`ScrollbarState`], a
-    /// timer and a drag listener for it. Looks at where the list is scrolled
-    /// to first: comparing that between renders is what puts the bar up while
-    /// the list moves and arms the clock that takes it down again, exactly as
-    /// it does for an owner-run bar.
+    /// Run off this per-dropdown state through [`own_scrollbar`], so a list
+    /// scrolls with the same bar as every other surface without its owner
+    /// keeping a [`ScrollbarState`], a timer and a drag listener for it.
     pub(crate) fn scrollbar(
         state: &Entity<Self>,
         id: &ElementId,
         handle: &ScrollHandle,
         cx: &mut App,
     ) -> Scrollbar {
-        let fade = state.update(cx, |this, cx| {
-            let scrolled = scrolled(handle, ScrollbarAxis::Vertical);
-            if let Some(epoch) = this.scrollbar.moved(scrolled) {
-                hide_later(epoch, cx, |this| Some(&mut this.scrollbar));
-            }
-            this.scrollbar.fade()
-        });
-        let state = state.clone();
-        Scrollbar::for_handle(bar_id(id), ScrollbarAxis::Vertical, handle)
-            .fade(fade)
-            .on_hover(move |hovered, _window, cx| {
-                state.update(cx, |this, cx| {
-                    if *hovered {
-                        if this.scrollbar.hover_enter() {
-                            cx.notify();
-                        }
-                    } else if let Some(epoch) = this.scrollbar.hover_leave() {
-                        hide_now(this, epoch, cx, |this| Some(&mut this.scrollbar));
-                    }
-                });
-            })
+        own_scrollbar(
+            state,
+            |this| &mut this.scrollbar,
+            bar_id(id),
+            ScrollbarAxis::Vertical,
+            handle,
+            cx,
+        )
     }
 
     /// Has `list`, the box the bar from [`SelectKeyboard::scrollbar`] is drawn
     /// in, answer drags of that bar and the release that ends one.
-    ///
-    /// A drag that strays off the list still lands here, since gpui hands a
-    /// drag to every listener for its type, and so does the release, through
-    /// `on_mouse_up_out`.
     pub(crate) fn answer_scrollbar(
         state: &Entity<Self>,
         id: &ElementId,
         handle: &ScrollHandle,
         list: Div,
     ) -> Div {
-        let bar = bar_id(id);
-        let handle = handle.clone();
-        let release = {
-            let state = state.clone();
-            move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
-                state.update(cx, |this, cx| {
-                    if let Some(epoch) = this.scrollbar.release() {
-                        hide_later(epoch, cx, |this| Some(&mut this.scrollbar));
-                        cx.notify();
-                    }
-                });
-            }
-        };
-        let state = state.clone();
-        list.on_drag_move::<DraggedThumb>(move |event, _window, cx| {
-            let measured = Scrollbar::for_handle(bar.clone(), ScrollbarAxis::Vertical, &handle);
-            let Some(progress) = measured.dragged(event, cx) else {
-                return;
-            };
-            state.update(cx, |this, cx| {
-                this.scrollbar.hold();
-                scroll_to(&handle, ScrollbarAxis::Vertical, progress);
-                cx.notify();
-            });
-        })
-        .on_mouse_up(MouseButton::Left, release.clone())
-        .on_mouse_up_out(MouseButton::Left, release)
+        answer_own_scrollbar(
+            list,
+            state,
+            |this| &mut this.scrollbar,
+            bar_id(id),
+            ScrollbarAxis::Vertical,
+            handle,
+        )
     }
 }
 
@@ -259,8 +219,8 @@ mod tests {
     use super::*;
     use crate::{SchemeSelect, SchemeSwatch, Select};
     use gpui::{
-        Context, Modifiers, Render, TestAppContext, VisualTestContext, div, point, prelude::*, px,
-        size,
+        Context, Modifiers, MouseButton, Render, TestAppContext, VisualTestContext, div, point,
+        prelude::*, px, size,
     };
     use std::ops::Deref;
 

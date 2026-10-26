@@ -9,6 +9,21 @@ revision past it.
 
 ## [Unreleased]
 
+### Changed
+
+- `TabBar` runs the parts of a strip its owner leaves to it, off its own
+  per-element state. Given no `.scrollbar(...)` it draws the overlay bar along
+  its bottom edge: scrolling the tabs or resting the pointer on that edge puts
+  it up, and the thumb can be dragged. Given no `.on_menu_open_change(...)` it
+  still shows the dropdown listing every tab, and opens and closes it itself.
+  Given no `.scroll_handle(...)` it scrolls with a handle of its own. A tab that
+  becomes active is scrolled into view. Until now a strip whose owner kept no
+  `ScrollbarState`, hide timer and drag listener scrolled without a bar, and
+  one without the handler had no dropdown at all. A consumer that passes its
+  own bar, handle or open state keeps it; one that ran a bar only for a tab
+  strip can drop that state and pass nothing. A strip that left the dropdown
+  out by setting no handler now shows it.
+
 ## [0.1.12] - 2026-10-26
 
 ### Added
