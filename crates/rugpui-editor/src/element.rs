@@ -49,6 +49,15 @@
 //! assumes nothing about what fills the gutter behind the numbers or what colour
 //! it is. Covering had to be right about both, and had to be redrawn whenever
 //! either changed.
+//!
+//! # Tabs
+//!
+//! A line is shaped with its tabs expanded to the next tab stop (see
+//! [`crate::tabs`]), so the shaped text is not the line as soon as it holds a
+//! tab. Everything that measures a byte offset of the line against the shaped
+//! text — a caret, a selection edge, a click, a wrap break — goes through
+//! [`DrawnLine`], which holds the two together, and nothing reads the shaped
+//! layout's indices directly.
 
 use gpui::{
     App, Bounds, ContentMask, CursorStyle, Element, ElementId, ElementInputHandler, Entity, Font,
@@ -60,6 +69,7 @@ use rugpui::EditorTheme;
 
 use crate::editor::EditorView;
 use crate::highlight::{plain_run, runs_for_spans};
+use crate::tabs::{Snap, TabMap};
 
 /// Space between the line numbers and the text.
 const GUTTER_PADDING: f32 = 12.;
@@ -112,10 +122,10 @@ impl EditorElement {
 
 /// Everything [`EditorElement::prepaint`] hands over to `paint`.
 pub struct PrepaintState {
-    /// The shaped visible lines, as `(line index, top of its first row, shaped
+    /// The shaped visible lines, as `(line index, top of its first row, drawn
     /// line)`. A line holds every row it was broken into and paints all of them
     /// itself, a row apart.
-    lines: Vec<(usize, Pixels, WrappedLine)>,
+    lines: Vec<(usize, Pixels, DrawnLine)>,
     /// The line numbers, shaped, as `(top of the line's first row, number)`.
     numbers: Vec<(Pixels, ShapedLine)>,
     /// Quads painted under the text.
@@ -194,7 +204,7 @@ impl Element for EditorElement {
         // Read first and on its own, because the wrap width is measured in this
         // font and the measuring has to happen before anything asks which row a
         // line begins on.
-        let (font, font_size, line_height, palette, digits, wrapping) = {
+        let (font, font_size, line_height, palette, digits, wrapping, tab_width) = {
             let editor = self.editor.read(cx);
             let palette = editor.palette(cx);
             let (font, font_size, line_height) = match editor.font_override() {
@@ -215,6 +225,7 @@ impl Element for EditorElement {
                 palette,
                 digit_count(editor.buffer().line_count()),
                 editor.is_word_wrap(),
+                editor.tab_width(),
             )
         };
 
@@ -244,7 +255,7 @@ impl Element for EditorElement {
         if let Some(width) = wrap_width {
             let text_system = window.text_system().clone();
             self.editor.update(cx, |editor, _cx| {
-                measure_wrap(editor, &text_system, width, &font, font_size);
+                measure_wrap(editor, &text_system, width, &font, font_size, tab_width);
             });
         }
 
@@ -294,22 +305,24 @@ impl Element for EditorElement {
             let end = start + text.len();
             let top = top_of(line);
 
-            let runs = runs_for(editor, line, &text, &palette, &font);
+            let (expanded, tabs) = TabMap::expand(&text, tab_width);
+            let runs = tabs.widen(runs_for(editor, line, &text, &palette, &font));
             let shaped = shape_wrapped(
                 window.text_system(),
-                SharedString::from(text.clone()),
+                SharedString::from(expanded.into_owned()),
                 font_size,
                 &runs,
                 wrap_width,
             );
-            content_width = content_width.max(shaped.width());
+            let drawn = DrawnLine::new(shaped, tabs);
+            content_width = content_width.max(drawn.shaped.width());
 
             // Where this line broke, according to the shaper that is about to
             // draw it. It is what the wrap map was measured with and so what
             // the map already holds; when the two disagree — a line edited and
             // drawn inside the same frame, before a measuring pass reached it —
             // what is drawn wins, and the map is put right in `paint`.
-            let breaks = breaks_of(&shaped);
+            let breaks = drawn.breaks();
             if wrapping && editor.wrap.breaks(line) != breaks.as_slice() {
                 corrections.push((line, breaks.clone()));
             }
@@ -324,11 +337,7 @@ impl Element for EditorElement {
             // be measured on: a line drawn in rows is drawn shifted left by
             // where each row began.
             let x_at = |column: usize, row: usize| {
-                text_left
-                    + shaped
-                        .unwrapped_layout
-                        .x_for_index(column.min(shaped.len()))
-                    - row_x_offset(&shaped, row_start(row))
+                text_left + drawn.x_for(column) - drawn.row_x(row, row_start(row))
             };
             // Every row the line takes, gutter to right edge, which is what a
             // wash across a line covers.
@@ -467,7 +476,7 @@ impl Element for EditorElement {
                 ),
             ));
 
-            lines.push((line, top, shaped));
+            lines.push((line, top, drawn));
         }
 
         let text_hitbox = window.insert_hitbox(
@@ -554,11 +563,12 @@ impl Element for EditorElement {
                 }
 
                 let text_left = bounds.left() + gutter - scroll.x;
-                for (_, top, shaped) in &prepaint.lines {
+                for (_, top, drawn) in &prepaint.lines {
                     // One call draws every row the line was broken into, a row
                     // apart, which is the whole reason the shaped line rather
                     // than the row is what this element holds.
-                    shaped
+                    drawn
+                        .shaped
                         .paint(
                             point(text_left, *top),
                             line_height,
@@ -613,7 +623,7 @@ impl Element for EditorElement {
             editor.layout.content_width = editor.layout.content_width.max(content_width);
             editor.layout.lines = lines
                 .into_iter()
-                .map(|(line, _, shaped)| (line, shaped))
+                .map(|(line, _, drawn)| (line, drawn))
                 .collect();
             for (line, breaks) in corrections {
                 editor.wrap.measured(line, breaks);
@@ -628,13 +638,15 @@ impl Element for EditorElement {
 /// [`crate::wrap::WrapMap`]'s measurements apart from the corrections `paint`
 /// applies. The runs are plain rather than the highlighter's: a colour moves no
 /// glyph, so the breaks are the same either way, and lexing a whole buffer to
-/// find out where it wraps would be work for nothing.
+/// find out where it wraps would be work for nothing. The tabs, on the other
+/// hand, are expanded exactly as `prepaint` expands them: they do move glyphs.
 fn measure_wrap(
     editor: &mut EditorView,
     text_system: &WindowTextSystem,
     width: Pixels,
     font: &Font,
     font_size: Pixels,
+    tab_width: usize,
 ) {
     let line_count = editor.buffer().line_count();
     if !editor.wrap.begin(width, font_size, font, line_count) {
@@ -648,15 +660,16 @@ fn measure_wrap(
         let breaks = if text.is_empty() {
             Vec::new()
         } else {
-            let runs = [plain_run(text.len(), black(), font)];
+            let (expanded, tabs) = TabMap::expand(&text, tab_width);
+            let runs = [plain_run(expanded.len(), black(), font)];
             let shaped = shape_wrapped(
                 text_system,
-                SharedString::from(text),
+                SharedString::from(expanded.into_owned()),
                 font_size,
                 &runs,
                 Some(width),
             );
-            breaks_of(&shaped)
+            tabs.breaks(&breaks_of(&shaped))
         };
         editor.wrap.measured(line, breaks);
     }
@@ -682,8 +695,11 @@ fn shape_wrapped(
         .unwrap_or_default()
 }
 
-/// The byte offsets, relative to the start of the line, at which each row after
-/// the first begins.
+/// The byte offsets, relative to the start of the shaped text, at which each
+/// row after the first begins.
+///
+/// Offsets into the *drawn* text, which is the line only while it holds no
+/// tab; [`TabMap::breaks`] carries them back.
 pub(crate) fn breaks_of(shaped: &WrappedLine) -> Vec<u32> {
     shaped
         .wrap_boundaries()
@@ -695,14 +711,73 @@ pub(crate) fn breaks_of(shaped: &WrappedLine) -> Vec<u32> {
         .collect()
 }
 
-/// How far left a row is drawn from where its glyphs sit in the unwrapped
-/// layout, given the byte offset the row begins at.
-///
-/// Every x inside a wrapped row is an x in the one long shaped line minus this.
-pub(crate) fn row_x_offset(shaped: &WrappedLine, row_start: usize) -> Pixels {
-    shaped
-        .unwrapped_layout
-        .x_for_index(row_start.min(shaped.len()))
+/// One line as the element drew it: its text with the tabs expanded, shaped,
+/// and what it takes to measure a byte offset of the line against that.
+pub(crate) struct DrawnLine {
+    /// The drawn text, shaped, holding every row it was broken into.
+    pub(crate) shaped: WrappedLine,
+    /// Where the line's tabs went in the drawn text.
+    tabs: TabMap,
+    /// Where each row after the first begins, as offsets into the drawn text.
+    drawn_breaks: Vec<u32>,
+}
+
+impl DrawnLine {
+    /// `shaped`, the line expanded as `tabs` says.
+    fn new(shaped: WrappedLine, tabs: TabMap) -> Self {
+        let drawn_breaks = breaks_of(&shaped);
+        Self {
+            shaped,
+            tabs,
+            drawn_breaks,
+        }
+    }
+
+    /// Where each row after the first begins, as offsets into the line.
+    pub(crate) fn breaks(&self) -> Vec<u32> {
+        self.tabs.breaks(&self.drawn_breaks)
+    }
+
+    /// The x of byte `column` of the line, in the unwrapped layout.
+    pub(crate) fn x_for(&self, column: usize) -> Pixels {
+        self.x_for_drawn(self.tabs.to_drawn(column))
+    }
+
+    /// The x of byte `drawn` of the drawn text, in the unwrapped layout.
+    fn x_for_drawn(&self, drawn: usize) -> Pixels {
+        self.shaped
+            .unwrapped_layout
+            .x_for_index(drawn.min(self.shaped.len()))
+    }
+
+    /// How far left row `sub` is drawn from where its glyphs sit in the
+    /// unwrapped layout.
+    ///
+    /// Every x inside a wrapped row is an x in the one long shaped line minus
+    /// this. Read off the breaks the shaper took rather than the wrap map's: a
+    /// break taken partway through a tab's spaces is where the row is drawn
+    /// from, and the map, which holds offsets into the line, has it at the end
+    /// of the tab. `row_start` — where the map has the row begin — answers for
+    /// a row this shaping does not have, a frame in which the map is ahead of
+    /// the drawing.
+    pub(crate) fn row_x(&self, sub: usize, row_start: usize) -> Pixels {
+        match sub.checked_sub(1) {
+            None => self.x_for_drawn(0),
+            Some(before) => match self.drawn_breaks.get(before) {
+                Some(at) => self.x_for_drawn(*at as usize),
+                None => self.x_for(row_start),
+            },
+        }
+    }
+
+    /// The byte of the line whose boundary is nearest `x` in the unwrapped
+    /// layout. A point over a tab goes to whichever side of it is nearer.
+    pub(crate) fn column_for_x(&self, x: Pixels) -> usize {
+        self.tabs.to_line(
+            self.shaped.unwrapped_layout.closest_index_for_x(x),
+            Snap::Nearest,
+        )
+    }
 }
 
 /// The colored runs of one line: the highlighter's spans, plus the composing

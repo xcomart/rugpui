@@ -70,7 +70,7 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, DragMoveEvent, Entity, EntityId, EntityInputHandler,
     EventEmitter, FocusHandle, Focusable, Font, KeyBinding, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent, SharedString, UTF16Selection,
-    Window, WrappedLine, actions, div, point, prelude::*, px,
+    Window, actions, div, point, prelude::*, px,
 };
 use rugpui::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now,
@@ -78,11 +78,12 @@ use rugpui::scrollbar::{
 use rugpui::{Checkbox, EditorTheme, InputMenuLabels, TextInput, editor_theme, theme};
 
 use crate::buffer::Buffer;
-use crate::element::EditorElement;
+use crate::element::{DrawnLine, EditorElement};
 use crate::find::FindState;
 use crate::highlight::{Highlighter, SyntaxCache};
 use crate::history::{Edit, EditKind, History, HistoryLimits, SelectionState};
 use crate::syntax::{self, StatementSpan};
+use crate::tabs::{self, DEFAULT_TAB_WIDTH};
 use crate::wrap::WrapMap;
 
 actions!(
@@ -325,23 +326,24 @@ pub(crate) struct Layout {
     pub gutter: Pixels,
     /// Height of one line.
     pub line_height: Pixels,
-    /// The lines drawn last frame, as `(line index, shaped line)`.
+    /// The lines drawn last frame, as `(line index, drawn line)`.
     ///
-    /// A [`WrappedLine`] whether or not anything is wrapped: with word wrap off
-    /// the element shapes with no wrap width and every line comes back as one
-    /// row, which is the same object with an empty list of breaks in it. Two
-    /// types here would be two code paths everywhere a caret is placed.
-    pub lines: Vec<(usize, WrappedLine)>,
+    /// Shaped into a [`gpui::WrappedLine`] whether or not anything is wrapped:
+    /// with word wrap off the element shapes with no wrap width and every line
+    /// comes back as one row, which is the same object with an empty list of
+    /// breaks in it. Two types here would be two code paths everywhere a caret
+    /// is placed.
+    pub lines: Vec<(usize, DrawnLine)>,
     /// The widest line seen so far, for the horizontal scroll extent.
     pub content_width: Pixels,
 }
 
 impl Layout {
-    /// The shaped line for `line`, if it was on screen last frame.
-    pub(crate) fn shaped(&self, line: usize) -> Option<&WrappedLine> {
+    /// The drawn line for `line`, if it was on screen last frame.
+    pub(crate) fn drawn(&self, line: usize) -> Option<&DrawnLine> {
         self.lines
             .iter()
-            .find_map(|(at, shaped)| (*at == line).then_some(shaped))
+            .find_map(|(at, drawn)| (*at == line).then_some(drawn))
     }
 
     /// How many whole rows fit in the text area.
@@ -381,7 +383,7 @@ pub struct EditorView {
     selection_reversed: bool,
     /// The composing run, in bytes, while an IME has one open.
     marked_range: Option<Range<usize>>,
-    /// The column a vertical move aims for, in graphemes, so that walking down
+    /// The column a vertical move aims for, in cells, so that walking down
     /// past a short line and back up returns to where it started.
     goal_column: Option<usize>,
     read_only: bool,
@@ -422,6 +424,8 @@ pub struct EditorView {
     /// which is what an editor embedded in an ordinary layout wants. See
     /// [`EditorView::set_font`].
     font: Option<FontOverride>,
+    /// How many columns apart the tab stops are. See [`EditorView::set_tab_width`].
+    tab_width: usize,
 }
 
 /// A font pushed into one editor, in place of the window's text style.
@@ -558,6 +562,7 @@ impl EditorView {
             intercept: false,
             palette: None,
             font: None,
+            tab_width: DEFAULT_TAB_WIDTH,
         }
     }
 
@@ -779,6 +784,33 @@ impl EditorView {
     /// builder form above already has the plain name.
     pub const fn is_word_wrap(&self) -> bool {
         self.wrap.is_on()
+    }
+
+    /// Draws a tab as reaching the next stop of every `width` columns.
+    ///
+    /// [`DEFAULT_TAB_WIDTH`] until a host says otherwise, and held to
+    /// `1..=`[`tabs::MAX_TAB_WIDTH`]. Only the drawing changes: the buffer keeps
+    /// its tabs, a caret still steps over one in one press, and a save writes
+    /// them back as they were. What follows the width is everything measured
+    /// against the drawn text — where a click lands, where a row breaks, and
+    /// which column `Up` and `Down` aim for.
+    pub fn set_tab_width(&mut self, width: usize, cx: &mut Context<Self>) {
+        let width = tabs::clamp_width(width);
+        if self.tab_width == width {
+            return;
+        }
+        self.tab_width = width;
+        // Every line with a tab in it is a different width, and breaks
+        // somewhere else.
+        self.wrap.invalidate();
+        self.layout.content_width = px(0.);
+        self.goal_column = None;
+        cx.notify();
+    }
+
+    /// How many columns apart the tab stops are.
+    pub const fn tab_width(&self) -> usize {
+        self.tab_width
     }
 
     /// The whole buffer, as a `String`.
@@ -1255,11 +1287,9 @@ impl EditorView {
         }
         // Horizontally, only when the caret's column is already shaped: at
         // startup nothing is, and guessing would jump the view.
-        if let Some(shaped) = self.layout.shaped(self.buffer.line_of(self.caret())) {
+        if let Some(drawn) = self.layout.drawn(self.buffer.line_of(self.caret())) {
             let (_, column) = self.buffer.point_of(self.caret());
-            let x = shaped
-                .unwrapped_layout
-                .x_for_index(column.min(shaped.len()));
+            let x = drawn.x_for(column);
             let width = bounds.size.width - self.layout.gutter;
             if x < self.scroll.x {
                 self.scroll.x = x;
@@ -1317,29 +1347,38 @@ impl EditorView {
         span.start + text.trim_end_matches([' ', '\t']).len()
     }
 
-    /// The number of graphemes between the start of `offset`'s row and
+    /// The column `offset` is drawn at on its line: every character by the
+    /// cells it takes, a tab to the next tab stop. See [`crate::tabs`].
+    fn line_column(&self, offset: usize) -> usize {
+        let start = self.buffer.line_start(self.buffer.line_of(offset));
+        tabs::columns_after(&self.buffer.slice(start..offset), 0, self.tab_width)
+    }
+
+    /// The number of columns between the start of `offset`'s row and
     /// `offset` — the column a vertical move aims for.
     fn row_column(&self, offset: usize) -> usize {
         let (line, sub) = self.line_row_of(offset);
-        let mut at = self.row_span(line, sub).start;
-        let mut column = 0;
-        while at < offset {
-            at = self.buffer.next_grapheme(at);
-            column += 1;
-        }
-        column
+        self.line_column(offset) - self.line_column(self.row_span(line, sub).start)
     }
 
-    /// The offset `column` graphemes into row `sub` of `line`, clamped to the
+    /// The offset `column` columns into row `sub` of `line`, clamped to the
     /// end of it.
+    ///
+    /// A column that falls inside a character wider than one — a tab, a Hangul
+    /// syllable — goes to whichever side of it is nearer, ties to the far side.
     fn row_offset_at(&self, line: usize, sub: usize, column: usize) -> usize {
         let span = self.row_span(line, sub);
         let mut at = span.start;
-        for _ in 0..column {
-            if at >= span.end {
-                return span.end;
+        let mut reached = self.line_column(at);
+        let target = reached + column;
+        while at < span.end && reached < target {
+            let next = self.buffer.next_grapheme(at).min(span.end);
+            let after = tabs::columns_after(&self.buffer.slice(at..next), reached, self.tab_width);
+            if after > target && target - reached < after - target {
+                return at;
             }
-            at = self.buffer.next_grapheme(at);
+            at = next;
+            reached = after;
         }
         at.min(span.end)
     }
@@ -1366,15 +1405,12 @@ impl EditorView {
         let sub = sub.min(self.wrap.rows_in(line) - 1);
         let span = self.row_span(line, sub);
         let x = position.x - bounds.left() - self.layout.gutter + self.scroll.x;
-        match self.layout.shaped(line) {
+        match self.layout.drawn(line) {
             // Off the left edge is the head of the row, never a negative index
             // into it.
-            Some(shaped) if x > px(0.) => {
+            Some(drawn) if x > px(0.) => {
                 let start = self.buffer.line_start(line);
-                let index = start
-                    + shaped.unwrapped_layout.closest_index_for_x(
-                        x + crate::element::row_x_offset(shaped, span.start - start),
-                    );
+                let index = start + drawn.column_for_x(x + drawn.row_x(sub, span.start - start));
                 index.clamp(span.start, self.row_end(line, sub))
             }
             Some(_) | None => span.start,
@@ -1479,11 +1515,12 @@ impl EditorView {
     /// line was broken into once something is: `Down` inside a long line walks
     /// through it rather than over it.
     ///
-    /// The column is counted in graphemes from the head of the row rather than
-    /// in pixels. In a proportional font that is not where the caret looked to
-    /// be; in the monospaced font a code editor is read in, it is exactly where
-    /// it looked to be, and it is the only definition that survives being asked
-    /// in a headless test.
+    /// The column is counted in cells from the head of the row rather than in
+    /// pixels — a character by the cells a monospaced font draws it across, a
+    /// tab to the next tab stop. In a proportional font that is not where the
+    /// caret looked to be; in the monospaced font a code editor is read in, it
+    /// is exactly where it looked to be, and it is the only definition that
+    /// survives being asked in a headless test.
     fn move_vertically(&mut self, rows: isize, extend: bool, cx: &mut Context<Self>) {
         let caret = self.caret();
         let column = self.goal_column.unwrap_or_else(|| self.row_column(caret));
@@ -1974,14 +2011,11 @@ impl EditorView {
         let bounds = self.layout.bounds?;
         let caret = self.caret();
         let (line, column) = self.buffer.point_of(caret);
-        let shaped = self.layout.shaped(line)?;
+        let drawn = self.layout.drawn(line)?;
         let sub = self.wrap.row_of_column(line, column);
         let row_start = self.row_span(line, sub).start - self.buffer.line_start(line);
-        let x = bounds.left() + self.layout.gutter - self.scroll.x
-            + shaped
-                .unwrapped_layout
-                .x_for_index(column.min(shaped.len()))
-            - crate::element::row_x_offset(shaped, row_start);
+        let x = bounds.left() + self.layout.gutter - self.scroll.x + drawn.x_for(column)
+            - drawn.row_x(sub, row_start);
         let top =
             bounds.top() + self.layout.line_height * (self.row_of(caret) as f32) - self.scroll.y;
         Some(Bounds::from_corners(
@@ -2645,26 +2679,21 @@ impl EntityInputHandler for EditorView {
     ) -> Option<Bounds<Pixels>> {
         let range = self.buffer.range_from_utf16(&range_utf16);
         let (line, column) = self.buffer.point_of(range.start);
-        let shaped = self.layout.shaped(line)?;
+        let drawn = self.layout.drawn(line)?;
         let (end_line, end_column) = self.buffer.point_of(range.end);
         let row = self.row_of(range.start);
         let sub = self.wrap.row_of_column(line, column);
         let row_start = self.row_span(line, sub).start - self.buffer.line_start(line);
         let head = element_bounds.left() + self.layout.gutter
             - self.scroll.x
-            - crate::element::row_x_offset(shaped, row_start);
+            - drawn.row_x(sub, row_start);
 
-        let left = head
-            + shaped
-                .unwrapped_layout
-                .x_for_index(column.min(shaped.len()));
+        let left = head + drawn.x_for(column);
         // Off the end of the row the composition started on, the box the
         // platform is given stops at the right edge: the candidate window wants
         // one rectangle, and a composition that wrapped has more than one.
         let right = if end_line == line && self.row_of(range.end) == row {
-            head + shaped
-                .unwrapped_layout
-                .x_for_index(end_column.min(shaped.len()))
+            head + drawn.x_for(end_column)
         } else {
             element_bounds.right()
         };

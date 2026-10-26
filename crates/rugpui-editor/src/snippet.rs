@@ -28,6 +28,7 @@ use gpui::{
 use rugpui::editor_theme;
 
 use crate::highlight::{Highlighter, LineState, plain_run, runs_for_spans};
+use crate::tabs::{DEFAULT_TAB_WIDTH, TabMap};
 
 /// Horizontal padding of the code block, in pixels.
 const PADDING_X: f32 = 8.;
@@ -189,8 +190,11 @@ impl RenderOnce for CodeSnippet {
                 // the text, and there is nothing to tile.
                 StyledText::new(BLANK).into_any_element()
             } else {
-                StyledText::new(line.to_string())
-                    .with_runs(runs_for_spans(line, &spans, &palette, &font))
+                // Tabs drawn to the editor's default stops, as the editor
+                // draws them: the shaper has no notion of a tab of its own.
+                let (expanded, tabs) = TabMap::expand(line, DEFAULT_TAB_WIDTH);
+                StyledText::new(expanded.into_owned())
+                    .with_runs(tabs.widen(runs_for_spans(line, &spans, &palette, &font)))
                     .into_any_element()
             };
             lines.push(element);

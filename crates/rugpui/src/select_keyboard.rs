@@ -1,10 +1,15 @@
-//! Keyboard state shared by the two dropdown controls.
+//! Keyboard and scrolling state shared by the two dropdown controls.
 
 use std::time::{Duration, Instant};
 
 use gpui::{
-    App, ElementId, Entity, FocusHandle, KeyBinding, KeyDownEvent, ScrollHandle, Subscription,
-    Window, actions,
+    App, Div, ElementId, Entity, FocusHandle, InteractiveElement, KeyBinding, KeyDownEvent,
+    MouseButton, MouseUpEvent, ScrollHandle, Subscription, Window, actions,
+};
+
+use crate::scrollbar::{
+    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
+    scrolled,
 };
 
 pub(crate) const KEY_CONTEXT: &str = "RugpuiSelect";
@@ -78,7 +83,14 @@ pub(crate) struct SelectKeyboard {
     open: bool,
     pub(crate) focus: FocusHandle,
     pub(crate) scroll: ScrollHandle,
+    /// The open list's own overlay bar, for an owner that draws none.
+    scrollbar: ScrollbarState,
     _blur: Subscription,
+}
+
+/// Id of the bar a dropdown draws over its own list.
+fn bar_id(id: &ElementId) -> ElementId {
+    ElementId::from((id.clone(), "scrollbar"))
 }
 
 impl SelectKeyboard {
@@ -96,6 +108,7 @@ impl SelectKeyboard {
                 open,
                 focus,
                 scroll: ScrollHandle::new(),
+                scrollbar: ScrollbarState::new(),
                 _blur: blur,
             }
         });
@@ -161,13 +174,94 @@ impl SelectKeyboard {
         }
         Some(self.search.find(text, current, count, label, now))
     }
+
+    /// The open list's overlay bar, for an owner that brought none of its own.
+    ///
+    /// Run off this per-dropdown state, so a list scrolls with the same bar as
+    /// every other surface without its owner keeping a [`ScrollbarState`], a
+    /// timer and a drag listener for it. Looks at where the list is scrolled
+    /// to first: comparing that between renders is what puts the bar up while
+    /// the list moves and arms the clock that takes it down again, exactly as
+    /// it does for an owner-run bar.
+    pub(crate) fn scrollbar(
+        state: &Entity<Self>,
+        id: &ElementId,
+        handle: &ScrollHandle,
+        cx: &mut App,
+    ) -> Scrollbar {
+        let fade = state.update(cx, |this, cx| {
+            let scrolled = scrolled(handle, ScrollbarAxis::Vertical);
+            if let Some(epoch) = this.scrollbar.moved(scrolled) {
+                hide_later(epoch, cx, |this| Some(&mut this.scrollbar));
+            }
+            this.scrollbar.fade()
+        });
+        let state = state.clone();
+        Scrollbar::for_handle(bar_id(id), ScrollbarAxis::Vertical, handle)
+            .fade(fade)
+            .on_hover(move |hovered, _window, cx| {
+                state.update(cx, |this, cx| {
+                    if *hovered {
+                        if this.scrollbar.hover_enter() {
+                            cx.notify();
+                        }
+                    } else if let Some(epoch) = this.scrollbar.hover_leave() {
+                        hide_now(this, epoch, cx, |this| Some(&mut this.scrollbar));
+                    }
+                });
+            })
+    }
+
+    /// Has `list`, the box the bar from [`SelectKeyboard::scrollbar`] is drawn
+    /// in, answer drags of that bar and the release that ends one.
+    ///
+    /// A drag that strays off the list still lands here, since gpui hands a
+    /// drag to every listener for its type, and so does the release, through
+    /// `on_mouse_up_out`.
+    pub(crate) fn answer_scrollbar(
+        state: &Entity<Self>,
+        id: &ElementId,
+        handle: &ScrollHandle,
+        list: Div,
+    ) -> Div {
+        let bar = bar_id(id);
+        let handle = handle.clone();
+        let release = {
+            let state = state.clone();
+            move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
+                state.update(cx, |this, cx| {
+                    if let Some(epoch) = this.scrollbar.release() {
+                        hide_later(epoch, cx, |this| Some(&mut this.scrollbar));
+                        cx.notify();
+                    }
+                });
+            }
+        };
+        let state = state.clone();
+        list.on_drag_move::<DraggedThumb>(move |event, _window, cx| {
+            let measured = Scrollbar::for_handle(bar.clone(), ScrollbarAxis::Vertical, &handle);
+            let Some(progress) = measured.dragged(event, cx) else {
+                return;
+            };
+            state.update(cx, |this, cx| {
+                this.scrollbar.hold();
+                scroll_to(&handle, ScrollbarAxis::Vertical, progress);
+                cx.notify();
+            });
+        })
+        .on_mouse_up(MouseButton::Left, release.clone())
+        .on_mouse_up_out(MouseButton::Left, release)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{SchemeSelect, SchemeSwatch, Select};
-    use gpui::{Context, Render, TestAppContext, VisualTestContext, div, prelude::*, px, size};
+    use gpui::{
+        Context, Modifiers, Render, TestAppContext, VisualTestContext, div, point, prelude::*, px,
+        size,
+    };
     use std::ops::Deref;
 
     actions!(select_keyboard_test, [DismissDialog]);
@@ -400,6 +494,35 @@ mod tests {
         cx.run_until_parked();
         keys(&mut cx, "b");
         assert_eq!(selected(&entity, &mut cx), 0);
+    }
+
+    /// The harness hands neither dropdown a bar, as most owners hand none, so
+    /// each runs its own: the pointer on the list's right edge puts it up, and
+    /// dragging it scrolls the list without the press reaching the row under
+    /// the thumb.
+    #[gpui::test]
+    fn a_list_without_an_owner_bar_scrolls_by_its_own(cx: &mut TestAppContext) {
+        for scheme in [false, true] {
+            let (entity, mut cx) = open(cx, scheme);
+            let list = entity.read_with(&cx, |this, _| this.scroll.bounds());
+            // The thumb starts at the top of the list's right edge.
+            let thumb = point(list.right() - px(3.), list.top() + px(8.));
+            cx.simulate_mouse_move(thumb, None, Modifiers::none());
+            cx.run_until_parked();
+            cx.simulate_mouse_down(thumb, MouseButton::Left, Modifiers::none());
+            for step in 1..=6 {
+                let to = point(thumb.x, thumb.y + px(10. * step as f32));
+                cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+            }
+            let end = point(thumb.x, thumb.y + px(60.));
+            cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            entity.read_with(&cx, |this, _| {
+                assert!(this.scroll.offset().y < px(0.), "the drag scrolled nothing");
+                assert!(this.changes.is_empty(), "the press picked a row");
+                assert!(this.open);
+            });
+        }
     }
 
     #[gpui::test]

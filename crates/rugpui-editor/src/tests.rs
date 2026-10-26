@@ -1687,7 +1687,7 @@ fn shaped_geometry(editor: &Handles, cx: &mut VisualTestContext) -> (Pixels, Pix
             .layout
             .lines
             .iter()
-            .find_map(|(line, shaped)| (*line == 0).then_some(shaped.width()))
+            .find_map(|(line, drawn)| (*line == 0).then_some(drawn.shaped.width()))
             .expect("the first line was drawn");
         (width, editor.layout.line_height)
     })
@@ -2247,4 +2247,237 @@ fn selection_tracks_outside_the_editor_and_stops_after_release(cx: &mut TestAppC
         modifiers: Modifiers::none(),
     });
     assert_eq!(editor.read(&mut cx, EditorView::selection), 0..0);
+}
+
+// --- tabs --------------------------------------------------------------------
+
+/// Opens `text` in the pushed 20 px font, drawn, and answers the advance of one
+/// character in it.
+///
+/// The headless text system advances every character by six tenths of the
+/// font size, a tab included, which is what makes the column arithmetic below
+/// exact — and what made a tab one column wide before it was expanded.
+fn open_tabbed(text: &str, cx: &mut TestAppContext) -> (Handles, VisualTestContext, Pixels) {
+    let (editor, mut cx) = open_with_highlighter(text, None, cx);
+    push_font(&editor, &mut cx, 20.);
+    draw(&mut cx);
+    (editor, cx, px(12.))
+}
+
+/// The x of byte `column` of `line`, as it was drawn last frame.
+fn x_of(editor: &Handles, cx: &mut VisualTestContext, line: usize, column: usize) -> Pixels {
+    editor.read(cx, |editor| {
+        editor
+            .layout
+            .drawn(line)
+            .expect("the line was drawn")
+            .x_for(column)
+    })
+}
+
+/// Clicks at `x` past the gutter on the first line.
+fn click_at(editor: &Handles, cx: &mut VisualTestContext, x: Pixels) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Point};
+
+    let (gutter, line_height) = editor.read(cx, |editor| {
+        (editor.layout.gutter, editor.layout.line_height)
+    });
+    let position = Point {
+        x: gutter + x,
+        y: line_height / 2.,
+    };
+    cx.simulate_event(MouseDownEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_tab_is_drawn_to_the_next_tab_stop(cx: &mut TestAppContext) {
+    let (editor, mut cx, advance) = open_tabbed("\tx\nab\ty\nabcd\tz", cx);
+    assert_eq!(editor.read(&mut cx, EditorView::tab_width), 4);
+
+    // Four columns from the head of the line, two after "ab", and a whole stop
+    // after "abcd", which is already on one.
+    assert_eq!(x_of(&editor, &mut cx, 0, 1), advance * 4.);
+    assert_eq!(x_of(&editor, &mut cx, 1, 3), advance * 4.);
+    assert_eq!(x_of(&editor, &mut cx, 2, 5), advance * 8.);
+    // And the character after the tab is one column further on.
+    assert_eq!(x_of(&editor, &mut cx, 0, 2), advance * 5.);
+}
+
+#[gpui::test]
+fn the_tab_width_moves_the_stops_and_leaves_the_text_alone(cx: &mut TestAppContext) {
+    let text = "ab\tx";
+    let (editor, mut cx, advance) = open_tabbed(text, cx);
+
+    editor.update(&mut cx, |editor, cx| editor.set_tab_width(8, cx));
+    draw(&mut cx);
+    assert_eq!(x_of(&editor, &mut cx, 0, 3), advance * 8.);
+
+    editor.update(&mut cx, |editor, cx| editor.set_tab_width(2, cx));
+    draw(&mut cx);
+    assert_eq!(x_of(&editor, &mut cx, 0, 3), advance * 4.);
+
+    // Nothing an editor can be handed is wider than the widest stop, or
+    // narrower than one column.
+    editor.update(&mut cx, |editor, cx| editor.set_tab_width(0, cx));
+    assert_eq!(editor.read(&mut cx, EditorView::tab_width), 1);
+    editor.update(&mut cx, |editor, cx| editor.set_tab_width(1000, cx));
+    assert_eq!(
+        editor.read(&mut cx, EditorView::tab_width),
+        crate::MAX_TAB_WIDTH
+    );
+
+    assert_eq!(editor.text(&mut cx), text, "the tab is still a tab");
+    assert!(!editor.read(&mut cx, EditorView::is_dirty));
+}
+
+#[gpui::test]
+fn a_click_on_a_tab_lands_on_its_nearer_side(cx: &mut TestAppContext) {
+    let (editor, mut cx, advance) = open_tabbed("\tx", cx);
+
+    click_at(&editor, &mut cx, advance * 1.2);
+    assert_eq!(
+        editor.caret(&mut cx),
+        0,
+        "the first column is nearer the head"
+    );
+    click_at(&editor, &mut cx, advance * 3.2);
+    assert_eq!(editor.caret(&mut cx), 1, "the third is nearer the end");
+    click_at(&editor, &mut cx, advance * 4.8);
+    assert_eq!(editor.caret(&mut cx), 2, "past the x after it");
+}
+
+#[gpui::test]
+fn the_caret_after_a_tab_is_drawn_past_it(cx: &mut TestAppContext) {
+    let (editor, mut cx, advance) = open_tabbed("\tx", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(1, cx));
+    draw(&mut cx);
+
+    let (left, gutter) = editor.read(&mut cx, |editor| {
+        (
+            editor.layout.bounds.expect("drawn").left(),
+            editor.layout.gutter,
+        )
+    });
+    let caret = editor
+        .read(&mut cx, EditorView::caret_bounds)
+        .expect("the caret's line is on screen");
+    assert_eq!(caret.left(), left + gutter + advance * 4.);
+}
+
+#[gpui::test]
+fn up_and_down_aim_for_the_column_a_tab_reaches(cx: &mut TestAppContext) {
+    let (editor, mut cx, _) = open_tabbed("\tx\n    y\nab\n\tz", cx);
+
+    // After the tab is column four, which is after the four spaces below it.
+    editor.update(&mut cx, |editor, cx| editor.move_to(1, cx));
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), 7);
+    cx.simulate_keystrokes("up");
+    assert_eq!(editor.caret(&mut cx), 1);
+
+    // Column two is halfway through the tab under it, and a tie goes past it.
+    editor.update(&mut cx, |editor, cx| editor.move_to(11, cx));
+    cx.simulate_keystrokes("down");
+    assert_eq!(editor.caret(&mut cx), 13);
+}
+
+#[gpui::test]
+fn a_tabbed_line_wraps_at_the_width_its_tabs_are_drawn(cx: &mut TestAppContext) {
+    let long = "ab\t".repeat(300);
+    let (editor, mut cx) = open_with_highlighter(&long, None, cx);
+    draw(&mut cx);
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    draw(&mut cx);
+
+    let narrow = breaks(&editor, &mut cx);
+    assert!(narrow.len() >= 2, "the line broke {} times", narrow.len());
+    for at in &narrow {
+        assert_eq!(
+            &long[at - 1..*at],
+            "\t",
+            "the row that begins at {at} did not begin after a tab"
+        );
+    }
+
+    // Twice the stop is twice the width, and the map is measured again for it.
+    editor.update(&mut cx, |editor, cx| editor.set_tab_width(8, cx));
+    draw(&mut cx);
+    let wide = breaks(&editor, &mut cx);
+    assert!(
+        wide.len() > narrow.len() * 3 / 2,
+        "{} rows at a stop of eight, {} at four",
+        wide.len() + 1,
+        narrow.len() + 1
+    );
+}
+
+/// A line of nothing but indentation has nowhere to break but inside it, and
+/// the shaper then breaks partway through a tab's spaces. The tab stays on the
+/// row it starts on, and the row after it is still measured from where it is
+/// drawn.
+#[gpui::test]
+fn a_break_inside_a_tab_keeps_the_tab_on_its_first_row(cx: &mut TestAppContext) {
+    let long = format!("{}x", "\t".repeat(300));
+    let (editor, mut cx) = open_with_highlighter(&long, None, cx);
+    draw(&mut cx);
+    editor.update(&mut cx, |editor, cx| editor.set_word_wrap(true, cx));
+    draw(&mut cx);
+
+    let breaks = breaks(&editor, &mut cx);
+    assert!(breaks.len() >= 2, "the line broke {} times", breaks.len());
+    assert!(
+        breaks.windows(2).all(|pair| pair[0] < pair[1]),
+        "{breaks:?}"
+    );
+    let (left, gutter, line_height) = editor.read(&mut cx, |editor| {
+        (
+            editor.layout.bounds.expect("drawn").left(),
+            editor.layout.gutter,
+            editor.layout.line_height,
+        )
+    });
+    // Where the caret at the head of each row is drawn, from the left of the
+    // text area.
+    let mut leads = Vec::new();
+    for at in &breaks {
+        editor.update(&mut cx, |editor, cx| editor.move_to(*at, cx));
+        draw(&mut cx);
+        let caret = editor
+            .read(&mut cx, EditorView::caret_bounds)
+            .expect("the caret's line is on screen");
+        leads.push(caret.left() - left - gutter);
+    }
+    assert!(
+        leads.iter().all(|lead| *lead > px(-0.5)),
+        "a caret was drawn left of its row: {leads:?}"
+    );
+    // At least one break fell partway through a tab, and the rest of that
+    // tab's spaces are drawn at the head of the row ahead of the caret.
+    assert!(
+        leads.iter().any(|lead| *lead > px(1.)),
+        "no break fell inside a tab: {breaks:?}"
+    );
+
+    // The head of the second row is the row's first offset, whatever is drawn
+    // there.
+    let at = editor.read(&mut cx, |editor| {
+        editor.offset_for_position(gpui::Point {
+            x: left + gutter + px(1.),
+            y: line_height * 1.5,
+        })
+    });
+    assert_eq!(at, breaks[0]);
 }

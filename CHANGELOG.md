@@ -9,6 +9,43 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-10-26
+
+### Added
+
+- `rugpui-editor`: `EditorView::set_tab_width(width, cx)` and
+  `EditorView::tab_width()`, with `DEFAULT_TAB_WIDTH` (4) and `MAX_TAB_WIDTH`
+  (16). A consumer that wants a width other than four for a document calls
+  the setter; nothing else changes.
+
+### Fixed
+
+- `rugpui-editor` draws a tab to the next tab stop instead of as whatever the
+  font has at U+0009, which in most faces was next to nothing. Tab stops are
+  counted in the cells a monospaced font draws a character across, so a tab
+  after a Hangul word lines up with one after a Latin word. The caret, the
+  selection, a click, the IME candidate box and word wrap all follow the
+  drawn width, and `Up`/`Down` aim for the column a tab reaches. The buffer
+  keeps its tabs. `CodeSnippet` draws tabs the same way, at the default
+  width. A consumer changes nothing.
+
+- `Select` and `SchemeSelect` draw the overlay scrollbar down a long open list
+  by themselves when the caller passes none through `.scrollbar(...)`, run off
+  the dropdown's own state: scrolling the list or resting the pointer on its
+  right edge puts the bar up, and the thumb can be dragged. Until now only the
+  lists whose owner kept a `ScrollbarState`, a hide timer and a drag listener
+  had one. A consumer changes nothing; one that passes its own bar keeps it.
+
+- A tooltip no longer opens under the pointer. gpui put the box one pixel
+  from the cursor's hot spot, under the arrow, and the 16 px margin
+  `tooltip_frame` added never took effect, since a root's margin is not laid
+  out. The vendored gpui now puts the box 24 px below the hot spot, flips it
+  above the pointer at the foot of the window, slides it sideways to stay in
+  the window, and stands a box too tall for either side beside the cursor,
+  all inside `Window::client_content_bounds`, so the shadow band of a
+  client-decorated window no longer cuts one off. `tooltip_frame` drops the
+  margin. A consumer changes nothing.
+
 ## [0.1.11] - 2026-10-23
 
 ### Added
@@ -217,7 +254,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.11...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.12...dev
+[0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/xcomart/rugpui/compare/v0.1.8...v0.1.9
