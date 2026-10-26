@@ -122,6 +122,12 @@ exclude = [
 #     band and the content is clipped at its inner edge, so a menu whose foot
 #     landed in the band was neither snapped nor shown in full. `SwitchAnchor`
 #     keeps the surface, which is what full-window backdrops are placed with.
+#   * `gpui/src/window.rs` — `tooltip_origin`: a tooltip goes below the
+#     cursor's image, not a pixel from its hot spot where the arrow covered
+#     it; above the pointer where the window ends too soon for that; and
+#     inside `client_content_bounds`, so it is not cut off in the shadow band.
+#     rugpui cannot do it from outside with a margin on the tooltip view: the
+#     view is laid out as a root, and a root's margin is not laid out at all.
 #
 #   * `gpui/src/elements/div.rs`: register native scrolling before custom mouse
 #     handlers, so reverse-order bubbling lets a wheel handler consume the event

@@ -980,6 +980,59 @@ pub(crate) struct TooltipRequest {
     tooltip: AnyTooltip,
 }
 
+/// RULOGMAN PATCH: how far below its hot spot the arrow cursor's image
+/// reaches. The platform reports where the hot spot is and nothing about the
+/// picture drawn round it; at the usual 24 px theme size the arrow ends 18 to
+/// 21 px further down (Breeze, Adwaita, Windows and macOS alike), so a box any
+/// nearer is read through the pointer.
+const TOOLTIP_CURSOR_BELOW: Pixels = px(24.);
+
+/// RULOGMAN PATCH: how far right of its hot spot the arrow reaches, for a box
+/// that has to stand beside the cursor.
+const TOOLTIP_CURSOR_RIGHT: Pixels = px(16.);
+
+/// RULOGMAN PATCH: the gap kept above and left of the hot spot, where all the
+/// image has is a pixel or two of the arrow's outline.
+const TOOLTIP_CURSOR_GAP: Pixels = px(4.);
+
+/// RULOGMAN PATCH: where a tooltip `size` big goes for a pointer at `mouse`
+/// in a window whose content fills `bounds`.
+///
+/// Below the cursor's image, or above the pointer where the window ends too
+/// soon for that. Either way the cursor is clear vertically, so across it the
+/// box only slides to stay in `bounds`. A box too tall for both is pinned
+/// inside `bounds` and stands beside the cursor instead: right of the arrow,
+/// or left of the hot spot where the right has no room.
+fn tooltip_origin(
+    mouse: Point<Pixels>,
+    size: Size<Pixels>,
+    bounds: Bounds<Pixels>,
+) -> Point<Pixels> {
+    let slide = |at: Pixels, length: Pixels, start: Pixels, end: Pixels| {
+        cmp::max(start, cmp::min(at, end - length))
+    };
+    let below = mouse.y + TOOLTIP_CURSOR_BELOW;
+    let above = mouse.y - TOOLTIP_CURSOR_GAP - size.height;
+    let y = if below + size.height <= bounds.bottom() {
+        below
+    } else if above >= bounds.top() {
+        above
+    } else {
+        let y = slide(below, size.height, bounds.top(), bounds.bottom());
+        let right = mouse.x + TOOLTIP_CURSOR_RIGHT;
+        let left = mouse.x - TOOLTIP_CURSOR_GAP - size.width;
+        let x = if right + size.width <= bounds.right() {
+            right
+        } else if left >= bounds.left() {
+            left
+        } else {
+            slide(mouse.x, size.width, bounds.left(), bounds.right())
+        };
+        return point(x, y);
+    };
+    point(slide(mouse.x, size.width, bounds.left(), bounds.right()), y)
+}
+
 /// The ids of the elements being drawn, root first, with the hash of every
 /// prefix alongside: a [`GlobalElementId`] for the current element is then
 /// the ids cloned out and the hash on top of the stack, without walking the
@@ -3918,36 +3971,13 @@ impl Window {
             let mouse_position = tooltip_request.tooltip.mouse_position;
             let tooltip_size = element.layout_as_root(AvailableSpace::min_size(), self, cx);
 
-            let mut tooltip_bounds =
-                Bounds::new(mouse_position + point(px(1.), px(1.)), tooltip_size);
-            let window_bounds = Bounds {
-                origin: Point::default(),
-                size: self.viewport_size(),
-            };
-
-            if tooltip_bounds.right() > window_bounds.right() {
-                let new_x = mouse_position.x - tooltip_bounds.size.width - px(1.);
-                if new_x >= Pixels::ZERO {
-                    tooltip_bounds.origin.x = new_x;
-                } else {
-                    tooltip_bounds.origin.x = cmp::max(
-                        Pixels::ZERO,
-                        tooltip_bounds.origin.x - tooltip_bounds.right() - window_bounds.right(),
-                    );
-                }
-            }
-
-            if tooltip_bounds.bottom() > window_bounds.bottom() {
-                let new_y = mouse_position.y - tooltip_bounds.size.height - px(1.);
-                if new_y >= Pixels::ZERO {
-                    tooltip_bounds.origin.y = new_y;
-                } else {
-                    tooltip_bounds.origin.y = cmp::max(
-                        Pixels::ZERO,
-                        tooltip_bounds.origin.y - tooltip_bounds.bottom() - window_bounds.bottom(),
-                    );
-                }
-            }
+            // RULOGMAN PATCH: the box clears the cursor's image rather than
+            // starting a pixel from its hot spot, underneath the arrow, and
+            // stays inside the content a client-decorated window shows.
+            let tooltip_bounds = Bounds::new(
+                tooltip_origin(mouse_position, tooltip_size, self.client_content_bounds()),
+                tooltip_size,
+            );
 
             // It's possible for an element to have an active tooltip while not being painted (e.g.
             // via the `visible_on_hover` method). Since mouse listeners are not active in this

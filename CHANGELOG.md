@@ -34,6 +34,16 @@ revision past it.
   lists whose owner kept a `ScrollbarState`, a hide timer and a drag listener
   had one. A consumer changes nothing; one that passes its own bar keeps it.
 
+- A tooltip no longer opens under the pointer. gpui put the box one pixel
+  from the cursor's hot spot, under the arrow, and the 16 px margin
+  `tooltip_frame` added never took effect, since a root's margin is not laid
+  out. The vendored gpui now puts the box 24 px below the hot spot, flips it
+  above the pointer at the foot of the window, slides it sideways to stay in
+  the window, and stands a box too tall for either side beside the cursor,
+  all inside `Window::client_content_bounds`, so the shadow band of a
+  client-decorated window no longer cuts one off. `tooltip_frame` drops the
+  margin. A consumer changes nothing.
+
 ## [0.1.11] - 2026-10-23
 
 ### Added

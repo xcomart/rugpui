@@ -7,11 +7,14 @@
 //! here are — it needs an entity behind it. [`tooltip_label`] hides that: it
 //! takes the text once and hands back the closure `.tooltip` wants.
 //!
-//! Nothing here positions anything. gpui lays the view out at the pointer and,
-//! when the box would cross a window edge, flips it to the other side of the
-//! cursor on that axis — so the widget's only job is to be a box of the right
-//! size, and adding an `anchored` or a `deferred` would fight machinery that has
-//! already done the work.
+//! Nothing here positions anything. gpui lays the view out by the pointer — in
+//! the vendored copy, clear of the cursor's image: below the arrow, above the
+//! pointer where the window ends too soon, slid sideways to stay inside the
+//! content a client-decorated window shows (`tooltip_origin` in
+//! `vendor/gpui/src/window.rs`). So the widget's only job is to be a box of the
+//! right size. Adding an `anchored` or a `deferred` would fight machinery that
+//! has already done the work, and so would a margin: the view is laid out as a
+//! root, where a margin is not laid out at all.
 //!
 //! The styling is the menu panel's, one step quieter: a tooltip is read and
 //! dismissed rather than clicked, so it takes [`Theme::surface`](crate::Theme#structfield.surface) instead of the
@@ -48,22 +51,15 @@ const PADDING_X: f32 = 7.;
 /// Vertical padding of the label, in pixels.
 const PADDING_Y: f32 = 3.;
 
-/// How far below the pointer the box is pushed, in pixels.
-///
-/// gpui puts the tooltip one pixel from the mouse position, which is the *tip*
-/// of the arrow cursor and therefore underneath the rest of it. This clears the
-/// glyph so the first word is not read through the pointer.
-const CURSOR_CLEARANCE: f32 = 16.;
-
 /// Gap between two parts of a [`Tooltip`], in pixels.
 const PART_GAP: f32 = 4.;
 
 /// The box every tooltip in this crate is drawn in.
 ///
-/// The margin, the padding, the corner, the surface, the border, the shadow and
-/// the type style — everything that makes a tooltip look like a tooltip, and
-/// nothing about what is inside it. A host building its own content puts it in
-/// here rather than restating any of that:
+/// The padding, the corner, the surface, the border, the shadow and the type
+/// style — everything that makes a tooltip look like a tooltip, and nothing
+/// about what is inside it. A host building its own content puts it in here
+/// rather than restating any of that:
 ///
 /// ```ignore
 /// tooltip_frame(&theme(cx)).child(my_own_element)
@@ -79,10 +75,6 @@ const PART_GAP: f32 = 4.;
 /// in; use them unless the content is unusual enough to want the frame bare.
 pub fn tooltip_frame(theme: &Theme) -> Div {
     div()
-        // Margin rather than an offset passed to gpui: the margin is part of
-        // the measured size, so the edge-flipping gpui does still sees the box
-        // the user actually sees.
-        .mt(px(CURSOR_CLEARANCE))
         .flex_none()
         .px(px(PADDING_X))
         .py(px(PADDING_Y))
@@ -362,9 +354,13 @@ impl Tooltip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::ops::Deref;
+    use std::time::Duration;
 
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{
+        Bounds, Modifiers, Point, Size, TestAppContext, VisualTestContext, canvas, point, size,
+    };
 
     /// A window with one tooltip view in it, laid out the way gpui would lay
     /// it out under the pointer.
@@ -479,5 +475,211 @@ mod tests {
         });
         cx.refresh().expect("the window redraws");
         cx.run_until_parked();
+    }
+
+    // --- placement ----------------------------------------------------------
+
+    /// Long enough for gpui's hover delay to run out.
+    const REST: Duration = Duration::from_millis(600);
+
+    /// The window most placement tests rest the pointer in.
+    const WINDOW: Size<Pixels> = size(px(800.), px(600.));
+
+    /// A one-line tooltip's size, near enough.
+    const LINE: Size<Pixels> = size(px(120.), px(22.));
+
+    /// What the arrow cursor covers with its hot spot at `at`.
+    ///
+    /// Measured from the Breeze and Adwaita themes: at the usual 24 px size the
+    /// arrow reaches a pixel above and left of its tip, 12 px right and 21 px
+    /// down; this is wide enough for Breeze at 30 px, which reaches 15 right
+    /// and 23 down.
+    fn cursor(at: Point<Pixels>) -> Bounds<Pixels> {
+        Bounds::from_corners(
+            point(at.x - px(2.), at.y - px(2.)),
+            point(at.x + px(16.), at.y + px(24.)),
+        )
+    }
+
+    /// The tooltip the placement tests hover into view: a frame of a fixed
+    /// size, with a canvas over its inside that writes down where it was put.
+    struct Probe {
+        size: Size<Pixels>,
+        seen: Rc<Cell<Option<Bounds<Pixels>>>>,
+    }
+
+    impl Render for Probe {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let seen = self.seen.clone();
+            tooltip_frame(&theme(cx))
+                .relative()
+                .w(self.size.width)
+                .h(self.size.height)
+                .child(
+                    canvas(move |bounds, _, _| seen.set(Some(bounds)), |_, _, _, _| {})
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full(),
+                )
+        }
+    }
+
+    /// A window that is one element with a [`Probe`] tooltip on it.
+    struct Hovered {
+        size: Size<Pixels>,
+        seen: Rc<Cell<Option<Bounds<Pixels>>>>,
+    }
+
+    impl Render for Hovered {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let (size, seen) = (self.size, self.seen.clone());
+            div().id("hovered").size_full().tooltip(move |_window, cx| {
+                let seen = seen.clone();
+                cx.new(|_| Probe { size, seen }).into()
+            })
+        }
+    }
+
+    /// Rests the pointer at `mouse` in a fresh `window`-sized window until a
+    /// `tooltip`-sized tip shows, and answers the box that was drawn and the
+    /// content bounds it had to stay in.
+    ///
+    /// A fresh window each time, because gpui keeps a tooltip where it first
+    /// showed for as long as the pointer stays on the element. `inset` is the
+    /// shadow band of a client-decorated window.
+    fn rest(
+        cx: &mut TestAppContext,
+        window: Size<Pixels>,
+        inset: Option<Pixels>,
+        mouse: Point<Pixels>,
+        tooltip: Size<Pixels>,
+    ) -> (Bounds<Pixels>, Bounds<Pixels>) {
+        let seen = Rc::new(Cell::new(None));
+        let handle = cx.add_window({
+            let seen = seen.clone();
+            move |_, _| Hovered {
+                size: tooltip,
+                seen,
+            }
+        });
+        let mut cx = VisualTestContext::from_window(*handle.deref(), cx);
+        cx.simulate_resize(window);
+        let content = cx.update(|window, _| {
+            if let Some(inset) = inset {
+                window.set_client_inset(inset);
+            }
+            window.client_content_bounds()
+        });
+        cx.run_until_parked();
+
+        cx.simulate_mouse_move(mouse, None, Modifiers::none());
+        cx.executor().advance_clock(REST);
+        cx.run_until_parked();
+
+        // The canvas covers the inside of the frame's one-pixel border.
+        let frame = seen.get().expect("the tooltip never showed").dilate(px(1.));
+        assert_eq!(frame.size, tooltip, "the probe did not draw at its size");
+        (frame, content)
+    }
+
+    /// Asserts that `frame` is out from under the cursor at `mouse` and
+    /// inside `content`.
+    fn assert_clear(frame: Bounds<Pixels>, mouse: Point<Pixels>, content: Bounds<Pixels>) {
+        assert!(
+            !frame.intersects(&cursor(mouse)),
+            "the tooltip {frame:?} is under the cursor at {mouse:?}"
+        );
+        assert!(
+            frame.left() >= content.left()
+                && frame.top() >= content.top()
+                && frame.right() <= content.right()
+                && frame.bottom() <= content.bottom(),
+            "the tooltip {frame:?} left the content {content:?}"
+        );
+    }
+
+    #[gpui::test]
+    fn a_tooltip_sits_below_the_cursor_and_not_under_it(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let mouse = point(px(200.), px(200.));
+        let (frame, content) = rest(cx, WINDOW, None, mouse, LINE);
+        assert_clear(frame, mouse, content);
+        assert!(
+            frame.top() > mouse.y,
+            "the tooltip is not below the pointer"
+        );
+        assert!(
+            frame.top() - mouse.y < px(32.),
+            "the tooltip is too far below the pointer to read as its own"
+        );
+        assert_eq!(
+            frame.left(),
+            mouse.x,
+            "the tooltip is not under the pointer"
+        );
+    }
+
+    #[gpui::test]
+    fn at_the_foot_of_the_window_a_tooltip_flips_above_the_pointer(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for mouse in [
+            point(px(200.), WINDOW.height - px(10.)),
+            // The bottom right corner: flipped up and slid left at once.
+            point(WINDOW.width - px(5.), WINDOW.height - px(5.)),
+        ] {
+            let (frame, content) = rest(cx, WINDOW, None, mouse, LINE);
+            assert_clear(frame, mouse, content);
+            assert!(
+                frame.bottom() < mouse.y,
+                "the tooltip at {mouse:?} did not go above the pointer"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn at_the_right_edge_a_tooltip_slides_in_and_stays_below(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let mouse = point(WINDOW.width - px(10.), px(200.));
+        let (frame, content) = rest(cx, WINDOW, None, mouse, LINE);
+        assert_clear(frame, mouse, content);
+        assert!(frame.top() > mouse.y, "the tooltip left the space below");
+        assert_eq!(
+            frame.right(),
+            WINDOW.width,
+            "the tooltip slid further than it had to"
+        );
+    }
+
+    #[gpui::test]
+    fn a_tooltip_too_tall_for_either_side_stands_beside_the_cursor(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = size(px(400.), px(200.));
+        let tall = size(px(120.), px(150.));
+        for mouse in [
+            point(px(100.), px(100.)),
+            // No room right of the arrow: the box goes left of the hot spot.
+            point(px(390.), px(100.)),
+        ] {
+            let (frame, content) = rest(cx, window, None, mouse, tall);
+            assert_clear(frame, mouse, content);
+        }
+    }
+
+    #[gpui::test]
+    fn a_tooltip_stays_out_of_a_client_decorated_window_s_shadow(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        // Near the foot of the content but well clear of the surface's: placed
+        // against the surface, the box would land in the shadow band and be
+        // clipped there.
+        let inset = px(30.);
+        let mouse = point(px(200.), WINDOW.height - inset - px(10.));
+        let (frame, content) = rest(cx, WINDOW, Some(inset), mouse, LINE);
+        assert_eq!(content.bottom(), WINDOW.height - inset);
+        assert_clear(frame, mouse, content);
+        assert!(
+            frame.bottom() < mouse.y,
+            "the tooltip did not go above the pointer"
+        );
     }
 }
