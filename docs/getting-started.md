@@ -87,10 +87,11 @@ application was built with. gpui's default source answers every path with
 error, no placeholder, an empty box where a folder should be. That covers the
 tree's row icons, a `TabItem::mark`, and the glyphs `WindowControls` draws.
 
-It also covers three icons that are *this crate's* rather than yours: the
+It also covers four icons that are *this crate's* rather than yours: the
 disclosure chevrons a `TreeView`, a `Collapsible` and every dropdown draw with,
-`rugpui::CARET_RIGHT` and `rugpui::CARET_DOWN`, and `rugpui::icons::MENU`, the
-hamburger a `MenuButton` draws when it is given no icon or glyph of its own.
+`rugpui::CARET_RIGHT` and `rugpui::CARET_DOWN`, `rugpui::icons::MENU`, the
+hamburger a `MenuButton` draws when it is given no icon or glyph of its own,
+and `rugpui::EXPAND`, the mark on a grid field's expand button.
 Their bytes are in `rugpui::ICONS`, and a source that does not answer for them
 leaves trees with a column of blanks, dropdowns with no chevron and that menu
 trigger empty; `rugpui::init` says so once in

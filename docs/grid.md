@@ -26,7 +26,7 @@ flowchart LR
     H -- "implements" --> S
     S -- "asked only about<br/>what is on screen" --> G
     G -- "emits" --> E
-    E -- "NearEnd / SortRequested /<br/>CellActivated / EditCommitted /<br/>ContextMenu" --> H
+    E -- "NearEnd / SortRequested /<br/>CellActivated / EditCommitted /<br/>ExpandRequested / ContextMenu" --> H
     H -- "source_mut / refresh / reset" --> G
 ```
 
@@ -50,8 +50,9 @@ Implement it on whatever the host already keeps the result in, so there is one c
 | `cell_editable(&self, row, column)` | no | `bool` | Defaults to `false`, so a source that has not thought about editing cannot be edited by accident. Asked per gesture, not per frame. |
 | `render_cell(&self, row, column, info, window, cx)` | no | `Option<AnyElement>` | Defaults to `None`, which is the grid drawing its own text. Asked once per visible cell per frame. See [drawing a cell yourself](#drawing-a-cell-yourself). |
 | `cell_editor(&self, row, column)` | no | `CellEditor` | Defaults to `CellEditor::Text`, the field the grid has always opened. Asked per gesture, right after `cell_editable`. See [choosing the editor](#choosing-the-editor). |
+| `cell_expandable(&self, row, column)` | no | `bool` | Defaults to `false`. Asked once per edit, only for a `CellEditor::Text` field. `true` puts a button at the field's end that hands the edit to a larger editor of yours. See [handing a field to a larger editor](#handing-a-field-to-a-larger-editor). |
 
-The five defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
+The defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
 
 Here is the gallery's source, trimmed. See [`rugpui-gallery/src/data.rs`](../crates/rugpui-gallery/src/data.rs) for the whole of it:
 
@@ -348,6 +349,13 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
         EditValue::Null => view.stage_null(*row, *column, cx),
     },
 
+    // The expand button at the end of a field was pressed. The field is closed
+    // with nothing staged; open your larger editor on `text`, and stage what
+    // it gives back yourself.
+    GridEvent::ExpandRequested { row, column, text } => {
+        view.open_large_editor(*row, *column, text.clone(), window, cx)
+    }
+
     // A right click. The grid has already taken the focus and moved the
     // selection if it had to; the items, their strings and what they do are
     // yours.
@@ -358,7 +366,7 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
 .detach();
 ```
 
-`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` carries a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
+`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` and `ExpandRequested` carry a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
 
 ## Selection
 
@@ -442,6 +450,14 @@ pub enum CellEditor {
 *`CellEditor::Text` after `begin_edit(..)`: a field in the cell's own box, seeded with what the cell held.*
 
 **`External`** opens nothing in the grid: the host shows an editor of its own somewhere else — a multiline dialog, say. `begin_edit` commits any field already open, moves the selection onto the cell and raises `GridEvent::CellActivated` for it, also when it was reached by `Tab` from the cell beside it, and leaves the focus to the host's editor. Answer that event without calling `begin_edit` again, and hand the value back through your staging layer.
+
+### Handing a field to a larger editor
+
+A field is one line high, which is a poor place to write a paragraph — even into a cell that holds one line today. A source whose host has a larger editor (a multiline dialog, say) answers `cell_expandable` with `true` for the cells it may open, and the field then carries a small button at its right-hand end, drawn beside it rather than over it so that the text never runs underneath. Pressing it closes the field **with nothing staged** and raises `GridEvent::ExpandRequested { row, column, text }`, where `text` is what the field held: whatever had been typed, the cell's own text if nothing had, the empty string for a null cell. The grid leaves the focus to the host's editor, and the value comes back through your staging layer, as it does from an `External` editor. `GridView::expand_edit(cx)` does the same from code, and `GridView::is_expandable()` says whether the open field offers it.
+
+The press is kept from the grid underneath it: a press that reached the grid would take the focus off the field, and a field that loses the focus commits — so the edit would be staged once by the commit and again by the larger editor.
+
+The button wears `rugpui::EXPAND`, so the host's `AssetSource` needs `rugpui::ICONS` chained into it. The grid holds no strings, so its tooltip is the host's: `GridView::expand_tooltip(label)` when building the grid, or `set_expand_tooltip` later; without one the button shows none.
 
 **`Choice`** is a [`Select`](./widgets/select.md) opened over the cell, already open on the value the cell holds — a trigger the user had to click again would be one gesture too many. Clicking a row stages it there and then, with no `Enter` to press. With `nullable: true` the list gains a leading `NULL` row that stages `EditValue::Null`, which is how a user reaches the null a nullable column can hold; the row is told from a value row by *position*, so a column whose values include the string `NULL` does not clear itself when the user picks the value they meant. `Escape`, or a press anywhere outside the list, dismisses it with nothing staged. Being a `Select`, its trigger wears `rugpui::CARET_DOWN` like every other dropdown, so the host's `AssetSource` needs `rugpui::ICONS` chained into it — see [getting started](./getting-started.md#with_assets).
 

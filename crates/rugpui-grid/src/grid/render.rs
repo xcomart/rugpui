@@ -610,7 +610,59 @@ impl<S: GridSource> GridView<S> {
             .occlude();
 
         let field = match &editing.editor {
-            OpenEditor::Field { input } => field.child(input.clone()),
+            OpenEditor::Field {
+                input,
+                expandable: false,
+            } => field.child(input.clone()),
+            OpenEditor::Field {
+                input,
+                expandable: true,
+            } => {
+                let theme = theme(cx);
+                // Beside the field rather than over its right-hand end, so that
+                // the text never runs underneath it. The field keeps the rest of
+                // the column's width.
+                field
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(div().flex_1().min_w_0().child(input.clone()))
+                    .child(
+                        div()
+                            .id("grid-cell-expand")
+                            .debug_selector(|| "grid-cell-expand".into())
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .w(px(EXPAND_BUTTON_WIDTH))
+                            .h(px(EDITOR_HEIGHT))
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.surface)
+                            .hover(|button| button.bg(theme.surface_hover))
+                            .cursor_pointer()
+                            .when_some(self.expand_tooltip.clone(), |button, label| {
+                                button.tooltip(tooltip_label(label))
+                            })
+                            // Kept from the grid underneath: a press that reached
+                            // it would take the focus off the field — which
+                            // commits — before the click could hand the edit on.
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|grid, _: &ClickEvent, _, cx| {
+                                grid.expand_edit(cx);
+                            }))
+                            .child(
+                                gpui::svg()
+                                    .size(px(EXPAND_ICON_SIZE))
+                                    .flex_none()
+                                    .path(rugpui::EXPAND)
+                                    .text_color(theme.icon),
+                            ),
+                    )
+            }
             OpenEditor::Choice {
                 focus,
                 rows,

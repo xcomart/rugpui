@@ -555,6 +555,23 @@ pub trait GridSource: 'static {
     fn cell_editor(&self, _row: usize, _column: usize) -> CellEditor {
         CellEditor::Text
     }
+
+    /// Whether the one-line field opened over the cell at `row` and `column`
+    /// carries a button that hands the edit to a larger editor of the host's
+    /// own.
+    ///
+    /// Asked only when [`GridSource::cell_editor`] answered
+    /// [`CellEditor::Text`], once per edit. The button raises
+    /// [`GridEvent::ExpandRequested`](crate::GridEvent::ExpandRequested) with
+    /// whatever has been typed so far, and the host answers it with its
+    /// editor: a field one line high is a poor place to write a paragraph,
+    /// even into a cell that holds one line today.
+    ///
+    /// Defaults to `false`, and so does every source that has no larger editor
+    /// to open: a button that did nothing would be worse than none.
+    fn cell_expandable(&self, _row: usize, _column: usize) -> bool {
+        false
+    }
 }
 
 /// How a large object is written where its bytes cannot go: in a cell, and in

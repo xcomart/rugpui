@@ -146,6 +146,7 @@ use rugpui::scrollbar::{
 use rugpui::select::Select;
 use rugpui::text_input::TextInput;
 use rugpui::theme::{Theme, theme, window_translucent};
+use rugpui::tooltip::tooltip_label;
 use unicode_width::UnicodeWidthStr;
 
 use crate::copy::{CopyFormat, DEFAULT_INSERT_TABLE, copy_payload};
@@ -349,6 +350,13 @@ const ROW_TINT: f32 = 0.10;
 /// something laid *over* the grid — which is what it is.
 const EDITOR_HEIGHT: f32 = 32.;
 
+/// Width of the button a one-line field carries when the source offers a
+/// larger editor: square with the field's height, less the gap to the field.
+const EXPAND_BUTTON_WIDTH: f32 = 26.;
+
+/// Size of the expand mark inside that button.
+const EXPAND_ICON_SIZE: f32 = 14.;
+
 /// Marker drawn in the header of an ascending column.
 const SORT_ASCENDING: &str = "\u{25b4}";
 
@@ -519,6 +527,23 @@ pub enum GridEvent {
         /// What was typed.
         value: EditValue,
     },
+    /// The user pressed the button at the end of a one-line field, and wants
+    /// the cell's value in the host's larger editor instead.
+    ///
+    /// Only raised for a cell whose source said
+    /// [`GridSource::cell_expandable`]. The field is already closed, with
+    /// nothing staged — what had been typed is handed over here, for the
+    /// larger editor to start from, and staging it is the host's from now on.
+    /// The grid has given up the focus to whatever the host opens.
+    ExpandRequested {
+        /// The row.
+        row: usize,
+        /// The source column index, unaffected by hiding or by column widths.
+        column: usize,
+        /// What the field held when the button was pressed: the cell's own
+        /// text if nothing had been typed, the empty string for a null cell.
+        text: String,
+    },
     /// The user right clicked, and wants the menu for what is under the
     /// pointer.
     ///
@@ -626,6 +651,9 @@ enum OpenEditor {
         /// carries a caret, a selection and an in-flight IME composition, and
         /// none of those mean anything in the next cell.
         input: Entity<TextInput>,
+        /// Whether it carries the button that hands the edit to the host's
+        /// larger editor — [`GridSource::cell_expandable`].
+        expandable: bool,
     },
     /// A [`Select`] opened over the cell.
     Choice {
@@ -764,6 +792,9 @@ pub struct GridView<S: GridSource> {
     visible_rows: Range<usize>,
     /// The table name written into a copied `INSERT`.
     insert_table: Option<SharedString>,
+    /// What the expand button says when the pointer rests on it — see
+    /// [`GridView::expand_tooltip`].
+    expand_tooltip: Option<SharedString>,
     resizing: Option<Resize>,
     /// Whether the pointer is dragging a selection out.
     dragging: bool,
@@ -803,6 +834,7 @@ impl<S: GridSource> GridView<S> {
             asked_at: None,
             visible_rows: 0..0,
             insert_table: None,
+            expand_tooltip: None,
             resizing: None,
             dragging: false,
             editing: None,
@@ -859,6 +891,22 @@ impl<S: GridSource> GridView<S> {
     /// Sets the table name written into a copied `INSERT`, after the fact.
     pub fn set_insert_table(&mut self, table: Option<SharedString>) {
         self.insert_table = table;
+    }
+
+    /// Labels the button a one-line field carries when the source offers a
+    /// larger editor ([`GridSource::cell_expandable`]).
+    ///
+    /// The grid holds no strings, so the host hands the localised one over;
+    /// without it the button simply shows no tooltip.
+    pub fn expand_tooltip(mut self, label: impl Into<SharedString>) -> Self {
+        self.expand_tooltip = Some(label.into());
+        self
+    }
+
+    /// Labels the expand button after the fact — a language switched while
+    /// the grid is open.
+    pub fn set_expand_tooltip(&mut self, label: Option<SharedString>) {
+        self.expand_tooltip = label;
     }
 
     /// The source, to read.

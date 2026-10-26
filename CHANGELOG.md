@@ -9,6 +9,17 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- A grid cell's one-line field can carry a button that hands the edit to a
+  larger editor of the host's own. A source opts in per cell with
+  `GridSource::cell_expandable`; pressing the button closes the field with
+  nothing staged and raises `GridEvent::ExpandRequested` with what had been
+  typed. `GridView::expand_edit` does the same from code,
+  `GridView::is_expandable` says whether the open field offers it, and
+  `GridView::expand_tooltip` / `set_expand_tooltip` label the button. Its mark
+  is the new `rugpui::EXPAND`, in `rugpui::ICONS`.
+
 ### Changed
 
 - `TabBar` runs the parts of a strip its owner leaves to it, off its own

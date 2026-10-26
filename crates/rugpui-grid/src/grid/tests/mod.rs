@@ -182,6 +182,7 @@ struct Staged {
     dirty: Vec<(usize, usize)>,
     editable: Vec<usize>,
     external: Option<usize>,
+    expandable: Vec<usize>,
 }
 
 impl Staged {
@@ -195,6 +196,7 @@ impl Staged {
             dirty: Vec::new(),
             editable: vec![1, 2],
             external: None,
+            expandable: Vec::new(),
         }
     }
 }
@@ -238,6 +240,10 @@ impl GridSource for Staged {
         } else {
             CellEditor::Text
         }
+    }
+
+    fn cell_expandable(&self, _row: usize, column: usize) -> bool {
+        self.expandable.contains(&column)
     }
 }
 

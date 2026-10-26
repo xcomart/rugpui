@@ -15,9 +15,46 @@ impl<S: GridSource> GridView<S> {
     /// there and then.
     pub fn editor(&self) -> Option<&Entity<TextInput>> {
         match &self.editing.as_ref()?.editor {
-            OpenEditor::Field { input } => Some(input),
+            OpenEditor::Field { input, .. } => Some(input),
             OpenEditor::Choice { .. } | OpenEditor::Custom { .. } => None,
         }
+    }
+
+    /// Whether the open field carries the expand button.
+    ///
+    /// `false` when no editor is open, or when the open one is not the field.
+    pub fn is_expandable(&self) -> bool {
+        matches!(
+            self.editing.as_ref().map(|editing| &editing.editor),
+            Some(OpenEditor::Field {
+                expandable: true,
+                ..
+            })
+        )
+    }
+
+    /// Hands the open field's edit to the host's larger editor: what the expand
+    /// button does.
+    ///
+    /// Closes the field with nothing staged and raises
+    /// [`GridEvent::ExpandRequested`] carrying what had been typed. Answers
+    /// whether it did; it does nothing unless the open editor is a field whose
+    /// source said [`GridSource::cell_expandable`]. The grid does not take the
+    /// focus back afterwards — the host's editor is about to take it.
+    pub fn expand_edit(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.is_expandable() {
+            return false;
+        }
+        let Some(text) = self.typed(cx) else {
+            return false;
+        };
+        let Some(editing) = self.editing.as_ref() else {
+            return false;
+        };
+        let (row, column) = (editing.row, editing.column);
+        self.close_edit(None, false, cx);
+        cx.emit(GridEvent::ExpandRequested { row, column, text });
+        true
     }
 
     /// Opens the inline editor over the cell at `row` and *source* `column`.
@@ -117,7 +154,8 @@ impl<S: GridSource> GridView<S> {
                     input
                 });
                 let handle = input.read(cx).focus_handle(cx);
-                (OpenEditor::Field { input }, handle)
+                let expandable = self.source.cell_expandable(row, column);
+                (OpenEditor::Field { input, expandable }, handle)
             }
             CellEditor::Choice { options, nullable } => {
                 // The `NULL` row is prepended here rather than at every use, so
@@ -228,7 +266,7 @@ impl<S: GridSource> GridView<S> {
     /// handed its content instead of asking for it.
     pub(super) fn typed(&self, cx: &App) -> Option<String> {
         match &self.editing.as_ref()?.editor {
-            OpenEditor::Field { input } => Some(input.read(cx).content().to_string()),
+            OpenEditor::Field { input, .. } => Some(input.read(cx).content().to_string()),
             OpenEditor::Choice { .. } | OpenEditor::Custom { .. } => None,
         }
     }
