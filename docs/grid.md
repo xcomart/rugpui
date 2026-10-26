@@ -455,6 +455,10 @@ pub enum CellEditor {
 
 A field is one line high, which is a poor place to write a paragraph — even into a cell that holds one line today. A source whose host has a larger editor (a multiline dialog, say) answers `cell_expandable` with `true` for the cells it may open, and the field then carries a small button at its right-hand end, drawn beside it rather than over it so that the text never runs underneath. Pressing it closes the field **with nothing staged** and raises `GridEvent::ExpandRequested { row, column, text }`, where `text` is what the field held: whatever had been typed, the cell's own text if nothing had, the empty string for a null cell. The grid leaves the focus to the host's editor, and the value comes back through your staging layer, as it does from an `External` editor. `GridView::expand_edit(cx)` does the same from code, and `GridView::is_expandable()` says whether the open field offers it.
 
+![A text field open over one cell of a grid, with a small expand button at its right-hand end](./screenshots/grid/expand-editor.png)
+
+*`cell_expandable` answering `true` for the `note` column: the same field, with the button beside it.*
+
 The press is kept from the grid underneath it: a press that reached the grid would take the focus off the field, and a field that loses the focus commits — so the edit would be staged once by the commit and again by the larger editor.
 
 The button wears `rugpui::EXPAND`, so the host's `AssetSource` needs `rugpui::ICONS` chained into it. The grid holds no strings, so its tooltip is the host's: `GridView::expand_tooltip(label)` when building the grid, or `set_expand_tooltip` later; without one the button shows none.
