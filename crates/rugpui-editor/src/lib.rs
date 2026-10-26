@@ -110,6 +110,7 @@ pub mod lang;
 pub mod snippet;
 pub mod sql_syntax;
 pub mod syntax;
+pub mod tabs;
 pub mod wrap;
 
 pub use buffer::Buffer;
@@ -123,6 +124,7 @@ pub use lang::{FileMatch, LanguageEntry, LanguageRegistry, highlighter_for_exten
 pub use snippet::{CodeSnippet, tooltip_code};
 pub use sql_syntax::SqlHighlighter;
 pub use syntax::StatementSpan;
+pub use tabs::{DEFAULT_TAB_WIDTH, MAX_TAB_WIDTH};
 
 #[cfg(test)]
 mod tests;

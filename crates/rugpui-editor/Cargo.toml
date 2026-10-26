@@ -29,6 +29,10 @@ log.workspace = true
 # `GraphemeCursor` rather than `grapheme_indices`, so that a boundary can be
 # found next to an offset without walking the buffer to reach it.
 unicode-segmentation.workspace = true
+# Tab stops are counted in the cells a monospaced font draws a character
+# across, so that a tab after a Hangul word lines up with one after a Latin
+# word. See `tabs`.
+unicode-width.workspace = true
 
 # --- optional, for `custom-syntax` ---
 # A language defined by a YAML file rather than by code: the reader, the derive

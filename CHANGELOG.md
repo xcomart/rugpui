@@ -9,7 +9,23 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- `rugpui-editor`: `EditorView::set_tab_width(width, cx)` and
+  `EditorView::tab_width()`, with `DEFAULT_TAB_WIDTH` (4) and `MAX_TAB_WIDTH`
+  (16). A consumer that wants a width other than four for a document calls
+  the setter; nothing else changes.
+
 ### Fixed
+
+- `rugpui-editor` draws a tab to the next tab stop instead of as whatever the
+  font has at U+0009, which in most faces was next to nothing. Tab stops are
+  counted in the cells a monospaced font draws a character across, so a tab
+  after a Hangul word lines up with one after a Latin word. The caret, the
+  selection, a click, the IME candidate box and word wrap all follow the
+  drawn width, and `Up`/`Down` aim for the column a tab reaches. The buffer
+  keeps its tabs. `CodeSnippet` draws tabs the same way, at the default
+  width. A consumer changes nothing.
 
 - `Select` and `SchemeSelect` draw the overlay scrollbar down a long open list
   by themselves when the caller passes none through `.scrollbar(...)`, run off
