@@ -8,11 +8,11 @@
 //! the other end: a stateless element, rebuilt on every render of its parent,
 //! that lexes its text and hands gpui one [`StyledText`] per line.
 //!
-//! It shares the editor's colours exactly, because it shares the editor's
+//! It shares the editor's colors exactly, because it shares the editor's
 //! machinery exactly: the same [`Highlighter`], the same
 //! [`runs_for_spans`] gap filling, the same
 //! [`EditorTheme`](rugpui::EditorTheme). What it does not share is everything that makes an editor
-//! an editor — no gutter, no caret, no selection, no virtualisation. A snippet
+//! an editor — no gutter, no caret, no selection, no virtualization. A snippet
 //! is expected to be a handful of lines, and [`CodeSnippet::max_lines`] is
 //! there to keep it one when the text is not.
 //!
@@ -78,7 +78,7 @@ const BLANK: &str = " ";
 /// candidates is installed — `monospace(cx)` in `rugpui-gallery`'s `main.rs`
 /// is that loop, and is four lines long.
 ///
-/// # Colours
+/// # Colors
 ///
 /// [`EditorTheme`](rugpui::EditorTheme), read fresh on every render through
 /// [`editor_theme`](fn@editor_theme) — the *code* palette, not the chrome
@@ -154,7 +154,7 @@ impl CodeSnippet {
     ///
     /// For a host that has already drawn the box the snippet sits in — a
     /// documentation panel with its own surface, say. The lines and their
-    /// colours are unchanged; only the chrome around them goes.
+    /// colors are unchanged; only the chrome around them goes.
     pub fn bare(mut self) -> Self {
         self.bare = true;
         self

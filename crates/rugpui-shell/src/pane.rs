@@ -21,7 +21,7 @@
 //! (`the Generate tab`, `the tab editing this file`) as an extension trait or
 //! as free functions over [`Pane::items`].
 //!
-//! Nothing here is serialised: a layout is what the user has arranged in this
+//! Nothing here is serialized: a layout is what the user has arranged in this
 //! session, and none of the applications using this crate store one.
 //!
 //! Dragging a divider belongs to the view, which is what owns the pixels a
@@ -499,7 +499,7 @@ impl<T> PaneTree<T> {
 
     /// How many of the tree's splits lie along `axis`.
     ///
-    /// What a caller greys its "even out" command by: with no split along the
+    /// What a caller grays its "even out" command by: with no split along the
     /// axis there is nothing for [`PaneTree::equalize`] to move, and a command
     /// that would do nothing is better shown as unavailable than offered.
     pub fn splits_along(&self, axis: Axis) -> usize {
@@ -1120,7 +1120,7 @@ mod tests {
 
         assert!(tree.swap(one, three));
         assert_eq!(payloads(&tree), vec![3, 2, 1]);
-        // Each id travelled with its payload.
+        // Each id traveled with its payload.
         assert_eq!(tree.leaf_ids(), vec![three, two, one]);
         assert_eq!(tree.get(one), Some(&1));
         // The shape is untouched, divider included.
@@ -1322,7 +1322,7 @@ mod tests {
         let stacked = split_id(second_of(tree.root()).expect("the right column"))
             .expect("the right column is split");
         assert!(tree.set_ratio(stacked, 0.8));
-        // Dragged off centre, so the width pass has something to leave alone.
+        // Dragged off center, so the width pass has something to leave alone.
         assert!(tree.set_ratio(root_split(&tree), 0.25));
 
         assert_eq!(tree.splits_along(Axis::Vertical), 1);
@@ -1404,7 +1404,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pane_finds_a_tab_by_whatever_the_application_recognises_it_by() {
+    fn a_pane_finds_a_tab_by_whatever_the_application_recognizes_it_by() {
         let mut pane = Pane::new();
         pane.push("model.java");
         pane.push("generate");
@@ -1492,7 +1492,7 @@ mod tests {
         assert!(!pane.relocate(2, 0), "no tab at the source");
         assert!(!pane.relocate(0, 3), "no tab at the target");
         assert!(!pane.relocate(0, 0), "a tab onto itself");
-        assert!(!pane.relocate(0, 1), "a tab before its own neighbour");
+        assert!(!pane.relocate(0, 1), "a tab before its own neighbor");
         assert!(!pane.relocate(1, 2), "the last tab to the end");
         assert_eq!(pane.items(), ["a", "b"]);
         assert_eq!(pane.active_index(), 1);

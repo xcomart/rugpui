@@ -1,6 +1,6 @@
 # modal and form_row
 
-A centred dialog panel over a translucent backdrop, plus the labelled row its
+A centered dialog panel over a translucent backdrop, plus the labeled row its
 body is usually built out of. Reach for `modal` when a decision has to be made
 before anything else can happen — a connection to configure, a change to
 confirm. Both are free functions rather than types: they take everything they
@@ -107,7 +107,7 @@ div()
 
 *`modal("connect", "New connection", px(420.), body, on_dismiss)` with three
 `form_row(..)` fields, a checkbox and the two buttons that end it. The backdrop
-covers the whole window; the card is centred and 420 px wide.*
+covers the whole window; the card is centered and 420 px wide.*
 
 ## Where it must be rendered
 
@@ -174,7 +174,7 @@ area inside it — the modal will not add one.
 - `overlay` — the translucent backdrop. This slot carries its own alpha.
 - `background` — the panel's fill, one level up from the surrounding chrome.
 - `border` — the panel's outline and the hairline under the header band.
-- `text` — the panel's text colour, inherited by the body.
+- `text` — the panel's text color, inherited by the body.
 
 `form_row`:
 

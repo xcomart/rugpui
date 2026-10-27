@@ -1,6 +1,6 @@
 # TreeView
 
-A virtualised tree whose branches arrive one round trip at a time. The widget owns the *shape* — which nodes are open, which one is selected, where the list is scrolled — and the host owns the nodes themselves, handed over through a `TreeSource` keyed by an id the host invents. That split is what keeps a database explorer, a file listing and an object browser the same widget.
+A virtualized tree whose branches arrive one round trip at a time. The widget owns the *shape* — which nodes are open, which one is selected, where the list is scrolled — and the host owns the nodes themselves, handed over through a `TreeSource` keyed by an id the host invents. That split is what keeps a database explorer, a file listing and an object browser the same widget.
 
 Source: [tree.rs](../../crates/rugpui/src/tree.rs). Re-exported as `rugpui::{TreeView, TreeSource, ChildState, TreeRow, TreeRowInfo, TreeEvent}`; `tree::init` is called for you by `rugpui::init`.
 
@@ -86,7 +86,7 @@ impl TreeSource for Catalog {
 
 `children` is called during a rebuild for the root and for every **open** node, so a closed subtree costs nothing. `has_children` is asked of every visible row including closed ones — so a source whose `children` is expensive (one that allocates a large vector, say) should answer it from something cheaper.
 
-`render_row` fills a row the tree has already laid out as a centred flex row, with the indent, the disclosure arrow and the background drawn. It is handed a `TreeRowInfo { index, depth, expanded, selected, has_children }`, so a label can follow the row's state without keeping a copy of it. `index` is not a node identity — it moves whenever something above is opened — but it *is* an element identity, and the tree keys its own row container by it, so a host that wants a draggable row can key alongside rather than invent a second numbering.
+`render_row` fills a row the tree has already laid out as a centered flex row, with the indent, the disclosure arrow and the background drawn. It is handed a `TreeRowInfo { index, depth, expanded, selected, has_children }`, so a label can follow the row's state without keeping a copy of it. `index` is not a node identity — it moves whenever something above is opened — but it *is* an element identity, and the tree keys its own row container by it, so a host that wants a draggable row can key alongside rather than invent a second numbering.
 
 `render_loading` defaults to an ellipsis glyph rather than a word, because this layer has no translations and "Loading…" in English under a Korean tree would be worse than no text at all.
 
@@ -161,7 +161,7 @@ cx.subscribe(&tree, |view, tree, event, cx| match event {
 
 The first draw asks the source for its outermost level and emits `LoadChildren(None)` if it has not been fetched — so a host that subscribes right after building the tree still catches the request for the root.
 
-![A catalogue tree with two levels open and a leaf selected](../screenshots/tree/expanded.png)
+![A catalog tree with two levels open and a leaf selected](../screenshots/tree/expanded.png)
 
 *Two branches opened with `expand(..)` and a leaf under `set_selected(..)`: both disclosure states are on screen, and every row is drawn by the source's own `render_row`.*
 
@@ -199,7 +199,7 @@ The keys activate whatever is selected, branch or leaf, because the keyboard alr
 
 `with_arrow_icons` and `tab_index` take `self` by value, so they are chained inside the `cx.new` closure; everything below them is a `&mut self` method callable for the life of the entity.
 
-`expand` on a node **no row carries** still opens it, and it stays open until it is closed again — that is how a host restores a whole path at once: open the server, the catalogue and the schema in one go, and each level is already open by the time the one above it arrives. `expand` on a visible leaf does nothing. `collapse` brings a selection that was inside the subtree up to the node that swallowed it, so the highlight stays where the user can see it. `set_selected` with an id no row carries is remembered rather than refused, for the same reason.
+`expand` on a node **no row carries** still opens it, and it stays open until it is closed again — that is how a host restores a whole path at once: open the server, the catalog and the schema in one go, and each level is already open by the time the one above it arrives. `expand` on a visible leaf does nothing. `collapse` brings a selection that was inside the subtree up to the node that swallowed it, so the highlight stays where the user can see it. `set_selected` with an id no row carries is remembered rather than refused, for the same reason.
 
 `TreeRow<Id>` is `Node { id, depth, has_children }` or `Loading { depth }`, with `.id() -> Option<&Id>` and `.depth() -> usize`. A `Loading` row is not selectable and is skipped by the arrow keys: there is nothing there to act on yet.
 

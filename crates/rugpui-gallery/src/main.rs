@@ -66,7 +66,7 @@ const TRIANGLE_DOWN: &str = "icons/triangle-down.svg";
 /// A thumbnail of a table, for the rich tooltip.
 ///
 /// Drawn by [`img`](gpui::img) rather than by [`svg`](gpui::svg), so unlike the
-/// three above its colours are the ones written in the file.
+/// three above its colors are the ones written in the file.
 const PREVIEW: &str = "icons/preview.svg";
 
 /// The id of the list's overlay scroll bar.
@@ -80,7 +80,7 @@ const LIST_BAR: &str = "list-bar";
 /// gpui's [`svg`](gpui::svg) element resolves its `path` through the
 /// [`AssetSource`] the application was built with and paints the result as a
 /// monochrome sprite: only the alpha channel survives, and the element's
-/// `text_color` supplies the colour. So the colours written in these files
+/// `text_color` supplies the color. So the colors written in these files
 /// never reach the screen — only their coverage does.
 const ICONS: &[(&str, &[u8])] = &[
     (FOLDER, include_bytes!("../assets/icons/folder.svg")),
@@ -345,7 +345,7 @@ struct Gallery {
     amount: f32,
     /// The two ends of the range slider's interval.
     range: (f32, f32),
-    /// The colour picker's colour.
+    /// The color picker's color.
     color: Hsv,
     /// The dropdown's choice, and whether its list is showing.
     choice: SharedString,
@@ -415,7 +415,7 @@ impl Gallery {
 
         // Two lines to a row, so the list is asked for a taller row than its
         // 24 px default — one height for every row is the condition
-        // `uniform_list` virtualises under.
+        // `uniform_list` virtualizes under.
         let contacts = cx.new(|cx| {
             let mut list = ListView::new(Contacts, cx).row_height(px(44.));
             list.set_selected(Some("grace"), cx);
@@ -682,7 +682,7 @@ impl Gallery {
             .child(ProgressBar::new("amount-progress").fraction(amount))
             .child(ProgressBar::new("loading").indeterminate());
 
-        // Under the presets, the colour as a host would spell it.
+        // Under the presets, the color as a host would spell it.
         let color = self.color;
         let picker = section("Color picker", &palette).child(
             ColorPicker::new("accent")
@@ -781,7 +781,7 @@ impl Gallery {
     /// SQL, in one [`Tooltip`].
     ///
     /// Three parts, three kinds. The image is an `img` and therefore keeps the
-    /// colours written in its file, unlike the monochrome `svg` icons the tree
+    /// colors written in its file, unlike the monochrome `svg` icons the tree
     /// and the tabs use. The note is the caption slot. The snippet is a
     /// [`CodeSnippet`] handed in through `.element(..)`, which is how anything
     /// `rugpui` has never heard of gets into the column — it reads the *editor*
@@ -1153,7 +1153,7 @@ fn monospace(cx: &App) -> SharedString {
         .map_or_else(|| SharedString::new_static("monospace"), SharedString::from)
 }
 
-/// The colour a tree row's icon takes, which is the theme's icon tint until the
+/// The color a tree row's icon takes, which is the theme's icon tint until the
 /// row is the selected one.
 fn icon_tint(selected: bool, palette: &Theme) -> Hsla {
     if selected { palette.text } else { palette.icon }

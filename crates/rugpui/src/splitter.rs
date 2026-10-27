@@ -107,7 +107,7 @@ fn floor(min: f32) -> f32 {
 ///
 /// A share that is not a number at all falls back to the middle rather than to
 /// an edge: the middle is the only answer that says nothing about which half
-/// the host meant to favour.
+/// the host meant to favor.
 fn within(share: f32, min: f32) -> f32 {
     let min = floor(min);
     if share.is_nan() {
@@ -169,7 +169,7 @@ impl DraggedSplit {
 /// The parent view passes the current ratio on every render and updates its own
 /// state from [`Splitter::on_change`], which receives the ratio the divider is
 /// moving to — already clamped, already a number. Ratios outside the range are
-/// pinned rather than refused, so a host is never made to sanitise a fraction
+/// pinned rather than refused, so a host is never made to sanitize a fraction
 /// before it can draw.
 ///
 /// `id` has to be unique among every splitter that can be dragged at the same
@@ -318,7 +318,7 @@ impl RenderOnce for Splitter {
     /// halves: a divider that took part in the layout would have to be paid for
     /// out of one half's share, and the arithmetic that decides which one is
     /// exactly the arithmetic this widget exists to avoid. The handle is placed
-    /// with [`ResizeHandle::at`], which centres its band on the ratio so the
+    /// with [`ResizeHandle::at`], which centers its band on the ratio so the
     /// grab area is symmetric about the line the eye sees.
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let palette = theme(cx);

@@ -20,9 +20,9 @@
 //! The paths carry a `rugpui/` segment so that a host with a `caret-down.svg`
 //! of its own keeps it: the two namespaces cannot collide.
 //!
-//! What gets drawn is a *monochrome* sprite — resvg rasterises the file, only
+//! What gets drawn is a *monochrome* sprite — resvg rasterizes the file, only
 //! the alpha channel survives, and the element's `text_color` supplies the
-//! colour — so the black stroke written in these two files never reaches the
+//! color — so the black stroke written in these two files never reaches the
 //! screen, and every widget tints them from the palette instead.
 //!
 //! The bytes come from [`include_bytes!`], not from files read at run time: a

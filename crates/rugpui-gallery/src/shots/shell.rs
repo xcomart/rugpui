@@ -1,5 +1,5 @@
 //! The layer above the widget kit: the self-drawn title bar, the two dialogs,
-//! the theme editor, the catalogue management row and the settings pieces.
+//! the theme editor, the catalog management row and the settings pieces.
 //!
 //! Everything here needs two things injected before it draws anything at all —
 //! an [`AppIdentity`] and a table of words — because `rugpui-shell` is written
@@ -142,7 +142,7 @@ const PHRASES: &[(&str, &str)] = &[
     ("settings.editor.dark", "Dark palette"),
     ("settings.editor.automatic", "Automatic"),
     ("settings.editor.automatic_slot", "Back to automatic"),
-    ("settings.editor.invalid", "Not a colour"),
+    ("settings.editor.invalid", "Not a color"),
     ("settings.editor.grid_group", "Grid"),
     ("settings.manage.copy_name", "%{name} copy"),
     ("settings.manage.delete_theme_confirm", "Delete %{name}?"),
@@ -176,7 +176,7 @@ fn init(cx: &mut App) {
     rugpui_shell::set_strings(Box::new(Words), cx);
 }
 
-/// A catalogue over no directory at all.
+/// A catalog over no directory at all.
 ///
 /// Nothing in these shots saves, imports or deletes, and every one of those
 /// refuses politely when the host named no directory — which is exactly the
@@ -332,9 +332,9 @@ fn update(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-// --- the catalogue ----------------------------------------------------------
+// --- the catalog ----------------------------------------------------------
 
-/// One palette edited colour by colour, with the live preview above the name.
+/// One palette edited color by color, with the live preview above the name.
 ///
 /// The window is the editor's own full height and not a pixel more: the field
 /// list caps itself at `BODY_MAX_HEIGHT` and scrolls past that — the cap is

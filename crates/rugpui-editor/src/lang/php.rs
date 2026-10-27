@@ -3,7 +3,7 @@
 //! PHP source is already two languages in one file: HTML outside
 //! `<?php ... ?>`, and PHP inside it. This lexer keeps that boundary, so that a
 //! file that emits a page rather than a pure PHP class still gets its markup
-//! left alone (uncoloured, the same as prose) and its code coloured. A host
+//! left alone (uncolored, the same as prose) and its code colored. A host
 //! that paints a third language over the whole of it — a template grammar, say
 //! — composes on top with
 //! [`CompositeHighlighter`](crate::composite::CompositeHighlighter); the
@@ -28,7 +28,7 @@
 //!
 //! What it does not attempt: heredoc and nowdoc (`<<<EOT ... EOT`), variable
 //! interpolation *inside* a double-quoted string (`"$name"`, `"{$expr}"`
-//! stay plain string colour throughout), and the historical short open tag
+//! stay plain string color throughout), and the historical short open tag
 //! `<?` on its own -- only `<?php` and the short echo tag `<?=` are
 //! recognized as opening PHP.
 
@@ -117,7 +117,7 @@ fn is_keyword(word: &str) -> bool {
 /// Where the lexer is between one line and the next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
-    /// Outside `<?php ... ?>`: plain markup, uncoloured.
+    /// Outside `<?php ... ?>`: plain markup, uncolored.
     Html,
     /// Inside `<?php ... ?>`, not mid-comment or mid-string.
     Php,

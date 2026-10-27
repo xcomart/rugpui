@@ -1,4 +1,4 @@
-//! What a file *is*: the table of languages this crate can colour, and the
+//! What a file *is*: the table of languages this crate can color, and the
 //! rules that pick one for a file name.
 //!
 //! [`highlighter_for_extension`](super::highlighter_for_extension) answers the
@@ -39,7 +39,7 @@ use crate::highlight::Highlighter;
 use crate::lang::builtin_highlighter;
 use crate::lang::scan::shebang_interpreter;
 
-/// What a language is recognised by.
+/// What a language is recognized by.
 ///
 /// Every list is compared in lower case, so a host filling one in may write it
 /// however it likes as long as it writes it in lower case — nothing here folds
@@ -101,7 +101,7 @@ pub struct LanguageEntry {
     /// Proper names, and so the same in every locale: `YAML` and `Dockerfile`
     /// are spelled that way wherever the application is read. The one row worth
     /// translating is plain text, which describes a file rather than naming a
-    /// format; a picker that wants to localise it can, since it is drawing the
+    /// format; a picker that wants to localize it can, since it is drawing the
     /// rows anyway.
     pub name: SharedString,
     /// What files this language claims.
@@ -124,7 +124,7 @@ impl std::fmt::Debug for LanguageEntry {
 /// Every id [`LanguageRegistry::builtin`] declares, in the order it declares
 /// them, with the name each one goes by and the files it claims.
 ///
-/// Plain text leads, being the answer to "colour none of this" rather than a
+/// Plain text leads, being the answer to "color none of this" rather than a
 /// format among the others. Then the seven configuration formats a file panel
 /// reaches every day, then the languages with a lexer of their own, then the
 /// C-like table. That order is the picker's order and the search order at once.
@@ -158,7 +158,7 @@ const BUILTIN: &[Builtin] = &[
             ".shrc",
         ],
         // Anything ending in `sh`: `sh`, `bash`, `zsh`, `ksh`, `dash`, `fish`.
-        // `fish` is not bourne shell and is coloured as if it were, which costs
+        // `fish` is not bourne shell and is colored as if it were, which costs
         // a handful of keywords and no correctness — the comments, strings and
         // expansions this highlights are the same in both.
         &["sh"],
@@ -189,7 +189,7 @@ const BUILTIN: &[Builtin] = &[
     ),
     // A bare `README` or `CHANGELOG` is not claimed: it is as often a wall of
     // plain prose as it is Markdown, and plain text is the answer that is never
-    // wrong about a file nobody labelled.
+    // wrong about a file nobody labeled.
     ("markdown", "Markdown", &["md", "markdown"], &[], &[]),
     ("sql", "SQL", &["sql"], &[], &[]),
     ("java", "Java", &["java"], &[], &[]),
@@ -260,7 +260,7 @@ impl LanguageRegistry {
     /// It goes behind every built-in language, in the order a picker reads —
     /// alphabetically by name among the registered ones. Behind, because a
     /// definition is one file in a directory somebody may have forgotten about
-    /// while a built-in is what every other editor colours a `.yml` as; and
+    /// while a built-in is what every other editor colors a `.yml` as; and
     /// alphabetically, because a list of thirty formats is read that way or not
     /// at all.
     ///
@@ -510,7 +510,7 @@ mod tests {
     fn every_language_keeps_the_span_contract_on_every_line_it_is_given() {
         // One pass over lines drawn from all of the formats in each of them,
         // which is what an editor does the moment somebody opens the wrong
-        // file: the guarantee is not that the colours are right but that the
+        // file: the guarantee is not that the colors are right but that the
         // spans are sorted, non-overlapping, inside the line and on character
         // boundaries.
         let lines = [

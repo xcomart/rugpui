@@ -1,4 +1,4 @@
-//! A virtualised flat list whose rows the host draws itself.
+//! A virtualized flat list whose rows the host draws itself.
 //!
 //! The same bargain [`tree`](crate::tree) strikes, with the hierarchy taken
 //! out. The widget owns the shape of the list — how tall a row is, which one is
@@ -254,7 +254,7 @@ impl<S: ListSource> ListView<S> {
     /// Draws every row `height` tall instead of the default 24 px.
     ///
     /// One number for the whole list, because that is the condition
-    /// [`uniform_list`] virtualises under: a row two lines deep is a list of
+    /// [`uniform_list`] virtualizes under: a row two lines deep is a list of
     /// 44 px rows, not one row that grew.
     pub fn row_height(mut self, height: Pixels) -> Self {
         self.row_height = height;
@@ -566,8 +566,8 @@ impl<S: ListSource> Render for ListView<S> {
 
         let body = if count == 0 {
             // The source's own answer for an empty list, given the whole area
-            // rather than a row: what goes there is usually centred, and a
-            // 24 px band at the top is not somewhere to centre anything in.
+            // rather than a row: what goes there is usually centered, and a
+            // 24 px band at the top is not somewhere to center anything in.
             div()
                 .size_full()
                 .child(self.source.render_empty(window, cx))

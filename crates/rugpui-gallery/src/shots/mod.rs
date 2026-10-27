@@ -240,7 +240,7 @@ fn bare(cx: &mut App, body: impl Fn(&mut Window, &mut App) -> AnyElement + 'stat
     .into()
 }
 
-/// A row of widgets, evenly spaced and centred on each other.
+/// A row of widgets, evenly spaced and centered on each other.
 fn row() -> gpui::Div {
     div()
         .flex()

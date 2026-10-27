@@ -1,7 +1,7 @@
 //! The "About …" dialog.
 //!
 //! A read-only card: the wordmark, the version baked in at compile time, one
-//! line of description, a link to the repository and the licence and credits.
+//! line of description, a link to the repository and the license and credits.
 //! It owns no form state, so unlike the other dialogs it has nothing to collect
 //! or persist — it only reports that it was dismissed.
 //!
@@ -24,9 +24,9 @@ use crate::inject::{identity, label, text};
 /// Width of the dialog panel.
 const DIALOG_WIDTH: f32 = 420.;
 
-/// Licence the applications sharing this shell are distributed under.
+/// License the applications sharing this shell are distributed under.
 ///
-/// A licence identifier, so it reads the same in every language, and a constant
+/// A license identifier, so it reads the same in every language, and a constant
 /// rather than an identity field because all three of them are MIT and a
 /// setting nobody varies is a setting nobody keeps correct.
 const LICENSE: &str = "MIT";

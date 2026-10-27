@@ -42,8 +42,8 @@ widget.
 | page | widget | one line |
 |---|---|---|
 | [button](./widgets/button.md) | `Button` | A stateless push button with four visual weights. |
-| [checkbox](./widgets/checkbox.md) | `Checkbox` | A labelled on/off box for a setting the user reads as a list of independent choices. |
-| [switch](./widgets/switch.md) | `Switch` | A labelled on/off switch — a track with a knob that slides from one end to the other. |
+| [checkbox](./widgets/checkbox.md) | `Checkbox` | A labeled on/off box for a setting the user reads as a list of independent choices. |
+| [switch](./widgets/switch.md) | `Switch` | A labeled on/off switch — a track with a knob that slides from one end to the other. |
 | [collapsible](./widgets/collapsible.md) | `Collapsible` | A titled section that folds its body away, and does not render it while folded. |
 | [segmented](./widgets/segmented.md) | `Segmented` | A horizontal one-of-many strip, used where a group of radio buttons would otherwise go. |
 | [slider](./widgets/slider.md) | `Slider` | A horizontal slider over a fraction from `0.0` to `1.0`. |
@@ -56,15 +56,15 @@ widget.
 | [menu](./widgets/menu.md) | `MenuButton` / `ContextMenu` | Two ways to show the same list of commands: a compact toolbar trigger and a panel with no trigger at all. |
 | [tab-bar](./widgets/tab-bar.md) | `TabBar` | A horizontal strip of tabs with a status dot, an optional mark, close buttons and a dropdown listing every tab. |
 | [tooltip](./widgets/tooltip.md) | `tooltip_label` / `Tooltip` | A box that appears when the pointer rests on a control: one line of text, a column of parts, or content the host draws itself. |
-| [modal](./widgets/modal.md) | `modal` / `form_row` | A centred dialog panel over a translucent backdrop, plus the labelled row its body is usually built out of. |
+| [modal](./widgets/modal.md) | `modal` / `form_row` | A centered dialog panel over a translucent backdrop, plus the labeled row its body is usually built out of. |
 | [scrollbar](./widgets/scrollbar.md) | `Scrollbar` | An overlay scroll indicator: a thumb with no track behind it, drawn over the content rather than beside it. |
 | [splitter](./widgets/splitter.md) | `Splitter` | Two panes side by side, or one above the other, with a divider the pointer can move. |
 | [resize-handle](./widgets/resize-handle.md) | `ResizeHandle` | The grab band a splitter's divider — or a panel resized by dragging its own edge — is dragged by, and the accent bar that fades in under the pointer. |
-| [tree](./widgets/tree.md) | `TreeView` | A virtualised tree whose branches arrive one round trip at a time. |
-| [list](./widgets/list.md) | `ListView` | A virtualised flat list whose rows the host draws itself. |
-| [scheme-select](./widgets/scheme-select.md) | `SchemeSelect` | A dropdown that picks one colour scheme out of a list. |
+| [tree](./widgets/tree.md) | `TreeView` | A virtualized tree whose branches arrive one round trip at a time. |
+| [list](./widgets/list.md) | `ListView` | A virtualized flat list whose rows the host draws itself. |
+| [scheme-select](./widgets/scheme-select.md) | `SchemeSelect` | A dropdown that picks one color scheme out of a list. |
 | [editor-theme-picker](./widgets/editor-theme-picker.md) | `EditorThemePicker` | A grid of selectable cards, each previewing one editor theme. |
-| [window-controls](./widgets/window-controls.md) | `WindowControls` | The minimise / maximise / close buttons of a window that draws its own caption. |
+| [window-controls](./widgets/window-controls.md) | `WindowControls` | The minimize / maximize / close buttons of a window that draws its own caption. |
 
 ## The larger crates
 
@@ -74,7 +74,7 @@ widget.
 - [Editor](./editor.md) — `rugpui-editor` is a multi-line code editor: a rope,
   a pluggable line highlighter, an incremental syntax cache, and a gpui
   element that shapes only the rows that fit on screen — plus `CodeSnippet`,
-  the same colours with none of the editor, for code that is read rather than
+  the same colors with none of the editor, for code that is read rather than
   typed into.
 - [Shell](./shell.md) — `rugpui-shell` is the layer above the widget kit: the
   parts of an application that turned out not to be about the application at

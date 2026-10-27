@@ -6,7 +6,7 @@
 //! platform.
 //!
 //! On Windows, a window opened with [`TitlebarStyle::System`] keeps the
-//! standard DWM caption, so the title text and the minimise / maximise / close
+//! standard DWM caption, so the title text and the minimize / maximize / close
 //! glyphs are painted by Windows, not by us. Two things make that go wrong:
 //!
 //! * gpui only ever tells DWM which system theme is in use
@@ -116,7 +116,7 @@ mod platform {
         set_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE.0 as u32, &dark);
         // Windows 11 (build 22000) and up. DWM picks the caption glyph color
         // from the luminance of the caption color, so these two cover the
-        // title, the minimise/maximise/close buttons and the strip behind them.
+        // title, the minimize/maximize/close buttons and the strip behind them.
         set_attribute(hwnd, DWMWA_CAPTION_COLOR.0 as u32, &colorref(theme.surface));
         set_attribute(hwnd, DWMWA_TEXT_COLOR.0 as u32, &colorref(theme.text));
     }

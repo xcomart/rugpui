@@ -1,10 +1,10 @@
-//! The result grid: a virtualised table over rows it never fetches itself.
+//! The result grid: a virtualized table over rows it never fetches itself.
 //!
 //! One widget, [`GridView`], and the three small vocabularies it is built on:
 //! [`source`] is where the rows come from, [`selection`] is which cells are
 //! picked, and [`copy`] is how they leave for the clipboard. The last two are
 //! pure — no window, no gpui state — which is why the awkward half of a grid's
-//! behaviour can be tested without one.
+//! behavior can be tested without one.
 //!
 //! ## What this crate knows
 //!
@@ -37,7 +37,7 @@
 //! * **What a cell shows, and what opens over it, are the source's.** A source
 //!   may draw a cell itself ([`GridSource::render_cell`]) and may say what
 //!   edits it ([`GridSource::cell_editor`]) — a field, a dropdown, or an
-//!   element of its own. Both default to the grid's own behaviour, so a source
+//!   element of its own. Both default to the grid's own behavior, so a source
 //!   that wants neither says nothing.
 //!
 //! Call [`init`] once during application start-up so the key bindings are

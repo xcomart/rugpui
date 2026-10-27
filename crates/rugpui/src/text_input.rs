@@ -1290,7 +1290,7 @@ impl Render for TextInput {
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                     // Wired with the rest of the editing gestures, which is what
                     // leaves a disabled field with no menu at all: there is no
-                    // row on it a read-only field could honour.
+                    // row on it a read-only field could honor.
                     .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
                     .on_action(cx.listener(Self::up))
                     .on_action(cx.listener(Self::down))

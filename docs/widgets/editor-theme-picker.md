@@ -6,7 +6,7 @@ Source: [editor_theme_picker.rs](../../crates/rugpui/src/editor_theme_picker.rs)
 
 ## Why cards and not swatches
 
-A chrome theme can be previewed with a strip of coloured blocks, because it *is* a set of flat surfaces and a strip is an honest picture of one. A syntax palette cannot: its colours only mean anything in arrangement. What a reader is choosing between is not "is this purple nice" but "can I tell a keyword from a column name at a glance, and is the comment still legible". Swatches answer neither question, so each card renders a statement instead, painted entirely out of the theme it is offering.
+A chrome theme can be previewed with a strip of colored blocks, because it *is* a set of flat surfaces and a strip is an honest picture of one. A syntax palette cannot: its colors only mean anything in arrangement. What a reader is choosing between is not "is this purple nice" but "can I tell a keyword from a column name at a glance, and is the comment still legible". Swatches answer neither question, so each card renders a statement instead, painted entirely out of the theme it is offering.
 
 The snippet is hardcoded, spans and all — there is no lexer in this crate and the preview does not need one. The card previews line 1's selection deliberately, so the current-line band, the selection and the caret are all visible at once and can be seen not to swallow one another, which is what most often goes wrong in a palette nobody checked.
 
@@ -79,7 +79,7 @@ Two columns rather than the three a swatch grid takes: a card has a statement in
 
 `on_select` is never fired for the card that is already selected, and the selected card carries no click handler and no hover at all.
 
-`.font_family` is passed in rather than resolved here: which monospace family is installed, and which one the user has pointed the editor at, are both questions this crate has no business answering. A caller that says nothing gets the surrounding font, which previews the colours correctly and only the metrics wrongly. The gallery's `monospace(cx)` helper shows how a host picks one.
+`.font_family` is passed in rather than resolved here: which monospace family is installed, and which one the user has pointed the editor at, are both questions this crate has no business answering. A caller that says nothing gets the surrounding font, which previews the colors correctly and only the metrics wrongly. The gallery's `monospace(cx)` helper shows how a host picks one.
 
 ## Keyboard
 
@@ -110,8 +110,8 @@ The card *frames* come from the chrome `Theme`:
 
 ## Pitfalls
 
-- **The card must not look like the dialog.** Every colour inside the snippet comes from the previewed palette and none from the surrounding chrome; if you wrap the picker in something that overrides text colour, you are undoing the point of it.
+- **The card must not look like the dialog.** Every color inside the snippet comes from the previewed palette and none from the surrounding chrome; if you wrap the picker in something that overrides text color, you are undoing the point of it.
 - **Ids, not names.** Store what `on_select` gives you.
 - **The placeholder label defaults to English.** Override it in a localized app.
 - **`selected` must be `Some(id)` for the arrow keys to do anything** — with nothing selected there is no cursor to move from.
-- **Cards are not cheap to draw.** Each is a small grid of coloured runs; a picker over a hundred user themes will cost more than a one-line [`SchemeSelect`](./scheme-select.md) would.
+- **Cards are not cheap to draw.** Each is a small grid of colored runs; a picker over a hundred user themes will cost more than a one-line [`SchemeSelect`](./scheme-select.md) would.

@@ -72,7 +72,7 @@ worth keeping meaningful: `options[index].0` is usually what wants storing.
   construction rather than by a check in the callback.
 - The group takes a **single** tab stop rather than one per
   segment, so `Tab` steps past the control instead of through it. That is the
-  behaviour WAI-ARIA prescribes for a radio group.
+  behavior WAI-ARIA prescribes for a radio group.
 - While focused, `Left`/`Up` move the selection one segment towards the start
   and `Right`/`Down` one towards the end, **wrapping** at either end
   (`rem_euclid` over the option count). A keystroke carrying any modifier is

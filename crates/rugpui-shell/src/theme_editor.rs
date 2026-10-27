@@ -1,4 +1,4 @@
-//! Editing one palette, colour by colour.
+//! Editing one palette, color by color.
 //!
 //! # Where the editor is drawn
 //!
@@ -13,11 +13,11 @@
 //!
 //! # What it edits
 //!
-//! One component for every catalogue, because catalogues differ only in which
+//! One component for every catalog, because catalogs differ only in which
 //! slots they carry: a chrome theme is a name, a dark/light flag, eleven
-//! required colours and five optional grid ones, and an editor theme is a name,
-//! a dark/light flag and nineteen required token colours. Everything else — the
-//! hex fields, the live preview, the refusal of a malformed colour, saving
+//! required colors and five optional grid ones, and an editor theme is a name,
+//! a dark/light flag and nineteen required token colors. Everything else — the
+//! hex fields, the live preview, the refusal of a malformed color, saving
 //! under an id that never changes — is the same work, and
 //! [`ThemeCatalog`](crate::ThemeCatalog) is the one place they part ways.
 //!
@@ -27,8 +27,8 @@
 //! derives it from the rest of the palette; that is what lets a theme written
 //! against an older, shorter format keep loading. The editor has to be able to
 //! say which of the two a slot is in, so an *empty* field means "derive it":
-//! the swatch then shows the derived colour, the placeholder spells its hex
-//! out, and a button beside the field puts a slot that has been given a colour
+//! the swatch then shows the derived color, the placeholder spells its hex
+//! out, and a button beside the field puts a slot that has been given a color
 //! back to automatic. A required slot has neither.
 
 use rugpui::SmoothScrollExt;
@@ -57,16 +57,16 @@ const SCROLLBAR_ID: &str = "theme-editor-scrollbar";
 /// swaps one body for the other.
 const BODY_MAX_HEIGHT: f32 = 520.;
 
-/// Colour fields per row.
+/// Color fields per row.
 ///
-/// Two, for every catalogue: at a dialog's width a row of two leaves each label
+/// Two, for every catalog: at a dialog's width a row of two leaves each label
 /// enough room to be read in every language.
 const FIELD_COLUMNS: usize = 2;
 
-/// Width of a colour field's label, in pixels.
+/// Width of a color field's label, in pixels.
 const LABEL_WIDTH: f32 = 118.;
 
-/// Side of the swatch drawn beside a colour field.
+/// Side of the swatch drawn beside a color field.
 const SWATCH_SIZE: f32 = 26.;
 
 /// Tab order inside the editor, spaced so slots can be inserted later.
@@ -79,16 +79,16 @@ pub mod tab {
     pub const NAME: isize = 10;
     /// The dark/light checkbox.
     pub const DARK: isize = 20;
-    /// The first colour field; the rest follow two apart, because an optional
+    /// The first color field; the rest follow two apart, because an optional
     /// slot puts its "automatic" button in the odd index behind its field.
     pub const FIRST_COLOR: isize = 30;
-    /// Cancel. Far enough past the colours that no catalogue can reach it.
+    /// Cancel. Far enough past the colors that no catalog can reach it.
     pub const CANCEL: isize = 900;
     /// Save.
     pub const SAVE: isize = 910;
 }
 
-/// One editable colour: what it is called, and what has been typed into it.
+/// One editable color: what it is called, and what has been typed into it.
 struct ColorField {
     /// The slot the field stands for.
     slot: Slot,
@@ -98,14 +98,14 @@ struct ColorField {
 
 /// Emitted by [`ThemeEditor`] when the user is done with it.
 pub enum ThemeEditorEvent {
-    /// The entry has been written and the catalogue reloaded. The host has to
+    /// The entry has been written and the catalog reloaded. The host has to
     /// repaint whatever was already wearing it.
     Saved,
     /// The user backed out; nothing was written.
-    Cancelled,
+    Canceled,
 }
 
-/// Editor for one entry of one catalogue.
+/// Editor for one entry of one catalog.
 ///
 /// Built with [`ThemeEditor::new`] from the file that is to be edited, rendered
 /// as the body of a settings dialog, and finished by one of
@@ -113,7 +113,7 @@ pub enum ThemeEditorEvent {
 /// construction and never follows the name: renaming a palette must not orphan
 /// the settings entry that selected it.
 pub struct ThemeEditor {
-    /// Which catalogue the entry belongs to.
+    /// Which catalog the entry belongs to.
     catalog: Arc<dyn ThemeCatalog>,
     /// The id it is saved under, from construction to save.
     id: String,
@@ -121,7 +121,7 @@ pub struct ThemeEditor {
     name_input: Entity<TextInput>,
     /// Whether the palette is a dark one.
     dark: bool,
-    /// One field per colour slot, in the catalogue's own order.
+    /// One field per color slot, in the catalog's own order.
     fields: Vec<ColorField>,
     /// Why the last save did not go through, if it did not.
     status: Option<SharedString>,
@@ -155,7 +155,7 @@ impl ThemeEditor {
             input
         });
         // The name is not validated, but it *is* previewed, so the editor has
-        // to hear about it changing just as it hears about the colours.
+        // to hear about it changing just as it hears about the colors.
         cx.observe(&name_input, |_editor, _input, cx| cx.notify())
             .detach();
 
@@ -164,7 +164,7 @@ impl ThemeEditor {
         for (index, slot) in slots.iter().enumerate() {
             let value = values.get(index).cloned().unwrap_or_default();
             // Marked as it opens, not only once it is typed into: a file edited
-            // by hand can arrive with a slot that is not a colour, and the
+            // by hand can arrive with a slot that is not a color, and the
             // editor is exactly where that has to be visible.
             let valid = valid_hex(&value, slot.alpha, slot.optional);
             let input = cx.new(|cx| {
@@ -178,7 +178,7 @@ impl ThemeEditor {
             });
             // gpui does not re-render a parent when a child entity notifies, so
             // without this the live preview would only follow the typing at the
-            // next unrelated repaint — and the refusal of a malformed colour
+            // next unrelated repaint — and the refusal of a malformed color
             // would never appear at all.
             cx.observe(&input, |editor, _input, cx| editor.revalidate(cx))
                 .detach();
@@ -206,10 +206,10 @@ impl ThemeEditor {
 
     /// Discards the edits and tells the host to put its own body back.
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ThemeEditorEvent::Cancelled);
+        cx.emit(ThemeEditorEvent::Canceled);
     }
 
-    /// Re-marks every field that does not hold a colour, and repaints.
+    /// Re-marks every field that does not hold a color, and repaints.
     fn revalidate(&mut self, cx: &mut Context<Self>) {
         for field in &self.fields {
             let valid = valid_hex(
@@ -224,7 +224,7 @@ impl ThemeEditor {
         cx.notify();
     }
 
-    /// Whether every field holds a colour the format accepts.
+    /// Whether every field holds a color the format accepts.
     fn is_valid(&self, cx: &App) -> bool {
         self.fields.iter().all(|field| {
             valid_hex(
@@ -235,7 +235,7 @@ impl ThemeEditor {
         })
     }
 
-    /// What has been typed into every field, in the catalogue's own order.
+    /// What has been typed into every field, in the catalog's own order.
     fn values(&self, cx: &App) -> Vec<String> {
         self.fields
             .iter()
@@ -258,10 +258,10 @@ impl ThemeEditor {
         self.catalog.file_from(name, &self.values(cx), self.dark)
     }
 
-    /// Writes the edits and reloads the catalogue.
+    /// Writes the edits and reloads the catalog.
     ///
     /// A failed write leaves the editor open with the reason showing, so the
-    /// user never believes a colour took effect when it did not.
+    /// user never believes a color took effect when it did not.
     fn save(&mut self, cx: &mut Context<Self>) {
         if !self.is_valid(cx) {
             self.status = Some(label(cx, "settings.editor.invalid"));
@@ -343,12 +343,12 @@ impl ThemeEditor {
         }
     }
 
-    /// The colour a field currently describes.
+    /// The color a field currently describes.
     ///
-    /// For an automatic slot — an optional one left empty — that is the colour
+    /// For an automatic slot — an optional one left empty — that is the color
     /// the palette derives, so the swatch never goes blank and the user can see
     /// what "automatic" actually resolved to. `None` only for a field that
-    /// holds something which is not a colour at all.
+    /// holds something which is not a color at all.
     fn color_of(&self, index: usize, cx: &App) -> Option<Hsla> {
         let field = self.fields.get(index)?;
         let value = field.input.read(cx).content();
@@ -367,19 +367,19 @@ impl ThemeEditor {
             .flatten()
     }
 
-    /// One labelled colour field: the slot's name, the hex value, the swatch,
+    /// One labeled color field: the slot's name, the hex value, the swatch,
     /// and — for an optional slot — the button that puts it back to automatic.
     ///
     /// The swatch is what turns a hex value back into something a person can
     /// judge, and it doubles as the refusal: a field holding anything but a
-    /// colour has nothing to draw, so the swatch shows an outline instead —
+    /// color has nothing to draw, so the swatch shows an outline instead —
     /// next to the field, which is itself already outlined in the danger
-    /// colour.
+    /// color.
     ///
     /// An automatic slot is told apart from an explicit one by its label, which
     /// gains the word, and by the muted hex printed after it, which spells out
     /// what the derivation produced; the swatch alone could not say which of
-    /// the two a colour came from. That hex is text rather than the field's own
+    /// the two a color came from. That hex is text rather than the field's own
     /// placeholder, because a placeholder rewritten from `render` would notify
     /// the field, which notifies this view, which renders again.
     fn render_field(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -438,7 +438,7 @@ impl ThemeEditor {
 
         div()
             // Named after the slot rather than numbered, so that the element
-            // keeps its identity as two catalogues swap field lists.
+            // keeps its identity as two catalogs swap field lists.
             .id(slot.key)
             .flex()
             .flex_row()
@@ -464,7 +464,7 @@ impl ThemeEditor {
             .children(trailing)
     }
 
-    /// The colour fields, laid out [`FIELD_COLUMNS`] to a row.
+    /// The color fields, laid out [`FIELD_COLUMNS`] to a row.
     fn render_fields(&self, range: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<Div> {
         range
             .collect::<Vec<_>>()
@@ -502,7 +502,7 @@ impl ThemeEditor {
             .child(label(cx, key))
     }
 
-    /// The rows `range` covers, with every heading the catalogue placed inside
+    /// The rows `range` covers, with every heading the catalog placed inside
     /// it drawn before the slot it names.
     fn render_section(
         &self,
@@ -526,7 +526,7 @@ impl ThemeEditor {
     /// The dark/light checkbox, or nothing at all for a format without such a
     /// flag.
     ///
-    /// A catalogue answering `false` to [`ThemeCatalog::has_dark_flag`] gets no
+    /// A catalog answering `false` to [`ThemeCatalog::has_dark_flag`] gets no
     /// checkbox *and* no invented value: `self.dark` stays whatever
     /// [`ThemeCatalog::values_of`] reported when the editor opened, and that is
     /// what [`ThemeCatalog::file_from`] is handed back on save.
@@ -559,9 +559,9 @@ impl ThemeEditor {
         let this = cx.entity();
         let valid = self.is_valid(cx);
 
-        // A refused colour explains itself the moment it is typed rather than
+        // A refused color explains itself the moment it is typed rather than
         // waiting for a Save that is already held back — otherwise the only
-        // sign would be a greyed-out button with no reason attached.
+        // sign would be a grayed-out button with no reason attached.
         let status = self
             .status
             .clone()
@@ -622,16 +622,16 @@ enum Piece<'a> {
     Fields(std::ops::Range<usize>),
 }
 
-/// How `range` breaks up around the headings a catalogue placed inside it.
+/// How `range` breaks up around the headings a catalog placed inside it.
 ///
 /// Pure, and separated from the rendering for exactly that reason: the rules
 /// about which headings count are the part worth stating once and testing.
 ///
 /// A heading never reorders the slots around it. One naming an index outside
 /// `range`, or one behind a heading already emitted, is dropped rather than
-/// allowed to split the list backwards — a catalogue that lists its headings
+/// allowed to split the list backwards — a catalog that lists its headings
 /// out of order loses the ones that are out of order and nothing else. Two on
-/// the same index are both drawn, in the order given. A catalogue that names
+/// the same index are both drawn, in the order given. A catalog that names
 /// none — the default — yields the single range it was handed, which is what
 /// keeps the optional-group layout exactly as it was.
 fn split<'a>(range: std::ops::Range<usize>, headings: &[(usize, &'a str)]) -> Vec<Piece<'a>> {
@@ -764,9 +764,9 @@ impl Render for ThemeEditor {
 
 /// A miniature of the chrome a chrome theme would draw.
 ///
-/// The colours such a theme is actually judged by: a window background with a
+/// The colors such a theme is actually judged by: a window background with a
 /// raised surface on it, primary and muted text, a chip each for the accent and
-/// the two status colours, and — because the five grid slots are invisible
+/// the two status colors, and — because the five grid slots are invisible
 /// anywhere else in a settings dialog — three rows of a result grid, header
 /// included, with a `NULL` cell and a primary-key column in it.
 ///
@@ -905,7 +905,7 @@ mod tests {
         slot("four", "slot.four", false),
     ];
 
-    /// A host's own catalogue, over a format with no dark/light flag and with
+    /// A host's own catalog, over a format with no dark/light flag and with
     /// a heading of its own halfway down the list.
     ///
     /// Every path that writes anything refuses: the editor under test is never
@@ -950,7 +950,7 @@ mod tests {
         }
 
         fn dir(&self) -> anyhow::Result<std::path::PathBuf> {
-            anyhow::bail!("this catalogue has no directory")
+            anyhow::bail!("this catalog has no directory")
         }
 
         fn default_id(&self) -> String {
@@ -962,15 +962,15 @@ mod tests {
         }
 
         fn save(&self, _id: &str, _file: &CatalogFile) -> anyhow::Result<std::path::PathBuf> {
-            anyhow::bail!("this catalogue is never written")
+            anyhow::bail!("this catalog is never written")
         }
 
         fn write(&self, _file: &CatalogFile, _path: &Path) -> anyhow::Result<()> {
-            anyhow::bail!("this catalogue is never written")
+            anyhow::bail!("this catalog is never written")
         }
 
         fn delete(&self, _id: &str) -> anyhow::Result<()> {
-            anyhow::bail!("this catalogue is never written")
+            anyhow::bail!("this catalog is never written")
         }
 
         fn read(&self, _path: &Path) -> std::result::Result<CatalogFile, ImportError> {
@@ -1006,7 +1006,7 @@ mod tests {
         cx.new(|cx| ThemeEditor::new(catalog, "flagless", &file, cx))
     }
 
-    /// The two catalogues that ship here, over a directory nothing writes to.
+    /// The two catalogs that ship here, over a directory nothing writes to.
     fn shipped() -> [Box<dyn ThemeCatalog>; 2] {
         let dirs = || ThemeDirs {
             ui_themes: std::path::PathBuf::from("/nowhere/themes"),
@@ -1019,14 +1019,14 @@ mod tests {
     }
 
     #[test]
-    fn the_colour_fields_leave_room_for_their_own_revert_buttons() {
+    fn the_color_fields_leave_room_for_their_own_revert_buttons() {
         // Every field takes two indices — its own and the button behind it — so
         // the last one has to stay clear of the footer.
         let widest = shipped()
             .iter()
             .map(|catalog| catalog.slots().len())
             .max()
-            .expect("two catalogues");
+            .expect("two catalogs");
         let last = tab::FIRST_COLOR + 2 * widest as isize;
         assert!(last < tab::CANCEL, "{last} runs into the footer");
         const { assert!(tab::NAME < tab::DARK && tab::DARK < tab::FIRST_COLOR) };
@@ -1065,14 +1065,14 @@ mod tests {
             editor.update(cx, |editor, cx| {
                 assert!(
                     editor.dark_checkbox(cx).is_none(),
-                    "a flagless catalogue was given a dark/light checkbox"
+                    "a flagless catalog was given a dark/light checkbox"
                 );
                 // And the flag `values_of` reported is what `file_from` gets
                 // back, rather than a `false` the editor invented.
-                assert!(editor.dark, "the catalogue's own flag was overwritten");
+                assert!(editor.dark, "the catalog's own flag was overwritten");
             });
 
-            // The two catalogues that do carry one are unaffected.
+            // The two catalogs that do carry one are unaffected.
             let ui: Arc<dyn ThemeCatalog> = Arc::new(UiThemeCatalog::new(
                 ThemeDirs {
                     ui_themes: std::path::PathBuf::from("/nowhere/themes"),

@@ -1,12 +1,12 @@
 //! The widget: a million rows, drawn a screenful at a time.
 //!
-//! ## Both axes are virtualised
+//! ## Both axes are virtualized
 //!
 //! Rows go through gpui's [`uniform_list`], which lays out only what the
 //! viewport can reach — the same machinery the tree uses, and the reason a
 //! result of any length costs the same to draw.
 //!
-//! Columns are virtualised here, by hand, because there is no `uniform_list`
+//! Columns are virtualized here, by hand, because there is no `uniform_list`
 //! for them and tables with several hundred columns are real. Every column's
 //! left edge is kept in a list the grid rebuilds when a width changes, so the run
 //! the content area can see is two binary searches; the rest are neither shaped
@@ -346,7 +346,7 @@ const ROW_TINT: f32 = 0.10;
 /// How tall the inline editor is.
 ///
 /// [`TextInput`] renders at a fixed height, which is taller than a row; the
-/// field is centred on the cell rather than squeezed into it, so it reads as
+/// field is centered on the cell rather than squeezed into it, so it reads as
 /// something laid *over* the grid — which is what it is.
 const EDITOR_HEIGHT: f32 = 32.;
 
@@ -549,7 +549,7 @@ pub enum GridEvent {
     ///
     /// The grid has already taken the focus and moved the selection if it had
     /// to; what is left — deciding which items exist, what they are called,
-    /// which are greyed out and what they do — is the host's, because this
+    /// which are grayed out and what they do — is the host's, because this
     /// layer holds no strings (design notes, §7.8). Everything such a
     /// menu needs is on [`GridView`] already: [`GridView::copy`],
     /// [`GridView::select_all`], [`GridView::clear_selection`],
@@ -896,7 +896,7 @@ impl<S: GridSource> GridView<S> {
     /// Labels the button a one-line field carries when the source offers a
     /// larger editor ([`GridSource::cell_expandable`]).
     ///
-    /// The grid holds no strings, so the host hands the localised one over;
+    /// The grid holds no strings, so the host hands the localized one over;
     /// without it the button simply shows no tooltip.
     pub fn expand_tooltip(mut self, label: impl Into<SharedString>) -> Self {
         self.expand_tooltip = Some(label.into());

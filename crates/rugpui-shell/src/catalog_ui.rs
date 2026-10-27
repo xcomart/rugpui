@@ -42,7 +42,7 @@ use crate::inject::{label, text};
 
 /// What a management row can be asked to do.
 ///
-/// Shared by every catalogue; which of them a given selection permits is
+/// Shared by every catalog; which of them a given selection permits is
 /// [`Action::enabled`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
@@ -55,7 +55,7 @@ enum Action {
     Edit,
     /// Remove the selected custom entry's file, once confirmed.
     Delete,
-    /// Read files the user picks into the catalogue's own directory.
+    /// Read files the user picks into the catalog's own directory.
     Import,
     /// Write the selected entry out to a file the user picks.
     Export,
@@ -136,11 +136,11 @@ pub enum CatalogActionEvent {
 
 /// State of one picker's management row.
 ///
-/// One per catalogue, since two rows ask and report independently: a delete
+/// One per catalog, since two rows ask and report independently: a delete
 /// waiting to be confirmed under the chrome themes must not disappear because
 /// something went wrong under the editor themes.
 pub struct CatalogActions {
-    /// The catalogue this row manages.
+    /// The catalog this row manages.
     catalog: Arc<dyn ThemeCatalog>,
     /// The id currently picked, as the host's form holds it.
     selection: String,
@@ -167,7 +167,7 @@ impl CatalogActions {
         }
     }
 
-    /// The catalogue this row manages.
+    /// The catalog this row manages.
     pub fn catalog(&self) -> &Arc<dyn ThemeCatalog> {
         &self.catalog
     }
@@ -191,7 +191,7 @@ impl CatalogActions {
     ///
     /// Call it whenever the form's own value changes, including when the form
     /// is first filled in: everything the row offers is about the selection,
-    /// and a row that had not been told would grey the wrong buttons out.
+    /// and a row that had not been told would gray the wrong buttons out.
     pub fn set_selection(&mut self, id: impl Into<String>, cx: &mut Context<Self>) {
         let id = id.into();
         if self.selection == id {
@@ -371,7 +371,7 @@ impl CatalogActions {
         .detach();
     }
 
-    /// Copies `paths` into the catalogue's directory, one file at a time.
+    /// Copies `paths` into the catalog's directory, one file at a time.
     ///
     /// A file that is not a palette file of this kind is counted and skipped
     /// rather than failing the batch: a user who picks a folder full of
@@ -614,7 +614,7 @@ impl Render for CatalogActions {
 
 /// Where the export save dialog should open.
 ///
-/// The catalogue's own directory, since that is where a file the user then
+/// The catalog's own directory, since that is where a file the user then
 /// wants the application to *load* has to end up — but only once it exists: a
 /// save dialog pointed at a directory that has never been created opens
 /// somewhere arbitrary on some platforms, so a user who has added no palette of
@@ -684,7 +684,7 @@ mod tests {
     /// The row's own "cancel" button already exercises `cancel_confirm`
     /// through the click handler; this is the path the host itself takes.
     #[gpui::test]
-    fn a_confirmation_can_be_asked_about_and_cancelled_from_outside_the_row(
+    fn a_confirmation_can_be_asked_about_and_canceled_from_outside_the_row(
         cx: &mut gpui::TestAppContext,
     ) {
         let catalog: Arc<dyn ThemeCatalog> = Arc::new(crate::catalog::UiThemeCatalog::new(
@@ -704,8 +704,8 @@ mod tests {
                 assert!(row.is_confirming(), "delete asks before it acts");
 
                 row.cancel_confirm(cx);
-                assert!(!row.is_confirming(), "cancelled, not merely ignored");
-                // Cancelling again is a no-op rather than a panic — the host
+                assert!(!row.is_confirming(), "canceled, not merely ignored");
+                // Canceling again is a no-op rather than a panic — the host
                 // does not have to track whether it already asked.
                 row.cancel_confirm(cx);
                 assert!(!row.is_confirming());

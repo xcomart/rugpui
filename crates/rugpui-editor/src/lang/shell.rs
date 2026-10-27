@@ -1,6 +1,6 @@
 //! Shell: `sh`, `bash`, `zsh`, and the rc files they read.
 //!
-//! The two things that make a script hard to read without colour are quoting
+//! The two things that make a script hard to read without color are quoting
 //! and expansion, so those are what this is careful about: a `'` and a `"`
 //! behave differently, an unterminated one runs on to the next line, and
 //! `${...}` is not the same as the text around it. Everything else is a word
@@ -19,16 +19,16 @@
 //! index it was given, so the same `<<EOF` on two lines is the same state and
 //! the syntax cache stops re-lexing where it should. A document with more than
 //! a thousand *distinct* heredoc tags stops tracking the ones past that: they
-//! are lexed as ordinary shell, which is wrong in colour and in nothing else.
+//! are lexed as ordinary shell, which is wrong in color and in nothing else.
 //! That is the same answer a tag longer than `TAG_LIMIT` gets, and for the
-//! same reason — better one un-coloured body than a state that cannot be
+//! same reason — better one un-colored body than a state that cannot be
 //! represented.
 //!
 //! # What is given up
 //!
 //! * A `$VAR` inside a double-quoted string stays part of the string. Splitting
 //!   the run would be easy and would make every quoted path in the file flicker
-//!   between two colours; a string that reads as one thing is worth more.
+//!   between two colors; a string that reads as one thing is worth more.
 //! * Only the first heredoc on a line is tracked. `cmd <<A <<B` is legal and
 //!   nobody writes it.
 //! * A backslash at the end of a line joins it to the next one, which this does
@@ -68,7 +68,7 @@ const INDEX_SHIFT: u32 = 3;
 
 /// The words that give a script its shape, and the builtins that do the work.
 ///
-/// One table rather than two because they land in the same colour: the
+/// One table rather than two because they land in the same color: the
 /// distinction between `if` and `export` is real to a shell and invisible to
 /// someone scanning a file for what it does. Sorted, so the lookup is a binary
 /// search; a test holds the order.
@@ -294,7 +294,7 @@ impl ShellHighlighter {
 
     /// The tag of a heredoc introduced at `at`, which is just past the `<<`.
     ///
-    /// Answers the span to colour — the tag with its quotes, if it has any —
+    /// Answers the span to color — the tag with its quotes, if it has any —
     /// and the state to carry. `None` when what follows is not a tag, which is
     /// what `x << 2` looks like, and when the tag cannot be interned.
     fn heredoc_tag(&self, line: &str, at: usize) -> Option<(usize, usize, LineState)> {
@@ -307,7 +307,7 @@ impl ShellHighlighter {
         let start = skip_spaces(bytes, at);
         let (end, tag) = match bytes.get(start) {
             // `<<'EOF'` and `<<"EOF"` turn expansion off inside the body, which
-            // this does not colour differently; the quotes are part of the span
+            // this does not color differently; the quotes are part of the span
             // either way.
             Some(quote @ (b'\'' | b'"')) => {
                 let end = quote_body(line, start + 1, *quote, false)?;
@@ -334,9 +334,9 @@ fn expansion(line: &str, at: usize) -> usize {
     match byte {
         b'{' => {
             // To the closing brace, or to the end of the line: a `${` that never
-            // closes is a broken script, and colouring the rest of the line as
+            // closes is a broken script, and coloring the rest of the line as
             // the expansion it was meant to be says so more usefully than
-            // colouring nothing.
+            // coloring nothing.
             let mut end = at + 2;
             while end < bytes.len() && bytes[end] != b'}' {
                 end += char_step(line, end);
@@ -385,7 +385,7 @@ mod tests {
 
         // A heredoc for every slot the index field holds, each a distinct tag.
         // The last one interned still fits the budget, and the one after it is
-        // not tracked at all rather than overflowing into the neighbouring
+        // not tracked at all rather than overflowing into the neighboring
         // half of the state.
         let mut states = Vec::new();
         for slot in 0..TAG_SLOTS {
@@ -544,8 +544,8 @@ mod tests {
 
     #[test]
     fn a_tag_too_long_to_carry_is_not_tracked() {
-        // Documented behaviour rather than a silent truncation: the body is
-        // lexed as shell, which is wrong in colour and in nothing else.
+        // Documented behavior rather than a silent truncation: the body is
+        // lexed as shell, which is wrong in color and in nothing else.
         let shell = ShellHighlighter::new();
         assert!(
             lex(

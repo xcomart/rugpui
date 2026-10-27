@@ -87,11 +87,11 @@ title.*
 | `arrow_icons` | `closed: impl Into<SharedString>`, `open: impl Into<SharedString>` | `rugpui::CARET_RIGHT` / `CARET_DOWN` | Host svg paths for the disclosure, painted in `theme.icon` at 14 px. |
 | `tab_index` | `isize` | `0` | Places the header in the window's tab order. A disabled section takes no stop. |
 | `indent` | `bool` | `true` | Pads the body left by the arrow box, so its content lines up with the title. |
-| `disabled` | `bool` | `false` | Greys the header and stops it answering presses. The body still draws if `open` says so. |
+| `disabled` | `bool` | `false` | Grays the header and stops it answering presses. The body still draws if `open` says so. |
 
 `.child(..)` / `.children(..)` come from `gpui::ParentElement` and fill the body.
 
-![The same section with a greyed header](../screenshots/collapsible/disabled.png)
+![The same section with a grayed header](../screenshots/collapsible/disabled.png)
 
 *`disabled(true)`: the title and the arrow drop to `text_muted` and the header
 stops answering presses.*
@@ -117,7 +117,7 @@ write the value back leaves a header that answers presses and never folds.
 ## Closed means *not rendered*
 
 A closed section drops its children rather than hiding them, and that is the
-whole point rather than an optimisation. gpui keeps a focus handle alive for as
+whole point rather than an optimization. gpui keeps a focus handle alive for as
 long as something in the tree tracks it, so a fold-away block full of text
 fields that merely *hid* would go on holding the caret, go on taking the tab
 ring's stops, and go on answering keys typed at a section the user can no longer
@@ -221,7 +221,7 @@ a frame puts one around it.
   with the same element id collide as soon as both are open, even though neither
   collided while one was folded.
 - **The trailing element is not disabled with the section.** `disabled(true)`
-  greys the header alone.
+  grays the header alone.
 - **`indent(false)` for a body that draws its own frame.** The default pads the
   body left by the arrow box so its content lines up with the title; a panel or
   a table inside would read as a second step in.

@@ -107,7 +107,7 @@ pub struct SelectOption {
     pub leading: Option<SharedString>,
     /// Asset path of the icon drawn after the label, at the row's right edge.
     pub trailing: Option<SharedString>,
-    /// Colour of the square drawn before the label — and before the leading
+    /// Color of the square drawn before the label — and before the leading
     /// icon, when there is one too.
     pub swatch: Option<Hsla>,
 }
@@ -137,7 +137,7 @@ impl SelectOption {
     }
 
     /// Draws a square of `color` before the label, for a list whose options
-    /// are colours. Nothing is reserved on a row without one, as with the
+    /// are colors. Nothing is reserved on a row without one, as with the
     /// icons.
     pub fn swatch(mut self, color: Hsla) -> Self {
         self.swatch = Some(color);
@@ -493,7 +493,7 @@ impl RenderOnce for Select {
                     .size(px(CHEVRON_SIZE))
                     .flex_none()
                     .path(chevron_icon.clone().unwrap_or_else(|| CARET_DOWN.into()))
-                    // An SVG takes its colour from its own `text_color`, which
+                    // An SVG takes its color from its own `text_color`, which
                     // — unlike text's — does not inherit from the box around
                     // it, so the muted tint has to be handed to it directly.
                     .text_color(theme.text_muted),
@@ -542,9 +542,9 @@ impl RenderOnce for Select {
                 } = option;
                 let value = label.clone();
 
-                // An svg takes no colour from the box around it, so the row's own
+                // An svg takes no color from the box around it, so the row's own
                 // tint has to be handed to each icon: the marks then go accent with
-                // the label when this is the current row, instead of staying grey
+                // the label when this is the current row, instead of staying gray
                 // beside highlighted text.
                 let icon_color = if is_current { theme.accent } else { theme.icon };
 

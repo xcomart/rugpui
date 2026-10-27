@@ -5,7 +5,7 @@
 //! sessions — and only about colors ([`theme`], [`editor_theme`]), text entry
 //! ([`text_input`]), buttons ([`button`]), checkboxes ([`checkbox`]) and
 //! switches ([`switch`]), one-of-many strips ([`segmented`]), sliders
-//! ([`slider`]) and two-knob range sliders ([`range_slider`]), colour pickers
+//! ([`slider`]) and two-knob range sliders ([`range_slider`]), color pickers
 //! ([`color_picker`]), progress bars
 //! ([`progress`]) and busy spinners ([`spinner`]),
 //! tabs ([`tab_bar`]), fold-away sections ([`collapsible`]), dropdown menus

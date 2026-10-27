@@ -3,7 +3,7 @@
 //! the one next to it.
 //!
 //! Both have an obvious implementation that is wrong at this size — cut the
-//! whole buffer into one `&str` and scan it — and materialising a large rope
+//! whole buffer into one `&str` and scan it — and materializing a large rope
 //! into one on every caret move is exactly the cost the rope was chosen to
 //! avoid. So both work over a **window** of the buffer, and the window is grown
 //! only as far as the answer needs.
@@ -17,7 +17,7 @@
 //! only when the highlighter did **not** call it part of a string, a comment,
 //! or a quoted identifier. That is where all the value was — a `;` inside
 //! `'a;b'` or `"a;b"` is not a terminator — and it comes for free from the
-//! colours the editor is drawing anyway. A fragment holding nothing but
+//! colors the editor is drawing anyway. A fragment holding nothing but
 //! comments and blanks is not a statement and is skipped; a last statement
 //! with no closing semicolon is a statement.
 //!

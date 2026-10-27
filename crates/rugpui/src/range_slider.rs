@@ -21,7 +21,7 @@
 //!
 //! ## What the second knob adds
 //!
-//! * Neither knob may pass the other. A knob dragged into its neighbour stops
+//! * Neither knob may pass the other. A knob dragged into its neighbor stops
 //!   there, and the two are allowed to meet: `low == high` is a legal, if
 //!   empty, interval.
 //! * A press on the bare track moves whichever knob is *nearer* to it, since
@@ -70,7 +70,7 @@ pub enum Knob {
 
 /// The interval that results from putting `knob` at `at`.
 ///
-/// The moving knob stops at its neighbour rather than passing it, which is the
+/// The moving knob stops at its neighbor rather than passing it, which is the
 /// one rule that makes a pair of knobs a range: an interval whose ends have
 /// crossed is not an interval. They are allowed to *meet*, because an empty
 /// selection is a thing a user may well mean.
@@ -105,7 +105,7 @@ fn nearer(low: f32, high: f32, at: f32) -> Knob {
 /// The parent view passes both ends on every render and updates its own state
 /// from [`RangeSlider::on_change`], which receives the pair the control is
 /// moving to. Values outside the range are clamped and a `low` above its `high`
-/// is pinned down to it, so a host is never made to sanitise a pair before it
+/// is pinned down to it, so a host is never made to sanitize a pair before it
 /// can draw.
 ///
 /// `id` has to be unique among every range slider and [`crate::Slider`] that can
@@ -193,7 +193,7 @@ impl RangeSlider {
     /// `Left` and `Down` step it towards the start, `Right` and `Up` towards the
     /// end, and `Home` and `End` send it the whole way — as far as the other
     /// knob, which is where "the whole way" ends for a knob that may not pass
-    /// its neighbour.
+    /// its neighbor.
     pub fn tab_index(mut self, index: isize) -> Self {
         self.tab_index = Some(index);
         self
@@ -219,7 +219,7 @@ impl RangeSlider {
     /// listens for its own drags and reports them through
     /// [`RangeSlider::on_change`]. Doing both is harmless — the value here is
     /// the one the callback would be given for that knob, stopped at its
-    /// neighbour and all.
+    /// neighbor and all.
     pub fn dragged(&self, event: &DragMoveEvent<DraggedKnob>, cx: &App) -> Option<(Knob, f32)> {
         let high = fraction(self.high);
         let low = fraction(self.low).min(high);
@@ -250,7 +250,7 @@ impl RenderOnce for RangeSlider {
     /// value. See [`crate::slider`] for the whole of that arrangement.
     ///
     /// What differs is the filled part. A plain slider fills from the start of
-    /// the track to the knob; this one fills between the two knob centres, which
+    /// the track to the knob; this one fills between the two knob centers, which
     /// is why it needs no reach back over the rail's leading edge — both of its
     /// ends are values, and both are placed as percentages of the rail.
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
@@ -296,7 +296,7 @@ impl RenderOnce for RangeSlider {
             .border_color(border)
             .bg(theme.surface);
 
-        // Between the two knob centres, which are both fractions of the rail.
+        // Between the two knob centers, which are both fractions of the rail.
         let filled = div()
             .absolute()
             .left(relative(low))
@@ -400,7 +400,7 @@ impl RenderOnce for RangeSlider {
                 })
                 .child(knob);
 
-            // Zero width, so the ring hung off it can be centred on the fraction
+            // Zero width, so the ring hung off it can be centered on the fraction
             // with a plain offset rather than by mixing a percentage and a pixel
             // count in one length.
             div()
@@ -440,7 +440,7 @@ impl RenderOnce for RangeSlider {
                     return;
                 };
                 // Half a knob, because a press on the track asks for a knob's
-                // centre to come to the pointer rather than its leading edge.
+                // center to come to the pointer rather than its leading edge.
                 if let Some(at) = value_at(track.get(), event.position.x, px(HALF_KNOB)) {
                     let next = placed(low, high, nearer(low, high, at), at);
                     if next != (low, high) {
@@ -595,7 +595,7 @@ mod tests {
         (showing, changes, cx)
     }
 
-    /// The column a knob showing `value` has its centre at.
+    /// The column a knob showing `value` has its center at.
     fn column(value: f32) -> f32 {
         INSET + HALF_KNOB + value * TRAVEL
     }
@@ -620,7 +620,7 @@ mod tests {
         cx.run_until_parked();
     }
 
-    /// Takes hold of the knob whose centre is at `value` and returns where the
+    /// Takes hold of the knob whose center is at `value` and returns where the
     /// pointer ended up, along with how far into the knob it is holding.
     ///
     /// gpui reads the grab off the pointer at the moment it decides a drag has
@@ -684,7 +684,7 @@ mod tests {
         assert!(close(low, 0.45), "{low}");
         assert!(close(high, 0.6), "{high}");
 
-        // Dragged well past its neighbour, it stops on it.
+        // Dragged well past its neighbor, it stops on it.
         let (held, grabbed) = grab(&mut cx, 0.45, 3.);
         drop_at(&mut cx, held, grabbed, 0.95);
         let (low, high) = range.get();
@@ -722,12 +722,12 @@ mod tests {
         assert!(close(range.get().0, 0.3), "{}", range.get().0);
 
         // `End` for the low knob is as far as the high one, and a knob already
-        // pressed up against its neighbour has nothing to report.
+        // pressed up against its neighbor has nothing to report.
         cx.simulate_keystrokes("end");
         assert!(close(range.get().0, 0.6), "{}", range.get().0);
         let asked = changes.get();
         cx.simulate_keystrokes("up");
-        assert_eq!(changes.get(), asked, "a knob at its neighbour moved anyway");
+        assert_eq!(changes.get(), asked, "a knob at its neighbor moved anyway");
 
         // The second tab stop is the other knob.
         cx.update(|window, cx| window.focus_next(cx));
@@ -758,10 +758,10 @@ mod tests {
         assert!(close(high, 0.9), "{high}");
     }
 
-    /// A knob stops at its neighbour and the two may meet, whichever end is
+    /// A knob stops at its neighbor and the two may meet, whichever end is
     /// moving.
     #[test]
-    fn a_knob_stops_at_its_neighbour() {
+    fn a_knob_stops_at_its_neighbor() {
         assert_eq!(placed(0.2, 0.8, Knob::Low, 0.5), (0.5, 0.8));
         assert_eq!(placed(0.2, 0.8, Knob::Low, 0.9), (0.8, 0.8));
         assert_eq!(placed(0.2, 0.8, Knob::High, 0.5), (0.2, 0.5));

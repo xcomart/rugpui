@@ -200,7 +200,7 @@ fn a_custom_editor_cancels_through_its_context(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
-    assert_eq!(grid.drain(), vec![], "a cancelled editor staged something");
+    assert_eq!(grid.drain(), vec![], "a canceled editor staged something");
 }
 
 /// A source that never opted in cannot be typed into, however the host

@@ -23,7 +23,7 @@ unicode-segmentation.workspace = true
 [dev-dependencies]
 # The theme store walks real directories rather than mocking the filesystem out.
 tempfile.workspace = true
-# gpui's headless test platform, for the widget behaviour that only exists once
+# gpui's headless test platform, for the widget behavior that only exists once
 # an element tree is laid out and hit-tested -- hover-revealed controls, and
 # which of two stacked hitboxes answers a press. Test-only: the library links
 # gpui without it.

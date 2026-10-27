@@ -26,7 +26,7 @@
 //! * A quoted scalar that spans lines is not carried over. Multi-line flow
 //!   scalars are rare, and carrying them would mean guessing at the folding
 //!   rules to know where they end.
-//! * `- ` and `:` are structure, not tokens: colouring them is what makes a
+//! * `- ` and `:` are structure, not tokens: coloring them is what makes a
 //!   YAML file look like a punctuation exercise.
 
 use crate::highlight::{Highlighter, LineState, Span, Token};
@@ -45,7 +45,7 @@ const INDENT_LIMIT: usize = (1 << 12) - 1;
 ///
 /// The YAML 1.1 set, which is what most readers still implement: `yes`, `no`,
 /// `on` and `off` are booleans there, and a file that relies on it reads
-/// better when they are coloured as the booleans they will become.
+/// better when they are colored as the booleans they will become.
 const LITERALS: &[&str] = &[
     "FALSE", "False", "NO", "NULL", "Null", "OFF", "ON", "TRUE", "True", "YES", "false", "no",
     "null", "off", "on", "true", "yes",
@@ -142,7 +142,7 @@ fn lex_line(line: &str, state: LineState) -> (Vec<Span>, LineState) {
         let byte = bytes[at];
         match byte {
             // YAML wants whitespace before an inline `#`, which is what stops a
-            // URL's fragment from turning the rest of the line grey.
+            // URL's fragment from turning the rest of the line gray.
             b'#' if at == 0 || matches!(bytes.get(at - 1), Some(b' ' | b'\t')) => {
                 spans.push(Token::Comment, at, len);
                 at = len;
@@ -160,7 +160,7 @@ fn lex_line(line: &str, state: LineState) -> (Vec<Span>, LineState) {
                 }
             },
             // An anchor, an alias, or a tag: all three name something elsewhere
-            // in the document, which is what the variable colour is for.
+            // in the document, which is what the variable color is for.
             b'&' | b'*' | b'!' if word_boundary(bytes, at) => {
                 let end = word_end(bytes, at + 1);
                 if end > at + 1 {
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn booleans_and_nulls_share_the_number_colour() {
+    fn booleans_and_nulls_share_the_number_color() {
         assert!(has("enabled: true", Token::Number));
         assert!(has("x: null", Token::Number));
         assert!(has("x: yes", Token::Number));

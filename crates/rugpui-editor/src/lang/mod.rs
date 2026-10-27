@@ -39,7 +39,7 @@
 //!
 //! Every one of them is a hand-written state machine over bytes, and none of
 //! them builds a tree. What an editor needs is what a good `cat` would give
-//! you: a comment is grey, a string is green, the left-hand side of a mapping
+//! you: a comment is gray, a string is green, the left-hand side of a mapping
 //! stands out from the right. A `.yml` that is invalid YAML still has to be
 //! readable *while it is being fixed*, which is the argument against a real
 //! parser as much as the size of one is. The rule each is held to is that it

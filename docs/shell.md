@@ -8,7 +8,7 @@ when you are writing a gpui desktop application rather than embedding a widget
 in someone else's.
 
 The root [README](../README.md#the-shell) walks through the wiring — the three
-injected things and the two catalogues. In short:
+injected things and the two catalogs. In short:
 
 * **[`AppIdentity`](../crates/rugpui-shell/src/inject.rs)** — the constants an
   updater and an about box need, all `&'static str` because the shell only ever
@@ -104,7 +104,7 @@ inside a render pass, would take the window down over a missing line of text. A
 | `update.update` `update.ignore` `update.open_release` | The three buttons | |
 | `settings.editor.name` | Theme editor's name field | |
 | `settings.editor.dark` | Theme editor's dark/light checkbox | |
-| `settings.editor.invalid` | Refusal of a malformed colour | |
+| `settings.editor.invalid` | Refusal of a malformed color | |
 | `settings.editor.automatic` | The "back to automatic" button | |
 | `settings.editor.automatic_slot` | Its accessible name | `name` |
 | `settings.editor.grid_group` | Heading over the optional slots | |
@@ -114,16 +114,16 @@ inside a render pass, would take the window down over a missing line of text. A
 | `settings.editor.code.*` | The editor slot labels: `foreground`, `cursor`, `selection`, `line_highlight`, `gutter`, `gutter_active`, `keyword`, `string`, `number`, `comment`, `function`, `type`, `operator`, `identifier`, `key`, `variable`, `punctuation`, `bracket_match`, `error`, `warning` (its `background` shares `settings.editor.slot.background`) | |
 | `settings.manage.duplicate` `edit` `delete` `import` `export` | The five management buttons | |
 | `settings.manage.copy_name` | Name a duplicate is given | `name` |
-| `settings.manage.delete_theme_confirm` | Delete question, chrome catalogue | `name` |
-| `settings.manage.delete_editor_theme_confirm` | Delete question, editor catalogue | `name` |
+| `settings.manage.delete_theme_confirm` | Delete question, chrome catalog | `name` |
+| `settings.manage.delete_editor_theme_confirm` | Delete question, editor catalog | `name` |
 | `settings.manage.delete_failed` | | `error` |
 | `settings.manage.write_failed` | Save, export and import failures | `error` |
 | `settings.manage.import_select` | The file picker's prompt | |
 | `settings.manage.import_skipped` | "n files were not palettes" | `count` |
 | `settings.manage.import_unreadable` | `ImportError::Unreadable` | `file`, `error` |
 | `settings.manage.import_bad_color` | `ImportError::BadColor` | `file`, `slot` |
-| `settings.manage.import_not_a_theme` | `ImportError::WrongKind`, chrome catalogue | `file` |
-| `settings.manage.import_not_an_editor_theme` | `ImportError::WrongKind`, editor catalogue | `file` |
+| `settings.manage.import_not_a_theme` | `ImportError::WrongKind`, chrome catalog | `file` |
+| `settings.manage.import_not_an_editor_theme` | `ImportError::WrongKind`, editor catalog | `file` |
 
 `locale::check_locale_dir` (below) is what keeps a translation from silently
 losing one of these.
@@ -135,10 +135,10 @@ A window opens one of two ways, and
 which: `Custom` (the default — your toolbar *is* the title bar) or `System`. It
 is read once, at window creation, because that is when the platforms decide
 whether the window has a caption at all; an interface offering it as a setting
-is expected to say that a change shows after a restart. It serialises in
+is expected to say that a change shows after a restart. It serializes in
 `snake_case`, which is the spelling the settings files already carry.
 
-Taking the caption away also takes the drag, the double-click to maximise, the
+Taking the caption away also takes the drag, the double-click to maximize, the
 window menu, the resize borders and the drop shadow. Each has to be put back by
 hand, and differently on every platform — which is what the rest of `chrome.rs`
 is.
@@ -148,7 +148,7 @@ is.
 | `draws_own_titlebar(style, window)` | `bool` | On Windows and macOS the style settles it. On Linux the *window's* actual decorations do: the ask for client-side decorations can be declined, and deciding from the style alone would draw a second caption under the compositor's. |
 | `titlebar_gestures(row)` | `Stateful<Div>` | Windows needs nothing — the row reports itself as `WindowControlArea::Drag` and the window procedure does the rest. macOS gets the double-click, routed through `Window::titlebar_double_click` so it follows System Settings. Linux gets all of it: `start_window_move` on press (the compositor takes the pointer, so a release would never arrive), `zoom_window` on double-click, `show_window_menu` on right-click. |
 | `client_tiling(window)` | `Option<gpui::Tiling>` | Always `None` off Linux. `Some` exactly when the compositor granted client-side decorations, with the edges that currently touch something marked tiled. |
-| `render_client_frame(content, tiling, border, active)` | `Div` | Frames a Linux client-decorated window's content: rounded corners clipped without a background-coloured rim, a one-pixel `border` outline, and a drop shadow outside the frame, stronger while `active`. Tiled edges get no rounding or border. Windows and macOS keep their native frames. Lives at `chrome::render_client_frame`. |
+| `render_client_frame(content, tiling, border, active)` | `Div` | Frames a Linux client-decorated window's content: rounded corners clipped without a background-colored rim, a one-pixel `border` outline, and a drop shadow outside the frame, stronger while `active`. Tiled edges get no rounding or border. Windows and macOS keep their native frames. Lives at `chrome::render_client_frame`. |
 | `opening_client_inset(style)` | `Option<Pixels>` | For `WindowOptions::client_inset`: `SHADOW_BAND` under `Custom`, `None` under `System`. X11 then creates the window with the band around the bounds asked for and sets `_GTK_FRAME_EXTENTS` before mapping it, so every window manager takes those bounds as the visible window. Without it, extents arriving with the first frame grow the window under Mutter and shrink it under xfwm4. |
 | `apply_client_inset(window, tiling)` | — | Call on every render with what `client_tiling` answered. Under a client-side frame it sets `client_inset` to `SHADOW_BAND` (so `_GTK_FRAME_EXTENTS` names the visible edge) and narrows the input region to the frame plus `RESIZE_GRIP`, so a click in the rest of the shadow reaches the window underneath; otherwise it clears both. The platforms only send a value that changed. |
 | `render_resize_edges(tiling)` | `Vec<AnyElement>` | Four `RESIZE_GRIP` (10 px) strips along the inner edge of the `SHADOW_BAND` and four `RESIZE_CORNER` squares, each starting `window.start_window_resize(edge)`; a tiled edge gets none. The band outside the grip takes no pointer once `apply_client_inset` has run. |
@@ -215,8 +215,8 @@ Install it with `Application::with_assets`; without it gpui's default source
 answers every path with `None` and the icons paint as nothing at all. `icon(path,
 size, color)` builds one sized and tinted `Svg` — still an `Svg`, so a hover
 state can go on styling it. gpui paints an SVG as a *monochrome* sprite: the
-colours in the file never reach the screen, only its coverage does, and the tint
-is not inherited, so a hover that recolours a button has to reach the icon
+colors in the file never reach the screen, only its coverage does, and the tint
+is not inherited, so a hover that recolors a button has to reach the icon
 through `group_hover`.
 
 ### Switching a live window
@@ -239,7 +239,7 @@ no-op on Linux, where the caption is the desktop's. On Windows it pins
 `theme.text`, plus `DWMWA_USE_IMMERSIVE_DARK_MODE` from
 `theme.dark`; without that, `background_blur` puts the caption inside an acrylic
 accent policy and DWM paints near-white glyphs on a near-white surface. On macOS
-none of your colours are wanted — AppKit draws the caption correctly for
+none of your colors are wanted — AppKit draws the caption correctly for
 whichever `NSAppearance` is in force, and the wrong one is in force only because
 it was inherited from the system, so the whole fix is
 `cx.set_window_appearance(Some(Dark | Light))`. Call it whenever the theme
@@ -276,7 +276,7 @@ reads as "gone" rather than as some other pane that took the slot.
 | `merge_subtree(target, axis, subtree)` | `bool` | Puts a whole tree in the new half, ids and layout intact — how an open tab becomes a pane of another tab. |
 | `remove(target)` | `Option<T>` | Removes and *returns* the payload, so it doubles as "detach". Refuses the last pane: a tab with no panes has nothing to render, so the caller closes the tab instead. |
 | `set_ratio(id, ratio)` | `bool` | Moves a divider, clamped to `0..=1`; a NaN ratio is refused and answers `false`. How much of a pane must stay visible is the view's question, so the view clamps to its own minimum first. |
-| `equalize(axis)` / `splits_along(axis)` | `bool` / `usize` | Evens out the panes along `axis` — only the dividers along it move — and answers whether any did; `splits_along` is what greys out an "even out" command with nothing to move. |
+| `equalize(axis)` / `splits_along(axis)` | `bool` / `usize` | Evens out the panes along `axis` — only the dividers along it move — and answers whether any did; `splits_along` is what grays out an "even out" command with nothing to move. |
 | `get(id)` / `get_mut(id)` / `contains(id)` | | Payload lookups. |
 | `leaves()` / `leaf_ids()` / `leaf_count()` | | Layout order: first child before second, depth first. |
 | `first_leaf()` | `(PaneId, &T)` | The top-left pane; always present, so a caller holding a stale id has somewhere to fall back to. |
@@ -293,7 +293,7 @@ needs a way to tell "this is the divider being dragged" from "this is an
 ancestor watching the same gesture". Positions cannot answer that, since the
 tree is rewritten whenever a pane opens or closes.
 
-Nothing here is serialised, and dragging a divider belongs to the view — which
+Nothing here is serialized, and dragging a divider belongs to the view — which
 is what owns the pixels a ratio is computed from. The host walks `root()` and
 renders one nested flex box per node, sizing the two children by `ratio` along
 `axis`. [`rugpui::Splitter`](./widgets/splitter.md) is the natural renderer for a
@@ -335,7 +335,7 @@ side by side each scroll their own strip.
 
 A `rugpui::MenuEntry` is all but write-only: it carries a boxed callback, and
 nothing beyond its label and whether it is a rule can be read back out of one —
-not whether it is greyed or ticked, and its callback cannot be run. What a menu offers on a given
+not whether it is grayed or ticked, and its callback cannot be run. What a menu offers on a given
 table row, tab or document is exactly the decision worth testing, and a test
 that had to click at a computed pixel to find out would be testing the menu's
 line height.
@@ -346,7 +346,7 @@ own rows on the way to being drawn. The description is what the tests read, and
 it is the same list the user sees, not a second account of it.
 
 ```rust
-use rugpui_shell::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
+use rugpui_shell::{MenuRow, SHORTCUT_MODIFIER, entries, grayed, labels, row};
 
 fn menu(&self) -> Vec<MenuRow> {
     vec![
@@ -362,11 +362,11 @@ fn menu(&self) -> Vec<MenuRow> {
 
 Builders: `new`, `separator`, `shortcut`, `enabled`, `checked`, `on_activate`.
 Readers: `label`, `is_enabled`, `is_checked`, `is_separator`, and `activate`,
-which runs the row as clicking it would and panics on a greyed one — a test that
-activated a greyed row would be asserting about a path the interface does not
+which runs the row as clicking it would and panics on a grayed one — a test that
+activated a grayed row would be asserting about a path the interface does not
 have. The three free functions are the assertion vocabulary: `labels(&rows)`
 (separators come out as empty strings, so the *groups* are part of what is
-pinned down), `greyed(&rows)` (never a separator: a rule is not a command that
+pinned down), `grayed(&rows)` (never a separator: a rule is not a command that
 happens to be unavailable), and `row(&rows, "Copy")`, which finds by label rather
 than index so inserting a row above the one a test is about does not silently
 point it at a different command.
@@ -387,7 +387,7 @@ The same list a test reads through `labels(&rows)`.*
 
 [`AboutDialog`](../crates/rugpui-shell/src/about.rs) is a read-only card: the
 wordmark, the compiled-in version, one line of prose, a button to the
-repository, and the licence and credits. Everything that differs per application
+repository, and the license and credits. Everything that differs per application
 comes out of `AppIdentity`, so it needs nothing of you but the `about.*` keys.
 
 ```rust
@@ -534,7 +534,7 @@ Some things worth knowing about the fields:
   successful update writes one value, `DisplayVersion`, into that key, because
   winget reads it to decide which version is present. It never *creates* the
   key — a copy unpacked from the portable zip is not an installed program — and
-  it writes only to an entry whose `InstallLocation` canonicalises to the
+  it writes only to an entry whose `InstallLocation` canonicalizes to the
   directory this executable is actually running from.
 
 The staging directory `.update` and the pending directory `.update-pending` both
@@ -637,11 +637,11 @@ it wires up the same way.
 that is out, the one running, and the three ways out — `Cancel`, "skip this
 version" (which emits `Ignored { tag }`) and `Update`.*
 
-## Catalogues and the theme editor
+## Catalogs and the theme editor
 
-Two things here are written against a *catalogue* rather than against a
-particular kind of palette: `ThemeEditor`, which edits one entry colour by
-colour, and `CatalogActions`, which duplicates, edits, deletes, imports and
+Two things here are written against a *catalog* rather than against a
+particular kind of palette: `ThemeEditor`, which edits one entry color by
+color, and `CatalogActions`, which duplicates, edits, deletes, imports and
 exports them. Both work for a chrome theme and for an editor theme without
 knowing which they have, because everything the two differ in is behind
 [`ThemeCatalog`](../crates/rugpui-shell/src/catalog.rs).
@@ -660,7 +660,7 @@ Required, and what an implementation over `CatalogFile::Other` must answer:
 | `load(id, cx)` | The `CatalogFile` that would reproduce `id` — resolved through the registry, not read off disk, so a built-in duplicates like a custom one. |
 | `values_of(file)` | `(Vec<String>, bool)`: every slot's value in `slots()` order, plus whether it is dark. An omitted optional slot is an empty string. |
 | `file_from(name, values, dark)` | The inverse. What the editor saves is what it read, minus the edits. |
-| `dir()` | Where this catalogue's user files live. Not created by the call. |
+| `dir()` | Where this catalog's user files live. Not created by the call. |
 | `default_id()` | The id selected when the one in hand is deleted. |
 | `generated_id_prefix()` | Prefix for an id made up when a name yields no slug. |
 | `save(id, file)` / `write(file, path)` / `delete(id)` | Into the config directory by id; to an arbitrary path; removal. |
@@ -702,7 +702,7 @@ act with a person waiting on the answer.
 [`ThemeEditor::new(catalog, id, &file, cx)`](../crates/rugpui-shell/src/theme_editor.rs)
 builds one, `title(cx)` is the
 heading to draw over it, `cancel(cx)` backs out, and `ThemeEditorEvent` is
-`Saved` or `Cancelled`. The id is fixed at construction and never follows the
+`Saved` or `Canceled`. The id is fixed at construction and never follows the
 name: renaming a palette must not orphan the settings entry that selected it.
 
 It is not a modal of its own. A settings dialog is already one, and stacking a
@@ -711,17 +711,17 @@ ring, so `Tab` would walk out of the editor into controls nobody can see. The
 dialog therefore swaps its *body* for this view: one modal, one set of tab
 stops, and `Escape` with a single obvious meaning at every moment. `tab::NAME`,
 `tab::DARK`, `tab::FIRST_COLOR`, `tab::CANCEL` and `tab::SAVE` are the ring
-inside it; colour fields sit two apart, because an optional slot puts its "back
+inside it; color fields sit two apart, because an optional slot puts its "back
 to automatic" button in the odd index behind its field.
 
-An *empty* field means "derive it": the swatch shows the colour
+An *empty* field means "derive it": the swatch shows the color
 `derived_color` answered, the placeholder spells its hex out, and a button beside
-the field puts a slot that has been given a colour back to automatic. A required
+the field puts a slot that has been given a color back to automatic. A required
 slot has neither. Fields are marked invalid as the editor opens, not only once
-typed into — a file edited by hand can arrive with a slot that is not a colour,
+typed into — a file edited by hand can arrive with a slot that is not a color,
 and the editor is exactly where that has to be visible.
 
-![A theme editor with a live preview above a grid of colour fields](./screenshots/shell/theme-editor.png)
+![A theme editor with a live preview above a grid of color fields](./screenshots/shell/theme-editor.png)
 
 *One palette edited slot by slot, with the preview at the top repainting as the
 fields change, the name and the dark flag above them, and `Cancel` / `Save` on
@@ -752,7 +752,7 @@ or removed and the registries reloaded, so whatever is already wearing one of
 them has to be repainted. `clear_status(cx)` drops the last message.
 
 `export_directory(&*catalog)` is where the save dialog should open: the
-catalogue's own directory, but only once it exists — a save dialog pointed at a
+catalog's own directory, but only once it exists — a save dialog pointed at a
 directory that has never been created opens somewhere arbitrary on some
 platforms, so a user who has added no palette yet gets their home directory.
 
@@ -766,7 +766,7 @@ so in as many words instead of counting to one.
 ![A row of duplicate, edit, delete, import and export buttons](./screenshots/shell/catalog-actions.png)
 
 *The five buttons under a picker, with a built-in selected: duplicate and export
-answer for it, edit and delete are greyed because it is not the user's own, and
+answer for it, edit and delete are grayed because it is not the user's own, and
 import never looks at the selection.*
 
 ## Settings pieces
@@ -783,9 +783,9 @@ because a settings file is hand-editable and `1439.5` is noise in one.
 `WindowGeometry::saved(x, y, width, height, maximized)` answers `None` when
 either coordinate is missing — a first run, or a window that was never moved.
 `window_geometry(window)` reads a live window, reporting fullscreen as *not*
-maximised and with the restore bounds either way, so the size survives.
+maximized and with the restore bounds either way, so the size survives.
 `window_bounds(saved, width, height, maximized, cx)` turns the pair back into a
-`WindowBounds`, centring the saved *size* on the active display when there is no
+`WindowBounds`, centering the saved *size* on the active display when there is no
 saved position. `window_bounds_at_least(saved, width, height, maximized,
 min_size, client_inset, cx)` is the same placement with the size first grown to
 `min_size`, the visible minimum you also pass as `WindowOptions::window_min_size`,
@@ -836,7 +836,7 @@ the `px` beside a narrow field, and `hint(..)` under both.*
 ## Locale helpers
 
 [locale.rs](../crates/rugpui-shell/src/locale.rs) is deliberately free of any
-particular localisation library. `rust-i18n` compiles a crate's own
+particular localization library. `rust-i18n` compiles a crate's own
 `locales/*.yml` into *that* crate and keeps the active locale in a process
 global, so the table cannot move here — which is why `Strings` exists at all.
 What can be shared is the arithmetic around it.

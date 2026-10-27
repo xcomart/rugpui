@@ -1,4 +1,4 @@
-//! Minimise / maximise / close buttons for a window that draws its own caption.
+//! Minimize / maximize / close buttons for a window that draws its own caption.
 //!
 //! Only Windows and Linux need these: macOS keeps its native traffic lights
 //! even with a transparent title bar, so the caller leaves the strip out there.
@@ -12,7 +12,7 @@
 //! The buttons are wired twice over, and deliberately so. Each one marks itself
 //! as a [`WindowControlArea`], which is what Windows needs: the hit test then
 //! reports the area as a caption button, so the window procedure performs the
-//! action natively and — on Windows 11 — the maximise button offers the snap
+//! action natively and — on Windows 11 — the maximize button offers the snap
 //! layouts on hover. That path never delivers a click to the app, which is why
 //! the `on_click` handlers below exist for everywhere else.
 //!
@@ -51,14 +51,14 @@ const CLOSE_HOVER: u32 = 0xE81123;
 /// Glyph color on the hovered close button, over [`CLOSE_HOVER`].
 const CLOSE_HOVER_GLYPH: u32 = 0xFFFFFF;
 
-/// Style group of the minimise button, so hovering it recolours the glyph.
+/// Style group of the minimize button, so hovering it recolors the glyph.
 ///
 /// One name per button rather than one shared name: a `group_hover` resolves
 /// against the nearest ancestor carrying the name, and these three are
 /// siblings, so each answers to its own.
 const MINIMIZE_GROUP: &str = "window-control-minimize";
 
-/// Style group of the maximise button. See [`MINIMIZE_GROUP`].
+/// Style group of the maximize button. See [`MINIMIZE_GROUP`].
 const MAXIMIZE_GROUP: &str = "window-control-maximize";
 
 /// Style group of the close button. See [`MINIMIZE_GROUP`].
@@ -70,11 +70,11 @@ const CLOSE_GROUP: &str = "window-control-close";
 /// dropdown icon: the widget layer carries no assets of its own.
 #[derive(Debug, Clone)]
 pub struct WindowControlIcons {
-    /// Minimise.
+    /// Minimize.
     pub minimize: SharedString,
-    /// Maximise, drawn while the window is not maximised.
+    /// Maximize, drawn while the window is not maximized.
     pub maximize: SharedString,
-    /// Restore, drawn while the window is maximised.
+    /// Restore, drawn while the window is maximized.
     pub restore: SharedString,
     /// Close.
     pub close: SharedString,
@@ -85,11 +85,11 @@ pub struct WindowControlIcons {
 /// `layout` is what the platform reports — GNOME's `button-layout` gsetting or
 /// the KDE equivalent on Linux, and `None` everywhere else, which is also what
 /// a Linux desktop that publishes nothing comes back as. `None` means the
-/// familiar minimise / maximise / close on the right, which is what this
+/// familiar minimize / maximize / close on the right, which is what this
 /// application drew before it asked at all.
 ///
 /// `supported` is the *window's* answer rather than the desktop's, and the two
-/// disagree often enough to matter: a compositor may offer no minimise while
+/// disagree often enough to matter: a compositor may offer no minimize while
 /// the layout still names one. A button the window cannot perform is dropped
 /// wherever it appears. Close is never dropped — no platform reports it as
 /// unsupported, and a caption without a way to close the window would be a
@@ -125,8 +125,8 @@ pub fn split(
 
 /// The caption buttons of a self-drawn title bar.
 ///
-/// Stateless like every other widget here: it reads the window's own maximised
-/// state to pick between the maximise and restore glyphs, and draws exactly the
+/// Stateless like every other widget here: it reads the window's own maximized
+/// state to pick between the maximize and restore glyphs, and draws exactly the
 /// buttons it is handed, in the order it is handed them — [`split`] has already
 /// decided both.
 #[derive(IntoElement)]
@@ -157,7 +157,7 @@ impl WindowControls {
 
     /// Uses the window's active state to tint the caption glyphs.
     ///
-    /// When unset, the strip keeps its usual theme icon colour. A custom
+    /// When unset, the strip keeps its usual theme icon color. A custom
     /// Linux title bar sets it so an inactive window can quieten its glyphs.
     pub fn with_active(mut self, active: bool) -> Self {
         self.active = Some(active);

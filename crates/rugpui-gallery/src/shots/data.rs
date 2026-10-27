@@ -192,7 +192,7 @@ fn tree_loading(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-/// The gallery's catalogue with one branch still being fetched.
+/// The gallery's catalog with one branch still being fetched.
 struct Fetching;
 
 impl TreeSource for Fetching {
@@ -295,7 +295,7 @@ fn grid_panel<S: GridSource>(cx: &mut App, grid: Entity<GridView<S>>) -> AnyView
 }
 
 /// The result as it arrives: autofitted columns, a key column in its own
-/// colour, nulls drawn as `NULL` rather than as nothing.
+/// color, nulls drawn as `NULL` rather than as nothing.
 fn grid_default(_window: &mut Window, cx: &mut App) -> AnyView {
     let grid = cx.new(|cx| GridView::new(Plain, cx));
     grid_panel(cx, grid)
@@ -670,7 +670,7 @@ const WRAP_CARET: usize = 60;
 
 /// The listing the per-palette editor shot draws.
 ///
-/// Short, and chosen to reach as many token colours as it can: a comment, a
+/// Short, and chosen to reach as many token colors as it can: a comment, a
 /// keyword, an identifier, a string, a number, an operator and a function.
 const THEME_SQL: &str = "\
 -- Orders that have not shipped, by value.
@@ -682,10 +682,10 @@ SELECT o.order_id,
  LIMIT 100;
 ";
 
-/// What the per-palette editor shot leaves selected, so the selection colour is
+/// What the per-palette editor shot leaves selected, so the selection color is
 /// in the picture beside the current-line band and the caret.
 ///
 /// `o.order_id` on the second line: an identifier rather than a word of the
-/// comment above it, so the selection is drawn over a colour the palette
+/// comment above it, so the selection is drawn over a color the palette
 /// actually chose.
 const THEME_SELECTION: std::ops::Range<usize> = 49..59;

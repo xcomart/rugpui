@@ -1,6 +1,6 @@
 # Scrollbar
 
-An overlay scroll indicator: a thumb with no track behind it, drawn *over* the content rather than beside it, shown while a surface is being scrolled or while the pointer rests on the edge it rides, and taken down again once neither is true. It is the behaviour macOS gives every scrollable view, and nothing here reserves layout space, so turning it on costs a surface no width.
+An overlay scroll indicator: a thumb with no track behind it, drawn *over* the content rather than beside it, shown while a surface is being scrolled or while the pointer rests on the edge it rides, and taken down again once neither is true. It is the behavior macOS gives every scrollable view, and nothing here reserves layout space, so turning it on costs a surface no width.
 
 Source: [scrollbar.rs](../../crates/rugpui/src/scrollbar.rs). Re-exported as `rugpui::{Scrollbar, ScrollbarAxis, ScrollbarState, DraggedThumb, hide_later, hide_now, scroll_to, scrolled}`; `Fade`, `Thumb`, `hide_after`, the pure `thumb`/`dragged_to` and the timing constants (`INSET`, `SCROLL_LINGER`, `FADE_IN`, `FADE_OUT`) are reached through the module path, `rugpui::scrollbar::…`.
 
@@ -225,7 +225,7 @@ gpui's scroll listener folds a wheel's delta on the axis a container does *not* 
 ## Pitfalls
 
 - **Do not put the bar inside the scroll container.** Its children are what scroll away; the bar must be a sibling under a `relative()` wrapper of the container's size.
-- **Rebuild the bar in the drag handler too.** The geometry is read off the handle each time, so a bar cached from render would be a frame stale — and the handler needs one with the *same id* to recognise the drag.
+- **Rebuild the bar in the drag handler too.** The geometry is read off the handle each time, so a bar cached from render would be a frame stale — and the handler needs one with the *same id* to recognize the drag.
 - **Listen for `on_mouse_up_out` as well as `on_mouse_up`.** A thumb dragged off the end of its track lets go with the pointer outside the window.
 - **`for_handle` trails a resize by one frame.** The handle reports bounds as of the last layout pass; the bar corrects itself on the next, which is the frame the resize is drawn in.
 - **`hide_later` must be armed from inside the render that noticed the movement**, with the epoch `moved()` returned — arming with a stale epoch does nothing, which is the point.

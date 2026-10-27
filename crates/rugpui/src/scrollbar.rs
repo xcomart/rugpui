@@ -2,7 +2,7 @@
 //!
 //! A thumb with no track behind it, drawn over the content rather than beside
 //! it, shown while a surface is being scrolled or while the pointer rests on
-//! the edge it rides, and taken down again once neither is true — the behaviour
+//! the edge it rides, and taken down again once neither is true — the behavior
 //! macOS gives every scrollable view. Nothing here reserves layout space, so
 //! turning it on costs a surface no width.
 //!
@@ -1157,7 +1157,7 @@ mod tests {
         assert!(!state.finish(before), "a fade completed under a held thumb");
 
         // Movement during the hold arms nothing, so it leaves no timer behind
-        // for every pixel the pointer travelled.
+        // for every pixel the pointer traveled.
         assert_eq!(state.moved(80.), None);
         assert_eq!(state.fade(), Fade::Shown);
 

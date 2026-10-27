@@ -1,6 +1,6 @@
 # WindowControls
 
-The minimise / maximise / close buttons of a window that draws its own caption.
+The minimize / maximize / close buttons of a window that draws its own caption.
 Only Windows and Linux need them: macOS keeps its native traffic lights even
 with a transparent title bar, so the strip is left out there entirely — a second
 set would be two ways to close one window.
@@ -61,7 +61,7 @@ let trailing = strip("window-controls-trailing", trailing);
 ...then rendered at the two ends of the title bar row, `leading` before whatever
 the row starts with and `trailing` after whatever it ends with.
 
-![Minimise, maximise and close buttons in a strip](../screenshots/window-controls/strip.png)
+![Minimize, maximize and close buttons in a strip](../screenshots/window-controls/strip.png)
 
 *One strip of `[Minimize, Maximize, Close]` with `rugpui_shell::window_control_icons()`. It paints its own surface and its own hairline, which is why the picture sits on the window's background rather than on a title bar.*
 
@@ -89,18 +89,18 @@ people actually use. So `split` returns a left list and a right list, either of
 which may come out empty, and the title bar renders a strip at each end.
 
 `split`'s second argument is the *window's* answer rather than the desktop's,
-and the two disagree often enough to matter: a compositor may offer no minimise
+and the two disagree often enough to matter: a compositor may offer no minimize
 while the layout still names one. A button the window cannot perform is dropped
 wherever it appears. Close is never dropped — no platform reports it as
 unsupported, and a caption with no way to close the window would be a trap.
 
 `layout` is `None` off Linux, and also for a Linux desktop that publishes
-nothing; that means the familiar minimise / maximise / close on the right.
+nothing; that means the familiar minimize / maximize / close on the right.
 
 ## State the host keeps
 
 None. The strip is stateless like the rest of the kit: it reads the window's own
-`is_maximized()` to pick between the maximise and restore glyphs, and draws
+`is_maximized()` to pick between the maximize and restore glyphs, and draws
 exactly the buttons it is handed, in the order it is handed them. Both decisions
 were already made by `split`.
 
@@ -110,7 +110,7 @@ Each button is wired twice over, deliberately:
 
 - It marks itself as a `WindowControlArea` (`Min`, `Max`, `Close`). That is what
   Windows needs: the hit test then reports the area as a caption button, the
-  window procedure performs the action natively, and on Windows 11 the maximise
+  window procedure performs the action natively, and on Windows 11 the maximize
   button offers the snap layouts on hover. That path never delivers a click to
   the app.
 - It also carries an `on_click` — `window.minimize_window()`,
@@ -132,16 +132,16 @@ control of its own. Neither is configurable.
 
 - `surface` — the strip's background.
 - `border` — the hairline along its bottom edge.
-- `surface_hover` — the hover fill of minimise and maximise.
-- `icon` — the resting glyph colour, unless `with_active(..)` is set (then
+- `surface_hover` — the hover fill of minimize and maximize.
+- `icon` — the resting glyph color, unless `with_active(..)` is set (then
   `text` while active and `text_muted` while inactive). Not `text_muted`: a glyph is a solid run of
   pixels while an icon is a hairline, and an antialiased hairline arrives on
   screen weaker than the text beside it, so `icon` is derived to clear a
   contrast floor against both `background` and `surface`. See
   [theming.md](../theming.md).
-- `text` — the glyph on a hovered minimise or maximise button.
+- `text` — the glyph on a hovered minimize or maximize button.
 
-The close button's hover is the one hardcoded colour in the widget layer, and
+The close button's hover is the one hardcoded color in the widget layer, and
 the only one that has to be: `#E81123` fill with a `#FFFFFF` glyph is exactly
 what Windows paints under a close button, and a themed shade would read as a
 different control.
@@ -156,6 +156,6 @@ different control.
 - Each button gets its own style group name, because a `group_hover` resolves
   against the nearest ancestor carrying the name and the three buttons are
   siblings. Nothing to configure, but it explains why hovering one does not
-  light up its neighbours.
+  light up its neighbors.
 - Do not render a strip on macOS. `window_control_strips` already returns
   `(None, None)` there; a hand-rolled caller has to check for itself.

@@ -84,14 +84,14 @@ pub struct EditorTheme {
     /// `[section]`, a Markdown heading, a `KEY=` in a shell script.
     ///
     /// Absent from a theme file written before this slot existed, in which case
-    /// it takes that file's [`type`](Self::type) colour — the two are the same
+    /// it takes that file's [`type`](Self::type) color — the two are the same
     /// kind of thing to a palette that never had to tell them apart.
     pub key: Hsla,
     /// A named reference to something defined elsewhere: `$HOME`, `${TARGET}`,
     /// a YAML anchor or alias, a Markdown link's text.
     ///
     /// Absent from a theme file written before this slot existed, in which case
-    /// it takes that file's [`function`](Self::function) colour.
+    /// it takes that file's [`function`](Self::function) color.
     pub variable: Hsla,
     /// Commas, semicolons, parentheses and dots.
     pub punctuation: Hsla,
@@ -173,7 +173,7 @@ impl EditorTheme {
     ///
     /// Ethan Schoonover's palette read from the other end, with the tones named
     /// as his official `solarized.xresources` names them: `base03` is the page,
-    /// `base0` the body text, `base1` the caret and `base01` the de-emphasised
+    /// `base0` the body text, `base1` the caret and `base01` the de-emphasized
     /// gutter and comments — the same four roles the light variant fills with
     /// `base3`, `base00`, `base01` and `base1`. The accents are unchanged from
     /// the light variant, down to violet standing in for operators, because
@@ -192,7 +192,7 @@ impl EditorTheme {
     /// would swallow a commented-out line the moment it were selected.
     ///
     /// Worth noting against the other place this palette turns up: a terminal
-    /// emulator's colour scheme spends `base02` on the *selection*, because a
+    /// emulator's color scheme spends `base02` on the *selection*, because a
     /// terminal palette has four slots and no current-line band at all, so the
     /// highlight tone has nowhere else to go. An editor palette has both bands,
     /// and here `base02` goes to the one Solarized named it for.
@@ -227,7 +227,7 @@ impl EditorTheme {
     /// Solarized Light.
     ///
     /// Ethan Schoonover's palette, with `base3` as the page, `base00` as the
-    /// body text and `base1` as the de-emphasised gutter and comments. Two
+    /// body text and `base1` as the de-emphasized gutter and comments. Two
     /// slots Solarized does not spell out are extrapolated from the ones it
     /// does: the current-line band is `base2`, the standard highlight
     /// background, and the selection is a step past it, since a selection drawn
@@ -642,7 +642,7 @@ pub struct EditorThemeFile {
 /// The two exceptions are [`key`](Self::key) and [`variable`](Self::variable),
 /// which were added after the format was published. Requiring them would have
 /// rejected every theme file already written, so they are optional and stand in
-/// for a neighbouring slot when absent — the one case where a file *is* known
+/// for a neighboring slot when absent — the one case where a file *is* known
 /// to be an older copy rather than a truncated one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditorThemeColors {
@@ -681,13 +681,13 @@ pub struct EditorThemeColors {
     /// Optional, unlike the seventeen slots around it: it was added after the
     /// format was published, and a file written before it has to keep loading.
     /// An empty value — which is what a missing key deserializes to — takes the
-    /// file's own `type` colour. See [`EditorThemeFile::to_theme`].
+    /// file's own `type` color. See [`EditorThemeFile::to_theme`].
     #[serde(default)]
     pub key: String,
     /// A `$NAME`, a `${...}`, a YAML anchor, a link's text.
     ///
     /// Optional for the same reason as [`key`](Self::key), and standing in for
-    /// the file's own `function` colour when it is missing.
+    /// the file's own `function` color when it is missing.
     #[serde(default)]
     pub variable: String,
     /// Commas, semicolons, parentheses and dots.
@@ -753,9 +753,9 @@ impl EditorThemeFile {
             identifier: color(&self.colors.identifier, fallback.identifier),
             // The two slots the format grew late. A file that carries neither
             // is a file whose author never had them to choose, so rather than
-            // dropping a built-in theme's colour into the middle of theirs, the
+            // dropping a built-in theme's color into the middle of theirs, the
             // nearest thing they *did* choose stands in: a member name is a
-            // name, which is what `type` already colours, and an expansion
+            // name, which is what `type` already colors, and an expansion
             // points at something defined elsewhere, which is what `function`
             // does.
             key: color(
@@ -1032,7 +1032,7 @@ mod tests {
         assert_eq!(to_hex(theme.bracket_match), "#f7768e");
 
         // The document predates `key` and `variable`, so the file carries
-        // neither and each stands in for the neighbour named in
+        // neither and each stands in for the neighbor named in
         // `EditorThemeColors`. Writing the palette back therefore fills them
         // in, which is the one way the round trip is not the identity.
         assert_eq!(to_hex(theme.key), "#2ac3de");
@@ -1045,10 +1045,10 @@ mod tests {
 
     /// The compatibility rule the two late slots exist under: a file that
     /// carries them is taken at its word, and a file that does not gets the
-    /// colour it *did* choose for the neighbouring slot rather than a built-in
+    /// color it *did* choose for the neighboring slot rather than a built-in
     /// theme's.
     #[test]
-    fn the_two_late_slots_stand_in_for_a_neighbour_when_a_file_omits_them() {
+    fn the_two_late_slots_stand_in_for_a_neighbor_when_a_file_omits_them() {
         let mut file = EditorThemeFile::from_theme("Older", &EditorTheme::gruvbox_dark());
         file.colors.key = String::new();
         file.colors.variable = String::new();
@@ -1123,7 +1123,7 @@ mod tests {
             let theme = file.to_theme();
             assert_eq!(theme.dark, dark);
             assert_eq!(theme.keyword, expected.keyword);
-            // Only the broken slot moves; the rest of the file is honoured.
+            // Only the broken slot moves; the rest of the file is honored.
             assert_ne!(theme.background, expected.background);
             assert!(
                 contrast_ratio(theme.keyword, theme.background) >= MIN_TOKEN_CONTRAST,

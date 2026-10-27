@@ -290,7 +290,7 @@ fn a_replaced_result_pulls_the_selection_back_in(cx: &mut TestAppContext) {
 ///
 /// The second half is the whole point: a hook called once per visible cell
 /// per frame is affordable, and one called per *row* would undo the
-/// virtualisation the crate exists for. A hundred thousand rows are
+/// virtualization the crate exists for. A hundred thousand rows are
 /// offered; the hook must never hear of the ones off screen, before or
 /// after a scroll to the middle of them.
 #[gpui::test]

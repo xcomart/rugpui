@@ -35,7 +35,7 @@
 //! | [`update`] | The release check and the self-update: download, verify, unpack, swap, roll back, and stage when a rename cannot happen yet. |
 //! | [`update_dialog`] | [`UpdateDialog`], the state machine around all of that. |
 //! | [`catalog`] | [`ThemeCatalog`], and the two implementations over `rugpui`'s own palette formats. |
-//! | [`theme_editor`] | [`ThemeEditor`], one entry of a catalogue edited colour by colour. |
+//! | [`theme_editor`] | [`ThemeEditor`], one entry of a catalog edited color by color. |
 //! | [`catalog_ui`] | [`CatalogActions`], the duplicate / edit / delete / import / export row under a picker. |
 //! | [`form`] | The pieces a settings form is built out of, minus the form. |
 //! | [`settings`] | [`WindowGeometry`], the monospace fallback, the window tint. |
@@ -111,7 +111,7 @@ pub use inject::{
     AppIdentity, Strings, UpdatePolicy, identity, ignored_release, init, init_process_identity,
     input_menu_labels, label, set_ignored_release, set_strings, set_update_policy, text,
 };
-pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, greyed, labels, row};
+pub use menu_rows::{MenuRow, SHORTCUT_MODIFIER, entries, grayed, labels, row};
 pub use pane::{Axis, Pane, PaneId, PaneNode, PaneTree, SplitId};
 pub use settings::{
     WindowGeometry, monospace_family, window_bounds, window_bounds_at_least, window_geometry,

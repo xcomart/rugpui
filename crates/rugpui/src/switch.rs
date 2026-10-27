@@ -1,4 +1,4 @@
-//! A labelled on/off switch.
+//! A labeled on/off switch.
 
 use std::time::Duration;
 
@@ -37,7 +37,7 @@ const KNOB: f32 = 12.;
 
 /// Where the knob sits on the vertical, measured from inside the outline.
 ///
-/// The knob is taller than the room the insets leave, so it is centred on the
+/// The knob is taller than the room the insets leave, so it is centered on the
 /// track rather than fitted between them — which is what the flex layout this
 /// replaced did, and why the two draw the same picture.
 const KNOB_TOP: f32 = (TRACK_HEIGHT - 2. * TRACK_BORDER - KNOB) / 2.;
@@ -45,7 +45,7 @@ const KNOB_TOP: f32 = (TRACK_HEIGHT - 2. * TRACK_BORDER - KNOB) / 2.;
 /// Everything the switch remembers between frames.
 ///
 /// Kept in gpui's element state under the switch's own id rather than in the
-/// host's struct: which way the knob is travelling is a fact about one switch
+/// host's struct: which way the knob is traveling is a fact about one switch
 /// on screen and no use to anybody else, and it should live exactly as long as
 /// the switch is drawn — which is precisely the lifetime element state has.
 ///
@@ -309,7 +309,7 @@ mod tests {
             knob_rest(true) + KNOB + TRACK_INSET,
             TRACK_WIDTH - 2. * TRACK_BORDER
         );
-        // And the knob is centred on the track rather than fitted inside the
+        // And the knob is centered on the track rather than fitted inside the
         // insets, which it is too tall for.
         assert_eq!(KNOB_TOP, 1.);
     }

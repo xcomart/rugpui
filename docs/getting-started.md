@@ -20,7 +20,7 @@ Zed's monorepo while `rugpui` resolves it from the patched copy, two different
 do not share the type-keyed map gpui stores `Global`s in — so the `Theme`,
 `ThemeRegistry` and `EditorThemeRegistry` globals that [`rugpui::init`] installs
 would be invisible to every `theme(cx)` call your application makes, and the
-widgets would draw with default colours or not draw at all. It compiles. That is
+widgets would draw with default colors or not draw at all. It compiles. That is
 what makes it worth stating twice.
 
 Which crates you actually need:
@@ -138,9 +138,9 @@ already written. The paths in `rugpui::ICONS` carry a `rugpui/` segment, so a
 `caret-down.svg` of your own keeps its place.
 
 An SVG reaching gpui is painted as a monochrome sprite: only the alpha channel
-survives and the element's `text_color` supplies the colour, so the fills
+survives and the element's `text_color` supplies the color, so the fills
 written in the file never appear on screen. Draw your icons as solid shapes and
-let the theme colour them — [`Theme::icon`](./theming.md) is the slot meant for
+let the theme color them — [`Theme::icon`](./theming.md) is the slot meant for
 exactly this.
 
 ### The init order
@@ -150,7 +150,7 @@ default palettes; the other two only register key bindings, and neither has a
 palette of its own. Then set the palettes you actually want *over* the defaults
 `rugpui::init` just installed — `init` sets `Theme::dark()` and
 `EditorTheme::default()` so that a view rendered before your settings have been
-read still has colours to draw with, rather than panicking on a missing global.
+read still has colors to draw with, rather than panicking on a missing global.
 
 ```mermaid
 sequenceDiagram
@@ -212,9 +212,9 @@ impl Render for Main {
 }
 ```
 
-`theme(cx)` at the top of `render`, once, and every colour from the value it
+`theme(cx)` at the top of `render`, once, and every color from the value it
 returns. It clones the global rather than borrowing it, which is what lets you
-keep using `cx` mutably while styling elements. Never hardcode a colour: the
+keep using `cx` mutably while styling elements. Never hardcode a color: the
 point of a palette is that `set_theme` restyles the whole window.
 
 `let this = cx.entity();` is the other half. The small widgets are stateless —
@@ -335,7 +335,7 @@ headless test platform, which the crates pull in as a dev-dependency only —
 gpui = { workspace = true, features = ["test-support"] }
 ```
 
-so the library itself links gpui without it. That is what lets the behaviour
+so the library itself links gpui without it. That is what lets the behavior
 which only exists once an element tree has been laid out and hit-tested —
 hover-revealed controls, which of two stacked hitboxes answers a press — be
 tested in CI on a machine with no display at all. Do the same in your own crate

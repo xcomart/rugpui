@@ -84,7 +84,7 @@ fn lex_line(line: &str, state: LineState) -> (Vec<Span>, LineState) {
     let head = skip_spaces(bytes, 0);
 
     // A `# syntax=` directive is a comment to everything except the builder,
-    // and colouring it as one says the right thing about what it does to the
+    // and coloring it as one says the right thing about what it does to the
     // image: nothing.
     if bytes.get(head) == Some(&b'#') {
         spans.push(Token::Comment, head, len);
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn every_instruction_is_recognised_in_either_case() {
+    fn every_instruction_is_recognized_in_either_case() {
         for instruction in INSTRUCTIONS {
             let line = format!("{instruction} x");
             assert_eq!(spans(&line)[0].1, Token::Keyword, "{instruction}");

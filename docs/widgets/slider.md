@@ -71,7 +71,7 @@ Three more items in the module are part of the public API:
 | --- | --- | --- |
 | `Slider::dragged` | `fn dragged(&self, event: &DragMoveEvent<DraggedKnob>, cx: &App) -> Option<f32>` | The value `event` has dragged *this* slider to, or `None` when the drag belongs to another slider. |
 | `DraggedKnob::value` | `fn value(&self, id: &ElementId, position: Point<Pixels>) -> Option<f32>` | The same answer, straight off the drag payload. |
-| `stepped` | `fn stepped(value: f32, step: f32, up: bool) -> f32` | The value one step away, snapped to the step's grid. Exposed so a host can reproduce the keyboard behaviour elsewhere — a `+`/`-` button pair, say. |
+| `stepped` | `fn stepped(value: f32, step: f32, up: bool) -> f32` | The value one step away, snapped to the step's grid. Exposed so a host can reproduce the keyboard behavior elsewhere — a `+`/`-` button pair, say. |
 
 ## `id` has to be unique in the *window*
 
@@ -84,7 +84,7 @@ answers only for drags whose payload carries its own id.
 
 ## State the host keeps
 
-Just the `f32` — the gallery keeps `amount: f32`. There is nothing to initialise
+Just the `f32` — the gallery keeps `amount: f32`. There is nothing to initialize
 and nothing to keep beside it: no drag flag, no phase, no handle. The slider is
 rebuilt from `value(..)` on every render and reports the new value through
 `on_change`; store it and call `cx.notify()`.
@@ -119,7 +119,7 @@ Three ways to move it, and all three end at `on_change`:
 | gesture | effect |
 | --- | --- |
 | drag the knob | the knob follows the pointer, keeping the grab offset the press landed at; no snapping to the step |
-| press the track | the knob's *centre* jumps to where the pointer landed; no snapping |
+| press the track | the knob's *center* jumps to where the pointer landed; no snapping |
 | `Left` / `Down` | one step towards the start, snapped to the step's grid |
 | `Right` / `Up` | one step towards the end, snapped to the step's grid |
 | `Home` / `End` | straight to `0.0` / `1.0` |
@@ -182,7 +182,7 @@ Four boxes over one measurement, which is worth knowing when styling around it:
   travel, so placing the knob at `relative(value)` against the rail is a
   percentage of the travel and works at any width. The filled part reaches back
   over the rail's leading edge to the groove's, so it starts where the track
-  starts and stops under the knob's centre.
+  starts and stops under the knob's center.
 
 ## Theme slots
 

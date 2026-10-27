@@ -58,7 +58,7 @@ Two more items in the module are part of the public API:
 
 | item | signature | purpose |
 | --- | --- | --- |
-| `RangeSlider::dragged` | `fn dragged(&self, event: &DragMoveEvent<DraggedKnob>, cx: &App) -> Option<(Knob, f32)>` | Which knob `event` is dragging and where it has reached, or `None` when the drag belongs to another control. The value is the one `on_change` would be given for that knob, stopped at its neighbour and all. |
+| `RangeSlider::dragged` | `fn dragged(&self, event: &DragMoveEvent<DraggedKnob>, cx: &App) -> Option<(Knob, f32)>` | Which knob `event` is dragging and where it has reached, or `None` when the drag belongs to another control. The value is the one `on_change` would be given for that knob, stopped at its neighbor and all. |
 | `Knob` | `enum Knob { Low, High }` | Which end of the interval a drag is moving. Only interesting to a host reading the gesture itself — the callback reports both ends and never needs to name one. |
 
 The drag payload is [`Slider`](./slider.md)'s own `DraggedKnob`: a knob carries
@@ -75,8 +75,8 @@ share the payload type gpui hands to every listener of it.
 
 ## State the host keeps
 
-A pair — the gallery keeps `range: (f32, f32)`, initialised to `(0.25, 0.75)`.
-There is nothing else to initialise and nothing to keep beside it: the control
+A pair — the gallery keeps `range: (f32, f32)`, initialized to `(0.25, 0.75)`.
+There is nothing else to initialize and nothing to keep beside it: the control
 is rebuilt from `low(..)` and `high(..)` on every render and reports the new
 interval through `on_change`; store it and call `cx.notify()`. Mapping a
 fraction to whatever the host actually stores works exactly as it does for the
@@ -87,14 +87,14 @@ fraction to whatever the host actually stores works exactly as it does for the
 | gesture | effect |
 | --- | --- |
 | drag a knob | that knob follows the pointer, keeping the grab offset the press landed at, and stops at the other knob; no snapping to the step |
-| press the track | the *nearer* knob's centre jumps to where the pointer landed, stopping at the other knob; no snapping |
+| press the track | the *nearer* knob's center jumps to where the pointer landed, stopping at the other knob; no snapping |
 | `Left` / `Down` | the focused knob, one step towards the start |
 | `Right` / `Up` | the focused knob, one step towards the end |
 | `Home` / `End` | the focused knob, the whole way — which for the low knob means `0.0` and *the high knob*, and for the high knob means *the low knob* and `1.0` |
 
 Three things differ from the single-knob slider:
 
-- **Neither knob may pass the other.** A knob dragged into its neighbour stops
+- **Neither knob may pass the other.** A knob dragged into its neighbor stops
   there, and the two are allowed to meet: `low == high` is a legal, if empty,
   interval.
 - **A press on the bare track moves whichever knob is nearer**, since there is
@@ -109,7 +109,7 @@ Three things differ from the single-knob slider:
 ## Geometry
 
 The [slider's four boxes](./slider.md#geometry) with a second knob hung off the
-same rail, and one difference: the filled part runs from the low knob's centre
+same rail, and one difference: the filled part runs from the low knob's center
 to the high knob's, so both of its ends are values placed as a percentage of the
 rail. It needs no reach back over the rail's leading edge, because it no longer
 starts where the track does.

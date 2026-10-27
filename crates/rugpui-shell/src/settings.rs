@@ -142,7 +142,7 @@ impl WindowGeometry {
     /// The saved placement, or `None` when the settings carry no position.
     ///
     /// `None` is a first run, or a window that was never moved: the platform
-    /// picks the placement then, and [`window_bounds`] centres the saved *size*
+    /// picks the placement then, and [`window_bounds`] centers the saved *size*
     /// on the active display rather than guessing at coordinates.
     pub fn saved(
         x: Option<i32>,
@@ -225,7 +225,7 @@ fn opens_at_outer_size(cx: &App) -> bool {
 /// The placement to open a window at.
 ///
 /// A saved position is used as it stands; without one the saved *size* is
-/// centred on the active display, which is what a first run does and what a
+/// centered on the active display, which is what a first run does and what a
 /// window that has never been moved deserves.
 ///
 /// Takes the size as saved, however small; [`window_bounds_at_least`] is the
@@ -247,7 +247,7 @@ pub fn window_bounds(
 /// is opened with (`WindowOptions::window_min_size`), so a size saved before
 /// the minimum existed, or one a window manager shrank, comes back at the
 /// minimum rather than below it. The size grows before a window without a
-/// saved position is centred, so it is still centred.
+/// saved position is centered, so it is still centered.
 ///
 /// `min_size` is the visible window, which is what the platforms hold a
 /// window's minimum to. Pass the `client_inset` the window is opened with

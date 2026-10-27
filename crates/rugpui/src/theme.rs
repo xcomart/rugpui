@@ -203,7 +203,7 @@ impl Theme {
             // Solarized's own furniture: the header is `base02` (`#073642`)
             // lifted a little so it clears `base03`, the `NULL` marker sits
             // between `base01` and `base1` — the two Schoonover reserves for
-            // de-emphasised content, the lower of which does not clear
+            // de-emphasized content, the lower of which does not clear
             // [`MIN_GRID_TEXT_CONTRAST`] on the stripe — and the key mark is
             // the palette's yellow.
             grid_header: Some(hsla(192. / 360., 0.65, 0.19, 1.0)),
@@ -392,7 +392,7 @@ impl From<Palette> for Theme {
             grid_header,
             grid_row_alt,
             // A tint of the theme's own brand color rather than a color of its
-            // own: the selection has to be recognisable as "the app picked
+            // own: the selection has to be recognizable as "the app picked
             // this", which is the accent's job everywhere else too.
             grid_selection: palette.grid_selection.unwrap_or(Hsla {
                 a: SELECTION_ALPHA,
@@ -1115,8 +1115,8 @@ pub fn shift_lightness(color: Hsla, delta: f32) -> Hsla {
 ///
 /// sRGB rather than HSL on purpose. Interpolating hue takes the short way
 /// round a circle, which sends a fade between two colors of unrelated hue —
-/// a grey border and an accent, say — sightseeing through whatever lies
-/// between them; and a grey has no meaningful hue to travel *from* in the
+/// a gray border and an accent, say — sightseeing through whatever lies
+/// between them; and a gray has no meaningful hue to travel *from* in the
 /// first place. Mixing the channels goes straight there, which is what the eye
 /// expects of a control changing state.
 pub fn lerp(from: Hsla, to: Hsla, fraction: f32) -> Hsla {
@@ -1389,16 +1389,16 @@ mod tests {
     }
 
     /// The extremes answer rather than panicking, and they answer with the most
-    /// legible colour on offer: a mid-grey background can still be cleared, by
+    /// legible color on offer: a mid-gray background can still be cleared, by
     /// going dark rather than light.
     #[test]
     fn an_extreme_palette_still_gets_an_answer() {
-        let grey = hsla(0., 0., 0.5, 1.0);
-        let theme = palette(grey, grey, grey);
-        assert!(theme.icon.l < grey.l, "the icon went the wrong way");
+        let gray = hsla(0., 0., 0.5, 1.0);
+        let theme = palette(gray, gray, gray);
+        assert!(theme.icon.l < gray.l, "the icon went the wrong way");
         assert!(icon_contrast(&theme) >= MIN_ICON_CONTRAST);
 
-        // And a palette that no colour can satisfy — one background at each end
+        // And a palette that no color can satisfy — one background at each end
         // of the ramp — is pushed to an end of the axis instead of being left
         // where it was.
         let split = palette(

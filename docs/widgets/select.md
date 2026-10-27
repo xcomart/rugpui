@@ -4,7 +4,7 @@ A dropdown that picks one string out of a list: a trigger the height of a [`Text
 
 Source: [select.rs](../../crates/rugpui/src/select.rs). Re-exported as `rugpui::Select` and `rugpui::SelectOption`.
 
-Options are plain strings, and the text of an option is also its identity. That is what keeps the widget usable for lists the caller discovers at runtime — installed fonts, for one — without inventing ids for them. An option may also carry an icon on either side of its label — see [Icons](#icons) — but that is decoration: the label stays the identity. When the options carry colours instead, reach for [`SchemeSelect`](./scheme-select.md), which is the same control keyed by id.
+Options are plain strings, and the text of an option is also its identity. That is what keeps the widget usable for lists the caller discovers at runtime — installed fonts, for one — without inventing ids for them. An option may also carry an icon on either side of its label — see [Icons](#icons) — but that is decoration: the label stays the identity. When the options carry colors instead, reach for [`SchemeSelect`](./scheme-select.md), which is the same control keyed by id.
 
 ## The state the host keeps
 
@@ -110,7 +110,7 @@ struct Gallery {
 
 ## Icons
 
-Both slots take an asset path, resolved by the application's `AssetSource` exactly like [`.chevron_icon`](#builder-options) or a [tree](./tree.md) icon — so an app with no asset source registered draws them as nothing at all. They are painted at 14 px in `theme.icon`, and on the current row in `theme.accent`, so a mark follows its label into the highlight instead of staying grey beside accented text.
+Both slots take an asset path, resolved by the application's `AssetSource` exactly like [`.chevron_icon`](#builder-options) or a [tree](./tree.md) icon — so an app with no asset source registered draws them as nothing at all. They are painted at 14 px in `theme.icon`, and on the current row in `theme.accent`, so a mark follows its label into the highlight instead of staying gray beside accented text.
 
 The trigger repeats the icons of the option it names: leading before the label, trailing between the label and the chevron. While nothing is selected it shows none — the placeholder row may itself be one of the options, and repeating its mark would make an empty dropdown look like a made choice.
 
@@ -185,4 +185,4 @@ The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a c
 Closed dropdowns build only their trigger. Option rows and their overlays are
 created when the list opens. Use `options_shared(Rc<[SelectOption]>)` for a list that
 changes infrequently; keep the shared list in the owning view and replace it
-when fonts, language or a palette catalogue changes.
+when fonts, language or a palette catalog changes.

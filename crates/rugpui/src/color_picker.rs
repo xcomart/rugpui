@@ -1,12 +1,12 @@
-//! A colour picker: a saturation/value field over a hue strip, and an optional
+//! A color picker: a saturation/value field over a hue strip, and an optional
 //! row of preset swatches.
 //!
 //! The picker works in [`Hsv`] rather than in gpui's [`Hsla`], and that is the
-//! one decision worth explaining. A colour drawn from the field's left edge or
-//! its bottom row is a grey, and a grey has no hue — so a picker that kept only
-//! the colour would forget the hue the moment the knob touched an edge, and the
+//! one decision worth explaining. A color drawn from the field's left edge or
+//! its bottom row is a gray, and a gray has no hue — so a picker that kept only
+//! the color would forget the hue the moment the knob touched an edge, and the
 //! field behind it would jump to red. Hue, saturation and value are the three
-//! things the pointer moves, so they are what the host keeps, and a grey keeps
+//! things the pointer moves, so they are what the host keeps, and a gray keeps
 //! the hue it was picked under.
 //!
 //! Like the rest of the kit the picker is stateless as far as the host is
@@ -16,9 +16,9 @@
 //! The one thing it keeps for itself is its `#rrggbb` field, a
 //! [`TextInput`] held in gpui's element state under the picker's id. The two
 //! sides are kept in step both ways: a move in the field or the strip writes
-//! the new colour into the field, and a complete `#rrggbb` typed into the field
+//! the new color into the field, and a complete `#rrggbb` typed into the field
 //! moves the knobs — under the hue the picker already had, when what was typed
-//! is a grey. Text that is not yet a colour is left alone while it is being
+//! is a gray. Text that is not yet a color is left alone while it is being
 //! typed and moves nothing.
 //!
 //! Five ways to move it, all ending at the same callback:
@@ -35,7 +35,7 @@
 //! A drag finds its way home the way a [`crate::Slider`]'s does: the pressed
 //! area carries its own bounds, measured by a [`canvas`] during the frame it was
 //! built in, inside a [`DraggedColor`], so a pointer position alone answers
-//! "what colour is this now?" wherever the pointer has wandered.
+//! "what color is this now?" wherever the pointer has wandered.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -89,10 +89,10 @@ const COARSE_STEP: f32 = 0.1;
 /// How far `PageUp` / `PageDown` turn the hue: ten degrees.
 const HUE_STEP: f32 = 10. / 360.;
 
-/// Callback fired with the colour the picker is moving to.
+/// Callback fired with the color the picker is moving to.
 type ChangeHandler = Rc<dyn Fn(Hsv, &mut Window, &mut App)>;
 
-/// A colour as hue, saturation and value, each a fraction from `0.` to `1.`.
+/// A color as hue, saturation and value, each a fraction from `0.` to `1.`.
 ///
 /// The space the picker is drawn in; see the module docs for why it is kept
 /// rather than converted away. Fully opaque: the picker has no alpha.
@@ -100,7 +100,7 @@ type ChangeHandler = Rc<dyn Fn(Hsv, &mut Window, &mut App)>;
 pub struct Hsv {
     /// Hue, `0.` and `1.` both being red.
     pub h: f32,
-    /// Saturation: `0.` is grey, `1.` the pure hue.
+    /// Saturation: `0.` is gray, `1.` the pure hue.
     pub s: f32,
     /// Value: `0.` is black, `1.` the brightest the hue and saturation allow.
     pub v: f32,
@@ -114,7 +114,7 @@ impl Default for Hsv {
 }
 
 impl Hsv {
-    /// A colour from its three parts, each clamped into `0.0..=1.0`. A NaN
+    /// A color from its three parts, each clamped into `0.0..=1.0`. A NaN
     /// part — what a division by an empty area arrives at — counts as `0.`.
     pub fn new(h: f32, s: f32, v: f32) -> Self {
         let unit = |value: f32| {
@@ -131,9 +131,9 @@ impl Hsv {
         }
     }
 
-    /// The colour `rgba` paints, its alpha ignored.
+    /// The color `rgba` paints, its alpha ignored.
     ///
-    /// A grey answers hue `0.`; use [`Hsv::keeping_hue`] to carry a hue over.
+    /// A gray answers hue `0.`; use [`Hsv::keeping_hue`] to carry a hue over.
     pub fn from_rgba(rgba: Rgba) -> Self {
         let (r, g, b) = (rgba.r, rgba.g, rgba.b);
         let max = r.max(g).max(b);
@@ -152,12 +152,12 @@ impl Hsv {
         Self::new(h, s, max)
     }
 
-    /// The colour `hsla` paints, its alpha ignored.
+    /// The color `hsla` paints, its alpha ignored.
     pub fn from_hsla(hsla: Hsla) -> Self {
         Self::from_rgba(hsla.to_rgb())
     }
 
-    /// The colour a `#rrggbb` spells — the `#` optional, the digits in either
+    /// The color a `#rrggbb` spells — the `#` optional, the digits in either
     /// case — or `None` for anything else.
     pub fn from_hex(hex: &str) -> Option<Self> {
         let digits = hex.trim();
@@ -168,8 +168,8 @@ impl Hsv {
         parse_hex(digits).map(Self::from_hsla)
     }
 
-    /// This colour, but under `previous`'s hue when this one is a grey and so
-    /// has none of its own — what a host does with a colour typed into a hex
+    /// This color, but under `previous`'s hue when this one is a gray and so
+    /// has none of its own — what a host does with a color typed into a hex
     /// field, so the field behind the knob does not jump to red.
     pub fn keeping_hue(self, previous: Hsv) -> Self {
         if self.s <= f32::EPSILON || self.v <= f32::EPSILON {
@@ -182,7 +182,7 @@ impl Hsv {
         }
     }
 
-    /// The colour, as gpui paints it.
+    /// The color, as gpui paints it.
     pub fn to_rgba(self) -> Rgba {
         let h = self.h.rem_euclid(1.) * 6.;
         let c = self.v * self.s;
@@ -204,12 +204,12 @@ impl Hsv {
         }
     }
 
-    /// The colour, as gpui's [`Hsla`].
+    /// The color, as gpui's [`Hsla`].
     pub fn to_hsla(self) -> Hsla {
         self.to_rgba().into()
     }
 
-    /// The colour as `#rrggbb`, in lower case.
+    /// The color as `#rrggbb`, in lower case.
     pub fn to_hex(self) -> String {
         let rgba = self.to_rgba();
         let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
@@ -221,16 +221,16 @@ impl Hsv {
         )
     }
 
-    /// The pure hue behind this colour, at full saturation and value: what the
+    /// The pure hue behind this color, at full saturation and value: what the
     /// field is filled with before its two gradients are laid over it.
     fn pure(self) -> Hsla {
         Self::new(self.h, 1., 1.).to_hsla()
     }
 }
 
-/// What a typed `#rrggbb` asks of a picker showing `held`: the colour typed —
-/// under `held`'s hue when it is a grey — or `None` while the text is not a
-/// colour yet, or is the colour already shown.
+/// What a typed `#rrggbb` asks of a picker showing `held`: the color typed —
+/// under `held`'s hue when it is a gray — or `None` while the text is not a
+/// color yet, or is the color already shown.
 fn typed(text: &str, held: Hsv) -> Option<Hsv> {
     let color = Hsv::from_hex(text)?;
     (color.to_hex() != held.to_hex()).then(|| color.keeping_hue(held))
@@ -241,11 +241,11 @@ fn typed(text: &str, held: Hsv) -> Option<Hsv> {
 struct HexField {
     /// The field itself.
     input: Entity<TextInput>,
-    /// The colour the picker was last drawn with, which is what a typed grey
+    /// The color the picker was last drawn with, which is what a typed gray
     /// borrows its hue from.
     held: Hsv,
     /// The host's callback as of the last frame, for the field to report a
-    /// typed colour through. Replaced every frame, since the host builds a new
+    /// typed color through. Replaced every frame, since the host builds a new
     /// one with every render.
     on_change: Rc<RefCell<Option<ChangeHandler>>>,
     /// Answers the field's edits.
@@ -266,7 +266,7 @@ impl HexField {
                 return;
             };
             // Held at once, so a second notification before the host redraws
-            // does not report the same colour twice.
+            // does not report the same color twice.
             field.held = next;
             let handler = field.on_change.borrow().clone();
             if let Some(handler) = handler {
@@ -281,10 +281,10 @@ impl HexField {
         }
     }
 
-    /// Brings the field up to the colour the picker is drawn with this frame.
+    /// Brings the field up to the color the picker is drawn with this frame.
     ///
-    /// The text is rewritten only when the colour moved and the text spells
-    /// some other colour, or when the field is empty — so the caret is not
+    /// The text is rewritten only when the color moved and the text spells
+    /// some other color, or when the field is empty — so the caret is not
     /// thrown about while the user types, and `#ABCDEF` stays as typed rather
     /// than being lowered under the cursor.
     fn sync(&mut self, value: Hsv, on_change: Option<ChangeHandler>, cx: &mut Context<Self>) {
@@ -326,7 +326,7 @@ pub struct DraggedColor {
 }
 
 impl DraggedColor {
-    /// The colour this drag has reached from `current`, if it belongs to the
+    /// The color this drag has reached from `current`, if it belongs to the
     /// picker `id`.
     pub fn color(&self, id: &ElementId, position: Point<Pixels>, current: Hsv) -> Option<Hsv> {
         if self.id != *id {
@@ -358,19 +358,19 @@ fn down(area: Bounds<Pixels>, position: Point<Pixels>) -> f32 {
     (f32::from(position.y - area.origin.y) / height).clamp(0., 1.)
 }
 
-/// The colour a pointer at `position` picks in the field `area`: saturation
+/// The color a pointer at `position` picks in the field `area`: saturation
 /// across, value down — brightest at the top — and `current`'s hue.
 fn field_at(area: Bounds<Pixels>, position: Point<Pixels>, current: Hsv) -> Hsv {
     Hsv::new(current.h, across(area, position), 1. - down(area, position))
 }
 
-/// The colour a pointer at `position` picks in the hue strip `area`: the hue
+/// The color a pointer at `position` picks in the hue strip `area`: the hue
 /// across, and `current`'s saturation and value.
 fn hue_at(area: Bounds<Pixels>, position: Point<Pixels>, current: Hsv) -> Hsv {
     Hsv::new(across(area, position), current.s, current.v)
 }
 
-/// The colour a key press asks for from `current`, or `None` for a key the
+/// The color a key press asks for from `current`, or `None` for a key the
 /// picker does not answer to.
 fn keyed(current: Hsv, key: &str, shift: bool) -> Option<Hsv> {
     let step = if shift { COARSE_STEP } else { FINE_STEP };
@@ -395,9 +395,9 @@ fn keyed(current: Hsv, key: &str, shift: bool) -> Option<Hsv> {
     })
 }
 
-/// A stateless colour picker.
+/// A stateless color picker.
 ///
-/// The parent view passes the current colour on every render and updates its
+/// The parent view passes the current color on every render and updates its
 /// own state from [`ColorPicker::on_change`]. It fills the width it is given;
 /// the field is a fixed height, the hue strip under it, and the presets — if
 /// any — under that.
@@ -452,14 +452,14 @@ impl ColorPicker {
         self
     }
 
-    /// Sets the colour shown.
+    /// Sets the color shown.
     pub fn value(mut self, value: Hsv) -> Self {
         self.value = value;
         self
     }
 
-    /// Lays a row of swatches under the strip, each picking its colour on a
-    /// click. The one matching the current colour is ringed.
+    /// Lays a row of swatches under the strip, each picking its color on a
+    /// click. The one matching the current color is ringed.
     pub fn presets(mut self, presets: impl IntoIterator<Item = Hsla>) -> Self {
         self.presets = presets.into_iter().collect();
         self
@@ -479,7 +479,7 @@ impl ColorPicker {
         self
     }
 
-    /// Sets the callback run with the colour the picker is moving to.
+    /// Sets the callback run with the color the picker is moving to.
     pub fn on_change(mut self, handler: impl Fn(Hsv, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Rc::new(handler));
         self
@@ -497,7 +497,7 @@ fn measure(area: Rc<Cell<Bounds<Pixels>>>) -> impl IntoElement {
     .size_full()
 }
 
-/// A press in `area` of `part`, answered with the colour it picks.
+/// A press in `area` of `part`, answered with the color it picks.
 fn pressed(
     part: Part,
     area: Rc<Cell<Bounds<Pixels>>>,
@@ -530,7 +530,7 @@ fn hue_segments() -> impl IntoElement {
             let from = Hsv::new(sixth as f32 / 6., 1., 1.).to_hsla();
             let to = Hsv::new((sixth + 1) as f32 / 6., 1., 1.).to_hsla();
             // The last stop is red again, which `Hsv::new` would clamp to the
-            // same red; spelled out so the strip closes on the colour it opened on.
+            // same red; spelled out so the strip closes on the color it opened on.
             let to = if sixth == 5 {
                 Hsv::new(0., 1., 1.).to_hsla()
             } else {
@@ -545,7 +545,7 @@ fn hue_segments() -> impl IntoElement {
 }
 
 /// A ring the knobs are drawn as: white with a dark edge, so it reads on every
-/// colour the field can show.
+/// color the field can show.
 fn knob(size: f32) -> gpui::Div {
     div()
         .flex_none()
@@ -614,7 +614,7 @@ impl RenderOnce for ColorPicker {
                 linear_color_stop(gpui::black(), 1.),
             )))
             .child(
-                // Zero-sized, at the colour's place, with the knob centred on
+                // Zero-sized, at the color's place, with the knob centered on
                 // it by a plain offset.
                 div()
                     .absolute()
@@ -706,8 +706,8 @@ impl RenderOnce for ColorPicker {
                         .child(color_swatch(color, &theme).size(px(PRESET)))
                         .on_click(move |_, window, cx| {
                             if let Some(handler) = on_change.as_ref() {
-                                // A grey preset keeps the hue the field was
-                                // under, like a typed grey does.
+                                // A gray preset keeps the hue the field was
+                                // under, like a typed gray does.
                                 handler(picked.keeping_hue(value), window, cx);
                             }
                         })
@@ -799,7 +799,7 @@ mod tests {
         for hex in [
             "#ff0000", "#00ff00", "#0000ff", "#2563eb", "#7f1d1d", "#000000", "#ffffff",
         ] {
-            let color = Hsv::from_hex(hex).expect("a colour");
+            let color = Hsv::from_hex(hex).expect("a color");
             assert_eq!(color.to_hex(), hex);
         }
         let blue = Hsv::from_hex("2563EB").expect("the # is optional");
@@ -810,22 +810,22 @@ mod tests {
     }
 
     #[test]
-    fn the_parts_of_a_colour_are_read_back() {
+    fn the_parts_of_a_color_are_read_back() {
         let red = Hsv::from_hsla(rgb(0xff0000).into());
         assert!(close(red.h, 0.) && close(red.s, 1.) && close(red.v, 1.));
         let cyan = Hsv::from_hsla(rgb(0x00ffff).into());
         assert!(close(cyan.h, 0.5), "{}", cyan.h);
-        let grey = Hsv::from_hsla(rgb(0x808080).into());
-        assert!(close(grey.s, 0.));
-        assert!(close(grey.v, 128. / 255.));
+        let gray = Hsv::from_hsla(rgb(0x808080).into());
+        assert!(close(gray.s, 0.));
+        assert!(close(gray.v, 128. / 255.));
     }
 
     #[test]
-    fn a_grey_keeps_the_hue_it_was_picked_under() {
+    fn a_gray_keeps_the_hue_it_was_picked_under() {
         let previous = Hsv::new(0.6, 0.8, 0.8);
-        let grey = Hsv::from_hex("#808080").expect("grey");
-        assert!(close(grey.keeping_hue(previous).h, 0.6));
-        // A colour with a hue of its own keeps it.
+        let gray = Hsv::from_hex("#808080").expect("gray");
+        assert!(close(gray.keeping_hue(previous).h, 0.6));
+        // A color with a hue of its own keeps it.
         let red = Hsv::from_hex("#ff0000").expect("red");
         assert!(close(red.keeping_hue(previous).h, 0.));
     }
@@ -957,7 +957,7 @@ mod tests {
     }
 
     /// A press in the field and one in the strip land where they were made:
-    /// the box the canvas measured is the box the colour is drawn against.
+    /// the box the canvas measured is the box the color is drawn against.
     #[gpui::test]
     fn presses_in_the_field_and_the_strip_pick_what_is_under_them(cx: &mut TestAppContext) {
         let (value, mut cx) = open(Hsv::new(0.5, 0., 0.), false, cx);
@@ -1044,7 +1044,7 @@ mod tests {
     }
 
     /// The field and the knobs follow each other: a press in the field writes
-    /// the colour into the hex field, and a colour typed there moves the knobs.
+    /// the color into the hex field, and a color typed there moves the knobs.
     #[gpui::test]
     fn the_hex_field_and_the_knobs_follow_each_other(cx: &mut TestAppContext) {
         let (value, mut cx) = open(Hsv::from_hex("#2563eb").expect("blue"), true, cx);
@@ -1058,7 +1058,7 @@ mod tests {
         assert_ne!(moved, "#2563eb");
         assert_eq!(hex_text(&mut cx), moved);
 
-        // Text to knobs: half typed moves nothing, a whole colour does.
+        // Text to knobs: half typed moves nothing, a whole color does.
         let field = cx
             .debug_bounds(HEX_SELECTOR)
             .expect("the hex field is drawn");
@@ -1070,24 +1070,24 @@ mod tests {
         cx.simulate_keystrokes(&format!("{SECONDARY}-a"));
         cx.simulate_input("#00ff");
         cx.run_until_parked();
-        assert_eq!(value.get().to_hex(), moved, "half a colour moved the knobs");
+        assert_eq!(value.get().to_hex(), moved, "half a color moved the knobs");
         cx.simulate_input("00");
         cx.run_until_parked();
         let picked = value.get();
         assert_eq!(picked.to_hex(), "#00ff00");
         assert!((picked.h - 1. / 3.).abs() < 1e-3, "{picked:?}");
 
-        // A grey typed in keeps the hue the knobs were under.
+        // A gray typed in keeps the hue the knobs were under.
         cx.simulate_keystrokes(&format!("{SECONDARY}-a"));
         cx.simulate_input("#808080");
         cx.run_until_parked();
-        let grey = value.get();
-        assert_eq!(grey.to_hex(), "#808080");
-        assert!((grey.h - 1. / 3.).abs() < 1e-3, "{grey:?}");
+        let gray = value.get();
+        assert_eq!(gray.to_hex(), "#808080");
+        assert!((gray.h - 1. / 3.).abs() < 1e-3, "{gray:?}");
     }
 
     #[test]
-    fn typing_answers_only_a_whole_colour_that_differs() {
+    fn typing_answers_only_a_whole_color_that_differs() {
         let held = Hsv::from_hex("#2563eb").expect("blue");
         assert_eq!(typed("#2563e", held), None);
         assert_eq!(typed("#2563EB", held), None);

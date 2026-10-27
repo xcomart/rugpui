@@ -10,15 +10,15 @@
 //! Like the rest of the kit the slider is stateless: the owning view passes the
 //! current value on every render and updates its own state from
 //! [`Slider::on_change`]. There is nothing to keep beside it and nothing to
-//! initialise.
+//! initialize.
 //!
 //! Three ways to move it, and all three end at the same callback:
 //!
 //! * Dragging the knob, which is the interesting one and is described below.
-//! * Pressing the track, which puts the knob's centre where the pointer landed.
+//! * Pressing the track, which puts the knob's center where the pointer landed.
 //! * The arrow keys, while the slider holds focus. Those move in steps of
 //!   [`Slider::step`] and snap to that step's grid, so a value a drag left at
-//!   `0.42` becomes `0.45` rather than `0.47` — the behaviour a stepped control
+//!   `0.42` becomes `0.45` rather than `0.47` — the behavior a stepped control
 //!   is expected to have, and the only reason a step exists at all.
 //!
 //! ## How a drag finds its way home
@@ -65,7 +65,7 @@ pub(crate) const KNOB: f32 = 14.;
 
 /// Half the knob, in pixels.
 ///
-/// The distance from the knob's leading edge to its centre, which is where a
+/// The distance from the knob's leading edge to its center, which is where a
 /// press on the bare track wants the knob to end up and where the filled part
 /// of the track stops.
 pub(crate) const HALF_KNOB: f32 = KNOB / 2.;
@@ -75,7 +75,7 @@ pub(crate) const TRACK: f32 = 4.;
 
 /// Distance from the top of the control to the top of the track, in pixels.
 ///
-/// Centres the thin track against the knob that rides it.
+/// Centers the thin track against the knob that rides it.
 pub(crate) const TRACK_TOP: f32 = (KNOB - TRACK) / 2.;
 
 /// How far an arrow key moves a slider that has not said otherwise.
@@ -206,7 +206,7 @@ impl DraggedKnob {
 /// The parent view passes the current value on every render and updates its own
 /// state from [`Slider::on_change`], which receives the value the slider is
 /// moving to. Values outside the range are clamped rather than refused, so a
-/// host is never made to sanitise a number before it can draw.
+/// host is never made to sanitize a number before it can draw.
 ///
 /// `id` has to be unique among every slider that can be dragged at the same
 /// time — in practice, within the window — because it is what tells one
@@ -316,7 +316,7 @@ impl RenderOnce for Slider {
     /// is a percentage of the travel, so the value can be drawn without knowing
     /// how wide the slider ended up. The filled part reaches back over the
     /// rail's leading edge to the groove's, so it starts where the track starts
-    /// and stops under the knob's centre.
+    /// and stops under the knob's center.
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
         let value = fraction(self.value);
@@ -387,7 +387,7 @@ impl RenderOnce for Slider {
                 },
             );
 
-        // Zero width, so the knob hung off it can be centred on the fraction
+        // Zero width, so the knob hung off it can be centered on the fraction
         // with a plain offset rather than by mixing a percentage and a pixel
         // count in one length.
         let anchor = div()
@@ -415,7 +415,7 @@ impl RenderOnce for Slider {
                     return;
                 };
                 // Half a knob, because a press on the track asks for the knob's
-                // centre to come to the pointer rather than its leading edge.
+                // center to come to the pointer rather than its leading edge.
                 if let Some(next) = value_at(track.get(), event.position.x, px(HALF_KNOB))
                     && next != value
                 {
@@ -589,7 +589,7 @@ mod tests {
         (showing, changes, cx)
     }
 
-    /// The column a slider showing `value` puts the knob's centre at.
+    /// The column a slider showing `value` puts the knob's center at.
     fn column(value: f32) -> f32 {
         INSET + HALF_KNOB + value * TRAVEL
     }
@@ -614,7 +614,7 @@ mod tests {
         cx.run_until_parked();
     }
 
-    /// A press on the bare track brings the knob's centre to the pointer, and
+    /// A press on the bare track brings the knob's center to the pointer, and
     /// the two ends of the track are the two ends of the range — which is the
     /// whole of "the box the canvas measured is the box the value is drawn
     /// against".
@@ -631,21 +631,21 @@ mod tests {
         press(&mut cx, column(0.));
         assert!(close(value.get(), 0.), "{}", value.get());
 
-        // The last of the track is past where the knob's centre can reach, and
+        // The last of the track is past where the knob's center can reach, and
         // a press there stops at the end rather than running on.
         press(&mut cx, column(1.) + HALF_KNOB - 1.);
         assert!(close(value.get(), 1.), "{}", value.get());
     }
 
     /// A press on the knob belongs to the knob: it is where a drag begins, and
-    /// reading it as a jump would shift the knob by however far from its centre
+    /// reading it as a jump would shift the knob by however far from its center
     /// the hand landed.
     #[gpui::test]
     fn a_press_on_the_knob_moves_nothing(cx: &mut TestAppContext) {
         let (value, changes, mut cx) = open(0.5, cx);
 
         // Inside the knob, which reaches half its width either side of the
-        // centre, but not on its centre — so a slider that mistook this for a
+        // center, but not on its center — so a slider that mistook this for a
         // press on the track would visibly move.
         press(&mut cx, column(0.5) + HALF_KNOB - 2.);
         assert_eq!(
@@ -670,7 +670,7 @@ mod tests {
         let (value, _, mut cx) = open(0.25, cx);
         let knob_left = INSET + 0.25 * TRAVEL;
 
-        // Down two pixels short of the knob's centre, then three along — just
+        // Down two pixels short of the knob's center, then three along — just
         // past the two gpui tells a drag from a click by. gpui reads the grab
         // off the pointer at the moment it decides a drag has begun rather than
         // at the press, so the point held is that press plus those three, and a
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!(fraction(f32::INFINITY), 1.);
     }
 
-    /// The ends line up: grabbing the knob by its centre and holding it over
+    /// The ends line up: grabbing the knob by its center and holding it over
     /// either end of the track puts the slider at that end, and over the middle
     /// puts it halfway.
     #[test]

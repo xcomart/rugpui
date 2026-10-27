@@ -45,7 +45,7 @@ revision past it.
   out by setting no handler now shows it.
 - `locale::check_locale_dir` also fails on an unquoted value with a `#` after
   a space. YAML reads the rest of such a line as a comment, so the value loads
-  cut short — `Every colour has to be written as #RRGGBB.` showed as only the
+  cut short — `Every color has to be written as #RRGGBB.` showed as only the
   words before the `#` — and the failure names the file, the key and what was
   lost. A consumer whose locale files have such a value has to quote it before
   its locale test passes again.
@@ -204,12 +204,12 @@ revision past it.
 - `rugpui-shell`: `PaneTree::swap` exchanges the places of two panes. Each
   pane moves with its id, and the splits and their ratios stay where they are.
 - `rugpui`: `MenuEntry::swatch` and `SelectOption::swatch` lead a row with a
-  square of the given colour. A menu with any swatched row lays the square's
+  square of the given color. A menu with any swatched row lays the square's
   column out on every row; a `Select` reserves nothing on a row without one and
   shows the selected option's square on the trigger. `SelectOption` has a new
   public field, `swatch: Option<Hsla>`, and no longer derives `Eq`; code that
   builds a `SelectOption` literal has to supply the field.
-- `rugpui`: `ColorPicker`, a stateless colour picker — a saturation/value
+- `rugpui`: `ColorPicker`, a stateless color picker — a saturation/value
   field over a hue strip, a `#rrggbb` field kept in step with both, optional
   preset swatches, a tab stop and keys —
   working in the new `Hsv` type, which converts to and from `Hsla`, `Rgba` and
@@ -239,7 +239,7 @@ revision past it.
 - The vendored X11 `WM_DELETE_WINDOW` patch is gone: upstream now runs
   `should_close` and `close` outside the client borrow itself (zed#63089).
 - `zlog`, `ztracing` and `ztracing_macro` are Apache-2.0 upstream now
-  (zed#63573), so the GPL-3.0 licence exceptions are removed from `deny.toml`.
+  (zed#63573), so the GPL-3.0 license exceptions are removed from `deny.toml`.
   wgpu comes from a pinned git revision of `gfx-rs/wgpu`, which a consumer
   running `cargo deny` has to allow as a source.
 

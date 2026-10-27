@@ -73,7 +73,7 @@ impl Segmented {
     /// The group takes a single tab stop rather than one per segment, so `Tab`
     /// steps past the control instead of through it. While focused, `Left` and
     /// `Right` (and `Up`/`Down`) move the selection, wrapping at either end —
-    /// the behaviour WAI-ARIA prescribes for a radio group.
+    /// the behavior WAI-ARIA prescribes for a radio group.
     pub fn tab_index(mut self, index: isize) -> Self {
         self.tab_index = Some(index);
         self

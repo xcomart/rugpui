@@ -84,7 +84,7 @@ Before the first window opens, call [`rugpui::init`](../getting-started.md) (whi
 
 *`multiline(3)`: three rows tall, and `Enter` breaks the line instead of submitting.*
 
-![A greyed, read-only field](../screenshots/text-input/disabled.png)
+![A grayed, read-only field](../screenshots/text-input/disabled.png)
 
 *`disabled(true)`: muted text, no menu, and no actions wired at all.*
 
@@ -176,7 +176,7 @@ The frame is 32 px tall for a single line (a 20 px line box with 6 px either sid
 ## Pitfalls
 
 - **Builders run once.** `input.placeholder("…")` on an existing entity will not compile the way you want — use `set_placeholder`. The same goes for the content: only `set_content` and `clear` exist after construction.
-- **A disabled field is inert, not merely grey.** None of the actions, mouse handlers or the right-click menu are wired at all while `disabled(true)`, so there is no row a read-only field could honour.
+- **A disabled field is inert, not merely gray.** None of the actions, mouse handlers or the right-click menu are wired at all while `disabled(true)`, so there is no row a read-only field could honor.
 - **No menu without labels.** A field built without `.context_menu(...)` has no right-click menu; this is the default, not an oversight.
 - **`Enter` means two different things.** Check `is_multiline()` before assuming `on_submit` will ever fire.
 - **Masked fields still hold the real string.** Only the rendering is masked; `content()` returns the plaintext, and copy/cut are refused so it cannot leak to the clipboard.

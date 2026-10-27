@@ -1,6 +1,6 @@
 # ListView
 
-A virtualised flat list whose rows the host draws itself. The widget owns the *shape* — how tall a row is, which one is selected, where the viewport sits — and the host owns the items, handed over through a `ListSource` keyed by an id the host invents. What is *inside* a row is never the list's business: a contact card, a saved query and a connection with a status dot are all the same widget, because the only thing the list draws inside a row is the row the host handed back.
+A virtualized flat list whose rows the host draws itself. The widget owns the *shape* — how tall a row is, which one is selected, where the viewport sits — and the host owns the items, handed over through a `ListSource` keyed by an id the host invents. What is *inside* a row is never the list's business: a contact card, a saved query and a connection with a status dot are all the same widget, because the only thing the list draws inside a row is the row the host handed back.
 
 Source: [list.rs](../../crates/rugpui/src/list.rs). Re-exported as `rugpui::{ListView, ListSource, ListRowInfo, ListEvent}`; `list::init` is called for you by `rugpui::init`.
 
@@ -112,7 +112,7 @@ The row it fills is the full width inside the list's padding, laid out with `fle
 
 The selection is remembered and reported by `Id` rather than by a row number, which is what lets a host filter, sort or refetch its items without the highlight landing on a different one. Ids must therefore be **stable across such a change**: a key or a qualified name, never a position.
 
-Unlike a tree's, though, an id the source has stopped holding is not a selection that is merely off screen — a flat list has no closed branch a row could be hiding inside. So the list drops it and emits `SelectionChanged(None)`. That is the one behavioural difference between the two widgets' memories.
+Unlike a tree's, though, an id the source has stopped holding is not a selection that is merely off screen — a flat list has no closed branch a row could be hiding inside. So the list drops it and emits `SelectionChanged(None)`. That is the one behavioral difference between the two widgets' memories.
 
 ## Creating and subscribing
 
@@ -155,11 +155,11 @@ Every double click arrives as `Activated`, which a tree's does not: a flat row i
 
 ## The empty state
 
-`render_empty` defaults to nothing, because the obvious default would be a sentence and this layer has no strings: "No items" in English inside a Korean application would be worse than an empty box. The host overrides it with a wording of its own — or a glyph, or an illustration and a button — and is handed the whole of the list's area rather than a row, because what goes there is usually centred.
+`render_empty` defaults to nothing, because the obvious default would be a sentence and this layer has no strings: "No items" in English inside a Korean application would be worse than an empty box. The host overrides it with a wording of its own — or a glyph, or an illustration and a button — and is handed the whole of the list's area rather than a row, because what goes there is usually centered.
 
 ![An empty bordered box with a muted dash in the middle of it](../screenshots/list/empty.png)
 
-*A source whose `len()` is zero, with a `render_empty` that centres one muted glyph.*
+*A source whose `len()` is zero, with a `render_empty` that centers one muted glyph.*
 
 ## Methods
 
@@ -222,6 +222,6 @@ Layout constants worth knowing when you draw a row: rows are 24 px tall until `r
 - **`len` and `id` must not fetch.** They are asked during a draw. A list over data that is still arriving is a list whose source answers `len() == 0` until it lands.
 - **Reuse ids across a refetch** or the selection is dropped — and, unlike a tree's, it is dropped rather than kept.
 - **`source_mut` refreshes; a source that only *reads* host data does not.** If your items live somewhere else entirely, call `refresh(cx)` yourself after they change.
-- **One height for the whole list.** A row that needs to be taller than its neighbours is not something `uniform_list` can draw; give every row the tallest shape, or use a different widget.
+- **One height for the whole list.** A row that needs to be taller than its neighbors is not something `uniform_list` can draw; give every row the tallest shape, or use a different widget.
 - **`render_empty` draws nothing by default**, so a list that has not loaded yet looks like a list with nothing in it. Say which, in the host's own words.
 - **`selected_index()` is as of the last rebuild.** After changing the source, the answer arrives on the next draw.

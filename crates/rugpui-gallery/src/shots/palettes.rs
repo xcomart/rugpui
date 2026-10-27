@@ -71,10 +71,10 @@ pub const SHOTS: &[Shot] = &[
 ///
 /// An *id*, not a name: a scheme is chosen by the string `settings.json` stores,
 /// and a picker handed an id nothing answers to shows the id itself — which is
-/// correct behaviour and a poor picture.
+/// correct behavior and a poor picture.
 const FIRST_SCHEME: &str = "one-dark";
 
-/// One entry per registered chrome theme, each carrying the colours that tell
+/// One entry per registered chrome theme, each carrying the colors that tell
 /// it from the others.
 fn scheme_swatches(cx: &App) -> Vec<SchemeSwatch> {
     ThemeRegistry::all(cx)

@@ -54,7 +54,7 @@ const KEY_CONTEXT: &str = "TabBar";
 /// bar handed a [`TabBar::focus_handle`] carries, so the arrows keep meaning
 /// what they meant everywhere else in the app. The reorder chords follow the
 /// platform's command key — `cmd` on macOS, `ctrl` elsewhere — the way the
-/// text input's clipboard chords do. On macOS the key labelled Delete sends
+/// text input's clipboard chords do. On macOS the key labeled Delete sends
 /// `backspace`, so it closes the tab there too.
 pub fn init(cx: &mut App) {
     let modifier = if cfg!(target_os = "macos") {
@@ -143,11 +143,11 @@ pub struct TabItem {
     pub closable: bool,
     /// Connection state dot. `None` renders no dot at all.
     pub status: Option<TabStatus>,
-    /// Dot colour chosen by the owner, overriding the one [`TabItem::status`]
+    /// Dot color chosen by the owner, overriding the one [`TabItem::status`]
     /// would take from the theme.
     ///
     /// For the strips whose dot means something the four states cannot say — a
-    /// pane's tabs mark which connection each of them belongs to, in the colour
+    /// pane's tabs mark which connection each of them belongs to, in the color
     /// that connection's profile carries. `None` leaves the status in charge.
     pub dot: Option<Hsla>,
     /// Mark drawn after the title. `None` renders no mark at all, and a tab may
@@ -180,16 +180,16 @@ impl TabItem {
         self
     }
 
-    /// Attaches a dot in a colour of the caller's choosing.
+    /// Attaches a dot in a color of the caller's choosing.
     ///
-    /// Wins over [`TabItem::status`] when both are set, because a colour named
+    /// Wins over [`TabItem::status`] when both are set, because a color named
     /// outright is the more specific of the two.
     pub fn dot(mut self, color: Hsla) -> Self {
         self.dot = Some(color);
         self
     }
 
-    /// Draws the asset at `icon` after the title, labelled `tooltip` on hover.
+    /// Draws the asset at `icon` after the title, labeled `tooltip` on hover.
     ///
     /// Both come from the caller, icon path included, for the reason given on
     /// [`TabBar::tooltips`]: this layer carries neither text nor assets of its
@@ -284,7 +284,7 @@ pub struct DraggedTab {
 ///     })
 /// ```
 ///
-/// A drag cancelled with a release outside every drop target reaches no drop
+/// A drag canceled with a release outside every drop target reaches no drop
 /// handler, so the owner's root also calls [`TabDropState::clear`] on its own
 /// mouse-up — a no-op after a drop, which already took the bar.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -547,7 +547,7 @@ impl TabBar {
     /// "+", and the close button on every tab.
     ///
     /// Passed in rather than looked up, like every other string here: this layer
-    /// carries no text of its own, so the localised wording belongs to the view
+    /// carries no text of its own, so the localized wording belongs to the view
     /// that builds the bar. Any of them left unset simply shows no tooltip.
     pub fn tooltips(
         mut self,
@@ -735,11 +735,11 @@ impl TabBar {
     /// widget is rebuilt every frame and could not keep one of its own. While
     /// it holds focus the active tab wears an accent ring and the keys [`init`]
     /// binds work the strip: Left and Right (Home and End) ask
-    /// [`TabBar::on_select`] for the neighbouring (first, last) tab, Delete
+    /// [`TabBar::on_select`] for the neighboring (first, last) tab, Delete
     /// asks [`TabBar::on_close`] to close the active one when it is closable,
     /// and Ctrl+Shift+PageUp / PageDown (Cmd on macOS) ask
     /// [`TabBar::on_reorder`] to move it one place, as a drop in the gap past
-    /// its neighbour would — which needs a [`TabBar::drag_source`] tag, the
+    /// its neighbor would — which needs a [`TabBar::drag_source`] tag, the
     /// source a reorder reports. At either end of the strip a key does nothing.
     ///
     /// The bar does not take focus when a tab is clicked: a click on a tab
@@ -776,8 +776,8 @@ fn key_request(command: KeyCommand, active: usize, len: usize) -> Option<KeyRequ
         KeyCommand::First => (active != 0).then_some(KeyRequest::Select(0)),
         KeyCommand::Last => (active + 1 != len).then_some(KeyRequest::Select(len - 1)),
         KeyCommand::Close => Some(KeyRequest::Close(active)),
-        // One place left is the gap before the left neighbour; one place
-        // right is the gap past the right neighbour, since the gap straight
+        // One place left is the gap before the left neighbor; one place
+        // right is the gap past the right neighbor, since the gap straight
         // after the tab is where it already is.
         KeyCommand::MoveLeft => active
             .checked_sub(1)
@@ -898,7 +898,7 @@ impl RenderOnce for TabBar {
                     // The list is a choice, not a set of commands: the row of
                     // the tab that is showing carries the menu's check mark.
                     // It used to be pushed into the shortcut slot, on the right
-                    // and in the muted hint colour, because there was nowhere
+                    // and in the muted hint color, because there was nowhere
                     // else to put it.
                     let mut entry = MenuEntry::new(tab.title.clone()).checked(index == active);
                     if let Some(handler) = on_select.clone() {

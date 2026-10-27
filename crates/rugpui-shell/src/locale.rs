@@ -193,8 +193,8 @@ const YAML_KEYWORDS: [&str; 22] = [
 /// Where YAML starts a comment inside a value, if it does.
 ///
 /// A `#` with whitespace before it opens a comment, so the plain scalar
-/// `Every colour has to be written as #RRGGBB.` loads as only the words before
-/// the `#`, and the colour format it was there to name is gone. The value here
+/// `Every color has to be written as #RRGGBB.` loads as only the words before
+/// the `#`, and the color format it was there to name is gone. The value here
 /// is already trimmed, so a `#` at its very start had the space after the colon
 /// in front of it, and the whole value is a comment. A quoted value is text all
 /// the way to its closing quote.
@@ -482,7 +482,7 @@ common:
         );
         check_locale_dir(dir.path(), &["en", "ko"]);
 
-        // The value that loaded as only "Every colour has to be written as".
+        // The value that loaded as only "Every color has to be written as".
         write(
             "ko",
             "settings:\n  invalid: 모든 색은 #RRGGBB 형식으로 써야 합니다.\n  issue: 이슈#42\n",

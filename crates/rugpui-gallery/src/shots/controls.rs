@@ -458,7 +458,7 @@ fn spinner_sizes(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-/// The theme's accent, which is the default, beside two colours of the host's.
+/// The theme's accent, which is the default, beside two colors of the host's.
 fn spinner_color(_window: &mut Window, cx: &mut App) -> AnyView {
     panel(cx, |_window, cx| {
         let palette = theme(cx);

@@ -1,16 +1,16 @@
 # SchemeSelect
 
-A dropdown that picks one colour scheme out of a list: the same trigger, deferred list, backdrop and arrow keys as [`Select`](./select.md), over entries that carry colours as well as a name. Reach for it in a settings dialog that has to offer a palette on one line.
+A dropdown that picks one color scheme out of a list: the same trigger, deferred list, backdrop and arrow keys as [`Select`](./select.md), over entries that carry colors as well as a name. Reach for it in a settings dialog that has to offer a palette on one line.
 
 Source: [scheme_select.rs](../../crates/rugpui/src/scheme_select.rs). Re-exported as `rugpui::{SchemeSelect, SchemeSwatch, SchemePreview}`.
 
-A grid of preview cards shows more of each scheme at once, but it costs a form several rows of height per catalogue — and a dialog with two catalogues and a dozen other settings is better served by one line each, with the colours carried along on the right of every row. When a syntax palette is what is being chosen, use [`EditorThemePicker`](./editor-theme-picker.md) instead: syntax colours only mean anything in arrangement, and a pill of swatches cannot answer "can I still tell a keyword from a column name".
+A grid of preview cards shows more of each scheme at once, but it costs a form several rows of height per catalog — and a dialog with two catalogs and a dozen other settings is better served by one line each, with the colors carried along on the right of every row. When a syntax palette is what is being chosen, use [`EditorThemePicker`](./editor-theme-picker.md) instead: syntax colors only mean anything in arrangement, and a pill of swatches cannot answer "can I still tell a keyword from a column name".
 
 The widget knows nothing about what it is previewing. Callers hand it plain `Hsla` values, so the same dropdown fits anything with a background, a foreground and a handful of accents.
 
 ## Feeding it from `ThemeRegistry`
 
-Entries are identified by **id**, not by label — a scheme's name is what the user reads, its id is what `settings.json` stores, and the two are not the same string. `ThemeRegistry::all(cx)` returns exactly the `ThemeEntry { id, name, dark, builtin }` rows to build from, and `ThemeRegistry::resolve(id, cx)` turns an id into the `Theme` whose colours go into the pill:
+Entries are identified by **id**, not by label — a scheme's name is what the user reads, its id is what `settings.json` stores, and the two are not the same string. `ThemeRegistry::all(cx)` returns exactly the `ThemeEntry { id, name, dark, builtin }` rows to build from, and `ThemeRegistry::resolve(id, cx)` turns an id into the `Theme` whose colors go into the pill:
 
 ```rust
 use rugpui::{SchemePreview, SchemeSelect, SchemeSwatch, Theme, ThemeRegistry};
@@ -63,7 +63,7 @@ SchemeSelect::new("scheme")
 | method | argument | effect |
 | --- | --- | --- |
 | `SchemeSwatch::new` | id, name | an entry with **no** preview, drawn as a muted placeholder pill |
-| `.preview` | `SchemePreview` | the colours the pill is painted with |
+| `.preview` | `SchemePreview` | the colors the pill is painted with |
 | `.placeholder_label` | `impl Into<SharedString>` | text on the placeholder pill (default `"inherits"`, English) |
 
 `SchemePreview` is a plain struct with three public fields:
@@ -71,10 +71,10 @@ SchemeSelect::new("scheme")
 | field | type | drawn as |
 | --- | --- | --- |
 | `background` | `Hsla` | the pill's fill |
-| `foreground` | `Hsla` | the colour of the sample `Aa` |
+| `foreground` | `Hsla` | the color of the sample `Aa` |
 | `accents` | `Vec<Hsla>` | 8 px round chips beside the sample, in the order given |
 
-An entry with no preview gets an *outlined* pill carrying its placeholder label, so that "inherit the other choice" reads as an absence of colour rather than as a scheme that happens to be transparent. That is how a picker offers "follow the app theme": one `SchemeSwatch::new(id, name)` with no `.preview(…)`, and a translated `.placeholder_label(…)`.
+An entry with no preview gets an *outlined* pill carrying its placeholder label, so that "inherit the other choice" reads as an absence of color rather than as a scheme that happens to be transparent. That is how a picker offers "follow the app theme": one `SchemeSwatch::new(id, name)` with no `.preview(…)`, and a translated `.placeholder_label(…)`.
 
 ## Builder options
 
@@ -97,7 +97,7 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 
 ![A closed trigger showing a scheme name and its pill](../screenshots/scheme-select/closed.png)
 
-*`selected(Some("one-dark"))` with the list away: the trigger carries the entry's pill — background, an `Aa` in the foreground colour, and three accent chips.*
+*`selected(Some("one-dark"))` with the list away: the trigger carries the entry's pill — background, an `Aa` in the foreground color, and three accent chips.*
 
 ![The same trigger with a row per registered scheme](../screenshots/scheme-select/open.png)
 
@@ -105,7 +105,7 @@ An entry with no preview gets an *outlined* pill carrying its placeholder label,
 
 `.selected` with an id no entry answers to still shows on the trigger, spelled as the id itself since there is no name to show, and highlights no row. A hand-edited `settings.json` naming a scheme that has since been deleted should say so rather than look like nothing was ever chosen.
 
-`.disabled(true)` is for the case where something else has already made the choice — the editor theme while it follows the chrome theme — and the answer is still worth showing because it moves as the other choice does. Everything that answers a pointer or the keyboard hangs off one branch, so a disabled control is inert rather than merely grey, and it stays shut whatever the open flag says.
+`.disabled(true)` is for the case where something else has already made the choice — the editor theme while it follows the chrome theme — and the answer is still worth showing because it moves as the other choice does. Everything that answers a pointer or the keyboard hangs off one branch, so a disabled control is inert rather than merely gray, and it stays shut whatever the open flag says.
 
 ![The same trigger, muted and inert](../screenshots/scheme-select/disabled.png)
 
@@ -117,7 +117,7 @@ Identical to `Select`. One tab stop; `Enter`/`Space` toggle the list; `Up`/`Down
 
 ## Theme slots
 
-The chrome the control is drawn in comes from the *current* `Theme`; the pill colours come from the `SchemePreview` you supplied.
+The chrome the control is drawn in comes from the *current* `Theme`; the pill colors come from the `SchemePreview` you supplied.
 
 | slot | where |
 | --- | --- |
@@ -149,4 +149,4 @@ The chevron is `rugpui::CARET_DOWN` drawn at 12 px, the same file a tree and a c
 Closed dropdowns build only their trigger. Option rows and their overlays are
 created when the list opens. Use `options_shared(Rc<[SchemeSwatch]>)` for a list that
 changes infrequently; keep the shared list in the owning view and replace it
-when fonts, language or a palette catalogue changes.
+when fonts, language or a palette catalog changes.

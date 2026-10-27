@@ -1,6 +1,6 @@
 # Switch
 
-A labelled on/off switch — a track with a knob that slides from one end to the
+A labeled on/off switch — a track with a knob that slides from one end to the
 other. Its API mirrors [`Checkbox`](./checkbox.md) method for method; pick
 between them on feel alone. A switch reads as "this is turned on right now", a
 checkbox as "this option is selected", which is why a switch suits a setting
@@ -87,7 +87,7 @@ Flipping a switch slides the knob from one end of the track to the other over
 150 ms, and the track fill, the track outline and the knob color cross-fade
 along with it on the same clock — so the accent arrives as the knob does rather
 than a frame early or late. The blend is channel-wise in sRGB
-(`rugpui::theme::lerp`), which takes a grey border straight to the accent
+(`rugpui::theme::lerp`), which takes a gray border straight to the accent
 instead of touring the hues between them.
 
 The switch is still stateless *to its host*: what it remembers is only which
@@ -120,7 +120,7 @@ frames, so the switch snaps.
 
 ## Pitfalls
 
-- The focus ring is a transparent 1 px border that is merely recoloured on
+- The focus ring is a transparent 1 px border that is merely recolored on
   focus, so gaining focus costs no layout and the row does not shift.
 - `on_toggle` is only wired when a handler is supplied; without one the row is
   still styled `cursor_pointer`, which can read as a live control that ignores

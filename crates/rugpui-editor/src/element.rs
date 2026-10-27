@@ -2,7 +2,7 @@
 //!
 //! # Why an element rather than `uniform_list`
 //!
-//! gpui's [`uniform_list`](gpui::uniform_list) virtualises a list by building
+//! gpui's [`uniform_list`](gpui::uniform_list) virtualizes a list by building
 //! only the rows the viewport can reach, which is what `rugpui`'s tree uses
 //! and what the result grid will use. It is the wrong tool here for one reason:
 //! a caret. A caret is not a row, a selection is not a row, the composing
@@ -12,7 +12,7 @@
 //! [`WrappedLine`]. An element gets that; a list of independently rendered rows
 //! does not.
 //!
-//! The virtualisation is the same trick nonetheless, and it is the load-bearing
+//! The virtualization is the same trick nonetheless, and it is the load-bearing
 //! one: `prepaint` works out which rows the viewport covers from the scroll
 //! offset and the line height, and shapes **the lines those rows belong to and
 //! no others**. A hundred thousand lines cost what forty cost. `SyntaxCache`'s
@@ -46,7 +46,7 @@
 //! that edge, and the mask is what keeps it out of the gutter. Clipping rather
 //! than covering, which the gutter used to do with an opaque quad painted over
 //! the text afterwards: a mask says only *where the text may be seen*, and so
-//! assumes nothing about what fills the gutter behind the numbers or what colour
+//! assumes nothing about what fills the gutter behind the numbers or what color
 //! it is. Covering had to be right about both, and had to be redrawn whenever
 //! either changed.
 //!
@@ -83,7 +83,7 @@ const CARET_WIDTH: f32 = 2.;
 /// Width of the bar a gutter mark draws at the left edge of the gutter.
 const MARK_WIDTH: f32 = 3.;
 
-/// How much of the line's height that bar takes, centred on the line.
+/// How much of the line's height that bar takes, centered on the line.
 const MARK_HEIGHT: f32 = 0.7;
 
 /// How strongly a marked line's own row is tinted behind the text.
@@ -263,7 +263,7 @@ impl Element for EditorElement {
         let buffer = editor.buffer();
 
         let scroll = editor.scroll_offset();
-        // *The* virtualisation. Everything below shapes exactly these lines.
+        // *The* virtualization. Everything below shapes exactly these lines.
         // Counted in rows, because that is what the viewport is divided into;
         // the lines they belong to are what gets shaped.
         let total_rows = editor.wrap.total_rows(buffer.line_count());
@@ -636,7 +636,7 @@ impl Element for EditorElement {
 ///
 /// Called from `prepaint` before anything reads a row, and the only writer of
 /// [`crate::wrap::WrapMap`]'s measurements apart from the corrections `paint`
-/// applies. The runs are plain rather than the highlighter's: a colour moves no
+/// applies. The runs are plain rather than the highlighter's: a color moves no
 /// glyph, so the breaks are the same either way, and lexing a whole buffer to
 /// find out where it wraps would be work for nothing. The tabs, on the other
 /// hand, are expanded exactly as `prepaint` expands them: they do move glyphs.
