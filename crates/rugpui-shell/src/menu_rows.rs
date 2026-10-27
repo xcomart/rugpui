@@ -182,15 +182,6 @@ pub fn grayed(rows: &[MenuRow]) -> Vec<String> {
         .collect()
 }
 
-/// The British spelling [`grayed`] had until it moved to US spelling.
-///
-/// Kept only while the applications' published `dev` branches still call it;
-/// remove it once they have all moved to [`grayed`].
-#[deprecated(note = "renamed to `grayed`")]
-pub fn greyed(rows: &[MenuRow]) -> Vec<String> {
-    grayed(rows)
-}
-
 /// The row whose label is `label`, for a test that means to run one.
 ///
 /// By label rather than by index so that inserting a row above the one a test
