@@ -43,6 +43,12 @@ revision past it.
   own bar, handle or open state keeps it; one that ran a bar only for a tab
   strip can drop that state and pass nothing. A strip that left the dropdown
   out by setting no handler now shows it.
+- `locale::check_locale_dir` also fails on an unquoted value with a `#` after
+  a space. YAML reads the rest of such a line as a comment, so the value loads
+  cut short — `Every colour has to be written as #RRGGBB.` showed as only the
+  words before the `#` — and the failure names the file, the key and what was
+  lost. A consumer whose locale files have such a value has to quote it before
+  its locale test passes again.
 
 ## [0.1.12] - 2026-10-26
 
