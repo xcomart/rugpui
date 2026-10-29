@@ -13,7 +13,7 @@
 //! tests read, and it is the same list the user sees, not a second account of
 //! it.
 //!
-//! [`labels`], [`greyed`] and [`row`] are the reading half, and they are
+//! [`labels`], [`grayed`] and [`row`] are the reading half, and they are
 //! compiled into the library rather than gated behind `cfg(test)`: a test of an
 //! application's menu lives in that application's crate, where this crate's own
 //! `cfg(test)` does not reach.
@@ -42,7 +42,7 @@ type Activate = Rc<dyn Fn(&mut Window, &mut App)>;
 ///
 /// A separator is a row with no label, for the same reason [`MenuEntry`] makes
 /// it one: a menu is a list, and the rule between two groups of it holds a
-/// place in that list rather than being a property of its neighbours.
+/// place in that list rather than being a property of its neighbors.
 pub struct MenuRow {
     /// The row's words, or `None` for a separator.
     label: Option<SharedString>,
@@ -88,7 +88,7 @@ impl MenuRow {
         self
     }
 
-    /// Says whether the row can be run, greying it out when it cannot.
+    /// Says whether the row can be run, graying it out when it cannot.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -131,10 +131,10 @@ impl MenuRow {
     /// # Panics
     ///
     /// Panics on a row the menu would not have let the user click: a test that
-    /// activated a greyed row would be asserting about a path the interface
+    /// activated a grayed row would be asserting about a path the interface
     /// does not have.
     pub fn activate(&self, window: &mut Window, cx: &mut App) {
-        assert!(self.enabled, "the row {:?} is greyed out", self.label());
+        assert!(self.enabled, "the row {:?} is grayed out", self.label());
         if let Some(run) = &self.run {
             run(window, cx);
         }
@@ -170,12 +170,12 @@ pub fn labels(rows: &[MenuRow]) -> Vec<String> {
     rows.iter().map(|row| row.label().to_owned()).collect()
 }
 
-/// The words of the rows that are greyed out, in order.
+/// The words of the rows that are grayed out, in order.
 ///
 /// Separators are not among them however they are built: a rule is not a
 /// command that happens to be unavailable, and a test asserting "nothing here
-/// is greyed" should not have to say so.
-pub fn greyed(rows: &[MenuRow]) -> Vec<String> {
+/// is grayed" should not have to say so.
+pub fn grayed(rows: &[MenuRow]) -> Vec<String> {
     rows.iter()
         .filter(|row| !row.is_separator() && !row.enabled)
         .map(|row| row.label().to_owned())
@@ -216,10 +216,10 @@ mod tests {
     }
 
     #[test]
-    fn only_a_greyed_command_is_greyed_and_never_a_rule() {
-        assert_eq!(greyed(&menu()), ["Paste"]);
+    fn only_a_grayed_command_is_grayed_and_never_a_rule() {
+        assert_eq!(grayed(&menu()), ["Paste"]);
         // A separator is built enabled and stays out of the list either way.
-        assert!(greyed(&[MenuRow::separator().enabled(false)]).is_empty());
+        assert!(grayed(&[MenuRow::separator().enabled(false)]).is_empty());
     }
 
     #[test]

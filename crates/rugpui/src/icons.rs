@@ -1,5 +1,5 @@
-//! The disclosure marks and the menu trigger the widgets here draw, embedded
-//! in the binary.
+//! The disclosure marks, the menu trigger and the expand mark the widgets here
+//! draw, embedded in the binary.
 //!
 //! gpui's [`svg`](gpui::svg) element resolves its `path` through the
 //! [`AssetSource`](gpui::AssetSource) the application was built with, and this
@@ -20,9 +20,9 @@
 //! The paths carry a `rugpui/` segment so that a host with a `caret-down.svg`
 //! of its own keeps it: the two namespaces cannot collide.
 //!
-//! What gets drawn is a *monochrome* sprite — resvg rasterises the file, only
+//! What gets drawn is a *monochrome* sprite — resvg rasterizes the file, only
 //! the alpha channel survives, and the element's `text_color` supplies the
-//! colour — so the black stroke written in these two files never reaches the
+//! color — so the black stroke written in these two files never reaches the
 //! screen, and every widget tints them from the palette instead.
 //!
 //! The bytes come from [`include_bytes!`], not from files read at run time: a
@@ -54,8 +54,16 @@ pub const CARET_DOWN: &str = "icons/rugpui/caret-down.svg";
 /// has no font to disagree with.
 pub const MENU: &str = "icons/rugpui/menu.svg";
 
-/// The disclosure marks and the menu trigger, paired with the bytes an asset
-/// source hands back for them.
+/// "Open this in something bigger": two arrows pointing out of opposite
+/// corners.
+///
+/// What the grid's one-line cell field wears at its right-hand end when the
+/// host offers a larger editor for the value — see
+/// `rugpui_grid::GridSource::cell_expandable`.
+pub const EXPAND: &str = "icons/rugpui/expand.svg";
+
+/// The disclosure marks, the menu trigger and the expand mark, paired with the
+/// bytes an asset source hands back for them.
 ///
 /// A host concatenates this into its own table rather than copying these
 /// files: see the module docs.
@@ -66,6 +74,7 @@ pub const ICONS: &[(&str, &[u8])] = &[
     ),
     (CARET_DOWN, include_bytes!("../assets/icons/caret-down.svg")),
     (MENU, include_bytes!("../assets/icons/menu.svg")),
+    (EXPAND, include_bytes!("../assets/icons/expand.svg")),
 ];
 
 #[cfg(test)]

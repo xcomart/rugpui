@@ -2,7 +2,7 @@
 //!
 //! A thumb with no track behind it, drawn over the content rather than beside
 //! it, shown while a surface is being scrolled or while the pointer rests on
-//! the edge it rides, and taken down again once neither is true — the behaviour
+//! the edge it rides, and taken down again once neither is true — the behavior
 //! macOS gives every scrollable view. Nothing here reserves layout space, so
 //! turning it on costs a surface no width.
 //!
@@ -55,8 +55,8 @@ use std::time::Duration;
 
 use gpui::{Animation, transparent_black};
 use gpui::{
-    AnimationExt, AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Pixels, Point,
-    ScrollHandle, Size, Window, div, ease_in_out, prelude::*, px,
+    AnimationExt, AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, MouseButton,
+    MouseUpEvent, Pixels, Point, ScrollHandle, Size, Window, div, ease_in_out, prelude::*, px,
 };
 
 use crate::theme::Theme;
@@ -805,6 +805,91 @@ pub fn scroll_to(handle: &ScrollHandle, axis: ScrollbarAxis, progress: f32) -> b
     true
 }
 
+/// A bar a widget runs off state it keeps for itself, for an owner that
+/// brought none of its own.
+///
+/// `state` is the widget's per-element state and `pick` finds the
+/// [`ScrollbarState`] inside it, so a surface scrolls with the same bar as
+/// every other one without its owner keeping a state, a timer and a drag
+/// listener for it. Looks at where the surface is scrolled to first: comparing
+/// that between renders is what puts the bar up while the surface moves and
+/// arms the clock that takes it down again, exactly as it does for an
+/// owner-run bar. The widget then hands the element the bar is drawn in to
+/// [`answer_own_scrollbar`].
+pub(crate) fn own_scrollbar<S: 'static>(
+    state: &Entity<S>,
+    pick: fn(&mut S) -> &mut ScrollbarState,
+    id: ElementId,
+    axis: ScrollbarAxis,
+    handle: &ScrollHandle,
+    cx: &mut App,
+) -> Scrollbar {
+    let fade = state.update(cx, |this, cx| {
+        if let Some(epoch) = pick(this).moved(scrolled(handle, axis)) {
+            hide_later(epoch, cx, move |this| Some(pick(this)));
+        }
+        pick(this).fade()
+    });
+    let state = state.clone();
+    Scrollbar::for_handle(id, axis, handle)
+        .fade(fade)
+        .on_hover(move |hovered, _window, cx| {
+            state.update(cx, |this, cx| {
+                let bar = pick(this);
+                if *hovered {
+                    if bar.hover_enter() {
+                        cx.notify();
+                    }
+                } else if let Some(epoch) = bar.hover_leave() {
+                    hide_now(this, epoch, cx, move |this| Some(pick(this)));
+                }
+            });
+        })
+}
+
+/// Has `element`, the box a bar from [`own_scrollbar`] is drawn in, answer
+/// drags of that bar and the release that ends one.
+///
+/// A drag that strays off the element still lands here, since gpui hands a
+/// drag to every listener for its type, and so does the release, through
+/// `on_mouse_up_out`.
+pub(crate) fn answer_own_scrollbar<E: InteractiveElement, S: 'static>(
+    element: E,
+    state: &Entity<S>,
+    pick: fn(&mut S) -> &mut ScrollbarState,
+    id: ElementId,
+    axis: ScrollbarAxis,
+    handle: &ScrollHandle,
+) -> E {
+    let handle = handle.clone();
+    let release = {
+        let state = state.clone();
+        move |_: &MouseUpEvent, _: &mut Window, cx: &mut App| {
+            state.update(cx, |this, cx| {
+                if let Some(epoch) = pick(this).release() {
+                    hide_later(epoch, cx, move |this| Some(pick(this)));
+                    cx.notify();
+                }
+            });
+        }
+    };
+    let state = state.clone();
+    element
+        .on_drag_move::<DraggedThumb>(move |event, _window, cx| {
+            let measured = Scrollbar::for_handle(id.clone(), axis, &handle);
+            let Some(progress) = measured.dragged(event, cx) else {
+                return;
+            };
+            state.update(cx, |this, cx| {
+                pick(this).hold();
+                scroll_to(&handle, axis, progress);
+                cx.notify();
+            });
+        })
+        .on_mouse_up(MouseButton::Left, release.clone())
+        .on_mouse_up_out(MouseButton::Left, release)
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::{point, size};
@@ -1072,7 +1157,7 @@ mod tests {
         assert!(!state.finish(before), "a fade completed under a held thumb");
 
         // Movement during the hold arms nothing, so it leaves no timer behind
-        // for every pixel the pointer travelled.
+        // for every pixel the pointer traveled.
         assert_eq!(state.moved(80.), None);
         assert_eq!(state.fade(), Fade::Shown);
 

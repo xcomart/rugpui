@@ -104,7 +104,7 @@ div()
 
 ![A SQL editor with line numbers and a warning in the gutter](./screenshots/editor/sql.png)
 
-*What that comes to: the `sql` highlighter's colours, line numbers, the band on
+*What that comes to: the `sql` highlighter's colors, line numbers, the band on
 the caret's line, and — from `set_marks(..)` — a warning against line 9. The
 [gutter marks](#gutter-marks) section below is where that last one comes from.*
 
@@ -148,7 +148,7 @@ host's to choose.
 | `set_word_wrap` / `is_word_wrap` | `bool`, `cx` / — | / `bool` | Break long lines at the width of the text area, or stop breaking them. See [Word wrap](#word-wrap). |
 | **selection and caret** | | | |
 | `selection` | — | `Range<usize>` | The selected byte range; empty when there is only a caret. |
-| `has_selection` | — | `bool` | Whether anything is selected. Greys out "copy" in a host menu. |
+| `has_selection` | — | `bool` | Whether anything is selected. Grays out "copy" in a host menu. |
 | `caret` | — | `usize` | The caret's byte offset. |
 | `caret_position` | — | `(usize, usize)` | Line and **grapheme** column, both from one — what a status bar shows. |
 | `move_to` | `usize`, `cx` | | Moves the caret, collapsing the selection. Clamped and put on a character boundary. |
@@ -156,7 +156,7 @@ host's to choose.
 | `caret_bounds` | — | `Option<Bounds<Pixels>>` | Where the caret is in **window** coordinates. `None` before the first frame and when the caret's line is off screen. |
 | **statements and history** | | | |
 | `statement_at_caret` | — | `Option<StatementSpan>` | `None` for a plain-text buffer and for any highlighter whose `statements()` is false. |
-| `can_undo` / `can_redo` | — | `bool` | For greying out a host menu. |
+| `can_undo` / `can_redo` | — | `bool` | For graying out a host menu. |
 | `set_history_limits` | `HistoryLimits` | | Caps the undo history by steps and by bytes of text, oldest steps dropped first. `HistoryLimits::DEFAULT` (10,000 steps or 64 MiB) unless changed; `HistoryLimits::UNBOUNDED` keeps everything. |
 | **scrolling** | | | |
 | `scroll_progress` | `ScrollbarAxis` | `f32` | How far along one axis's scrollable range the view is, from zero to one. |
@@ -216,7 +216,7 @@ reject a trailing `;`. `span.text(&source)` and `span.sql(&source)` slice them.
 a menu offers is already an action, so the host dispatches `Copy`, `Cut`,
 `Paste`, `Undo`, `Redo`, `SelectAll`, `ToggleComment`, `Find`, `RunStatement`,
 `RunAll` or `RunSelection` into the `Editor` key context rather than calling
-anything new, and greys them out with `has_selection()`, `can_undo()`,
+anything new, and grays them out with `has_selection()`, `can_undo()`,
 `can_redo()` and `is_read_only()`.
 
 ## Key bindings
@@ -292,7 +292,7 @@ pub trait Highlighter: Send + Sync + 'static {
 returned for the line before, or `LineState::START` for the first line. The
 returned spans are **byte ranges relative to the start of the line**, sorted,
 non-overlapping and inside `text`; they need not tile it, and bytes no span
-covers are drawn in the palette's foreground colour — which is what keeps a
+covers are drawn in the palette's foreground color — which is what keeps a
 highlighter for a mostly-prose language from having to invent a token for prose.
 
 The method has to be a pure function of its two arguments. The cache calls it
@@ -323,7 +323,7 @@ and there is nowhere for the table to travel with it.
 ### `Token` and the editor-theme slots
 
 Every variant but `QuotedIdentifier` names one of `EditorTheme`'s fourteen token
-slots, so mapping a span onto a colour is a total function with no fallback and
+slots, so mapping a span onto a color is a total function with no fallback and
 no invented slot ([highlight.rs](../crates/rugpui-editor/src/highlight.rs), where
 `color_for` is the match).
 
@@ -348,7 +348,7 @@ no invented slot ([highlight.rs](../crates/rugpui-editor/src/highlight.rs), wher
 The four canvas and three frame slots — `background`, `foreground`, `cursor`,
 `selection`, `line_highlight`, `gutter`, `gutter_active` — are drawn by the
 element rather than by a token. The caret's line takes `line_highlight`, and the
-statement the caret is in takes the same colour at half opacity; find matches
+statement the caret is in takes the same color at half opacity; find matches
 are `warning` at 45% opacity for the current one and 20% for the rest; a gutter
 mark uses `error` or `warning`.
 
@@ -376,8 +376,8 @@ lines is the wrong trade.
 
 `CodeSnippet` is the other end. A stateless element, rebuilt on every render of
 its parent, that lexes its text line by line and hands gpui one `StyledText` per
-line. Same `Highlighter`, same colours, same gap filling as the editor; no
-gutter, no caret, no selection, no virtualisation.
+line. Same `Highlighter`, same colors, same gap filling as the editor; no
+gutter, no caret, no selection, no virtualization.
 
 ```rust
 use rugpui_editor::{CodeSnippet, highlighter_for_extension};
@@ -392,7 +392,7 @@ CodeSnippet::new(query, highlighter_for_extension("sql").expect("sql"))
 | `CodeSnippet::new` | `impl Into<SharedString>`, `Arc<dyn Highlighter>` | | The code and the lexer. |
 | `font_family` | `impl Into<SharedString>` | the window's | The family the runs are shaped in. |
 | `text_size` | `Pixels` | 11.5 px | The type size. |
-| `max_lines` | `usize` | unbounded | Draw at most this many lines, then one holding `…` in the `comment` colour. |
+| `max_lines` | `usize` | unbounded | Draw at most this many lines, then one holding `…` in the `comment` color. |
 | `bare` | — | off | Drop the code-block background, padding and corner. |
 
 The default box is `background` from the *editor* palette, 8 px of horizontal
@@ -467,7 +467,7 @@ cloned into it rather than borrowed. See
 ### Drawing your own listing
 
 A host whose popup is not a snippet — a diff view, a log pane, a completion list
-that colours the matched prefix — wants the colours without the element. Two
+that colors the matched prefix — wants the colors without the element. Two
 functions are public for exactly that:
 
 ```rust
@@ -504,7 +504,7 @@ about where a block comment or a string ends.
 ## Built-in languages
 
 Eighteen entries, in the order a picker should list them. Plain text leads —
-it is the answer to "colour none of this" rather than a format among the others.
+it is the answer to "color none of this" rather than a format among the others.
 
 | id | name | extensions | whole names | `#!` | lexer | line comment |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -619,7 +619,7 @@ nineteenth hand-written scanner would be the same shape as the eighteenth.
 ### The schema
 
 Every key is optional. A file holding nothing but `name` and `files` is legal
-and gives a language that is matched and drawn in one colour.
+and gives a language that is matched and drawn in one color.
 
 | key | shape | default | meaning |
 | --- | --- | --- | --- |
@@ -631,12 +631,12 @@ and gives a language that is matched and drawn in one colour.
 | `comment` | string | none | Line comment, and what the comment toggle writes. |
 | `block_comment` | `[open, close]` | none | A comment that may cross lines. |
 | `strings` | list of rules | `[]` | Tried longest opener first. Each rule is either `quote:` (one character, never crosses a line, with `escape:` — default `true` — saying whether `\` escapes the next character) or `pair: [open, close]` (crosses lines, and a backslash escapes nothing inside it). |
-| `keywords` | map of group → words | `{}` | Groups: `keyword`, `literal` (the number colour), `key`, `variable`. Any other group name is warned about and ignored. |
+| `keywords` | map of group → words | `{}` | Groups: `keyword`, `literal` (the number color), `key`, `variable`. Any other group name is warned about and ignored. |
 | `keywords_ignore_case` | bool | `false` | Covers the whole definition, not one group — SQL needs it everywhere or nowhere. |
 | `variables` | list of strings | `[]` | Sigils: `$NAME` and `${…}` become variables. |
-| `sections` | bool | `false` | Colour a leading `[section]` as a key. |
-| `keys` | `none` \| `colon` \| `equals` | `none` | Colour `key:` / `key=` at the head of a line. |
-| `numbers` | bool | `true` | Colour numeric literals. |
+| `sections` | bool | `false` | Color a leading `[section]` as a key. |
+| `keys` | `none` \| `colon` \| `equals` | `none` | Color `key:` / `key=` at the head of a line. |
+| `numbers` | bool | `true` | Color numeric literals. |
 
 A word YAML would otherwise resolve to something else — `true`, `null` — arrives
 as the word it looks like, since the reader takes the text of a plain scalar
@@ -696,7 +696,7 @@ match Definition::parse(&std::fs::read_to_string(&path)?) {
 
 Where the files live and when they are re-read is the host's business, which is
 why no directory walker ships here. `parse` fails only when the file is not a
-definition at all; a rule inside it that cannot be honoured — an empty
+definition at all; a rule inside it that cannot be honored — an empty
 delimiter, a quote that is not one character, an unknown `keywords` group — is
 dropped and logged rather than failing the file.
 `Definition::parse_with_warnings` hands the complaints back instead, which is
@@ -705,13 +705,13 @@ what a host shipping definitions of its own wants a test to assert on.
 What a line-at-a-time scanner cannot express is the boundary: no regular
 expressions and no context (a word is a keyword wherever it stands), no nesting,
 one line comment and one block comment per language, no heredocs and no
-interpolation coloured inside a string. Languages that need those are the ones
+interpolation colored inside a string. Languages that need those are the ones
 with a lexer of their own.
 
 ## Two grammars at once
 
 A template is a file of some other language — Java, XML, SQL — with `${…}`
-sprinkled through it, and the useful colouring is both at once.
+sprinkled through it, and the useful coloring is both at once.
 `CompositeHighlighter` runs a base `Highlighter` and an `Overlay` over the same
 line: the base sees the whole line so its own state stays coherent, its spans
 are then cut wherever an overlay region stands, and the overlay's spans go on
@@ -893,7 +893,7 @@ step cannot read clean again.
 A statement runs from the first non-blank byte after the previous semicolon to
 the semicolon that ends it, and a semicolon counts only when the highlighter did
 *not* call it part of a string, a comment or a quoted identifier — which is
-where all the value is, and it comes for free from the colours already being
+where all the value is, and it comes for free from the colors already being
 drawn. In the blank space between two statements the one *before* the caret
 wins, which is what a person means after finishing a query and pressing return.
 The window that makes this affordable is capped at two megabytes either way; the
@@ -907,7 +907,7 @@ preference, not a mistake. See [theming.md](./theming.md) for the slots, the fil
 format and the built-in palettes; the token mapping is the table above.
 
 One listing in a dark palette and in a light one, with a range selected so the
-selection colour sits beside the current-line band and the caret:
+selection color sits beside the current-line band and the caret:
 
 | `one-dark` | `solarized-light` |
 | --- | --- |
@@ -918,9 +918,9 @@ All six are side by side in
 
 By default an editor reads the application-wide `rugpui::editor_theme(cx)`, and
 that is where nearly every editor should stay. `set_palette(Some(palette), cx)`
-overrides it for one instance, for a host whose *documents* carry colours of
+overrides it for one instance, for a host whose *documents* carry colors of
 their own — a terminal session with a scheme attached, a diff view that wants
-both sides in the same colours whatever the app is set to. `set_font` is the
+both sides in the same colors whatever the app is set to. `set_font` is the
 same shape for the font. Both are cheap to call on every frame: an unchanged
 value repaints nothing, which is how a host keeps up with a scheme that changes
 under it.
@@ -981,7 +981,7 @@ The crate's own performance tests count `SyntaxCache::lex_calls()` across two
 frames, to assert that drawing a hundred-thousand-line buffer costs one lex per
 visible line and that one keystroke in the middle of it re-lexes at most three.
 A host can do the same over a `SyntaxCache` it built itself; the editor's own
-cache is crate-internal, so a host test asserts on behaviour and timing
+cache is crate-internal, so a host test asserts on behavior and timing
 instead.
 
 ---

@@ -1,4 +1,4 @@
-//! A virtualised tree whose branches arrive one round trip at a time.
+//! A virtualized tree whose branches arrive one round trip at a time.
 //!
 //! The widget knows nothing of what it is showing. It owns the shape of the
 //! tree — which nodes are open, which one is selected, where the list is
@@ -300,7 +300,7 @@ pub trait TreeSource: 'static {
     /// Draws the inside of a row: icon, label, badges, whatever the node is.
     ///
     /// The tree has already drawn the indent, the arrow and the background, and
-    /// laid the row out as a centred flex row; this fills the rest of it.
+    /// laid the row out as a centered flex row; this fills the rest of it.
     fn render_row(
         &self,
         id: &Self::Id,
@@ -465,7 +465,7 @@ impl<S: TreeSource> TreeView<S> {
     /// A row that is on screen and is a leaf cannot be opened, and this does
     /// nothing for it. A node no row carries *is* opened, and stays open until
     /// it is closed again: that is how a host restores a whole path at once —
-    /// open the server, the catalogue and the schema in one go, and each level
+    /// open the server, the catalog and the schema in one go, and each level
     /// is already open by the time the one above it arrives.
     pub fn expand(&mut self, id: &S::Id, cx: &mut Context<Self>) {
         self.ensure_rows(cx);
@@ -1465,7 +1465,7 @@ mod tests {
         assert_eq!(tree.drain(), vec![TreeEvent::Activated("a")]);
     }
 
-    /// The keys reach a placeholder row's neighbours without ever landing on
+    /// The keys reach a placeholder row's neighbors without ever landing on
     /// the placeholder: there is nothing there to act on.
     #[gpui::test]
     fn a_placeholder_row_cannot_be_selected(cx: &mut TestAppContext) {

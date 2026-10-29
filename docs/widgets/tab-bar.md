@@ -45,8 +45,8 @@ Every callback is keyed by the tab's **index in display order**, not by its `Ele
 | method | argument | effect |
 | --- | --- | --- |
 | `TabItem::new` | `impl Into<ElementId>`, `impl Into<SharedString>` | id (unique in the bar) and title |
-| `.status` | `TabStatus` | a coloured dot before the title |
-| `.dot` | `Hsla` | a dot in a colour of your own; wins over `.status` |
+| `.status` | `TabStatus` | a colored dot before the title |
+| `.dot` | `Hsla` | a dot in a color of your own; wins over `.status` |
 | `.mark` | icon path, tooltip | an icon *after* the title, with a required hover label |
 | `.closable` | `bool` | `true` by default; `false` gives a permanent tab with no close button, which `Delete` does not close either |
 
@@ -147,7 +147,7 @@ TabBar::new("tabs")
 
 The insertion bar is laid *over* the tabs (absolutely positioned on the tab it borders), so raising or moving it shifts nothing — a bar that took up room would push the hovered tab aside and flip which half the pointer is over.
 
-## Mouse behaviour
+## Mouse behavior
 
 - Left click on a tab → `on_select(index)`.
 - Left click on the close button → `on_close(index)`; the press is swallowed so the tab is not also selected. The button is invisible until the tab is hovered (`group_hover`).
@@ -178,9 +178,9 @@ Clicking a tab does **not** focus the strip — a click usually means "show me t
 | `surface_active` | background of the active tab |
 | `surface_hover` | hover background of an inactive tab, the close button and the "+" |
 | `accent` | 2 px underline of the active tab, the drop bar, the focus ring, and the `Connecting` dot |
-| `text` | title of the active tab, and hover colour of the icon buttons |
+| `text` | title of the active tab, and hover color of the icon buttons |
 | `text_muted` | titles of inactive tabs, and the `Disconnected` dot |
-| `icon` | resting colour of the close "×", the mark, the "+" and the dropdown face |
+| `icon` | resting color of the close "×", the mark, the "+" and the dropdown face |
 | `success` / `danger` | the `Connected` / `Error` dots |
 
 ## Pitfalls

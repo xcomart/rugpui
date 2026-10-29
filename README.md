@@ -6,13 +6,13 @@
 [![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](Cargo.toml)
 [![gpui](https://img.shields.io/badge/gpui-zed%4056934ec-8A2BE2.svg)](https://github.com/zed-industries/zed/tree/56934ec0560bce8929025497411de7f5322fb6ca)
 
-A gpui widget kit, and the two larger widgets built on it: a virtualised data
+A gpui widget kit, and the two larger widgets built on it: a virtualized data
 grid and a code editor. Extracted from three desktop applications that had been
 carrying byte-identical copies of the same code, so that a fix made once is a
 fix everywhere.
 
 Nothing here knows what an application does. There are no database concepts, no
-log concepts and no documents — only colours, text entry, tabs, menus, trees,
+log concepts and no documents — only colors, text entry, tabs, menus, trees,
 scroll indicators, a table over rows it never fetches, and an editor over a rope
 it never loads. Every user-facing string comes from the host, which is what lets
 a localized application stay localized without this repository having heard of a
@@ -64,7 +64,7 @@ comments the guide points at.
 - [Widgets](docs/widgets/) — one page per widget, including
   [text input](docs/widgets/text-input.md), [tree](docs/widgets/tree.md) and
   [scrollbar](docs/widgets/scrollbar.md).
-- [Grid](docs/grid.md) — the virtualised result grid, over a `GridSource` the
+- [Grid](docs/grid.md) — the virtualized result grid, over a `GridSource` the
   host implements.
 - [Editor](docs/editor.md) — the code editor, its lexers and its syntax cache.
 - [Shell](docs/shell.md) — the layer above the widget kit: title bar,
@@ -75,7 +75,7 @@ comments the guide points at.
 | crate | what it is |
 |---|---|
 | [`rugpui`](crates/rugpui) | The widget kit: theme and editor-theme palettes and their file store, text input, buttons, checkboxes, switches, segmented controls, sliders and range sliders, progress bars, busy spinners, tabs, fold-away sections, dropdown menus, selects, palette pickers, tooltips, modals, overlay scrollbars, split panes and their resize handles, lazily filled trees, flat lists of host-drawn rows, and the caption buttons of a self-drawn title bar. |
-| [`rugpui-grid`](crates/rugpui-grid) | A virtualised result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
+| [`rugpui-grid`](crates/rugpui-grid) | A virtualized result grid. A million rows scroll without a stutter, null is not the empty string, and the rows arrive through a `GridSource` the host implements — so the grid can be pointed at a query result, a `DESCRIBE`, a plan or a diff. |
 | [`rugpui-editor`](crates/rugpui-editor) | A code editor: a rope, a pluggable per-line highlighter with an incremental cache, and an element that shapes only the visible lines. Ships base lexers for eighteen languages — SQL, Java, XML/HTML, PHP, the seven configuration formats a file panel reaches every day, and a C-like table for the rest — with a registry that picks one from a file name, a `#!` line or a language the host defined in a YAML file (`custom-syntax`). Composes any second grammar the host supplies over one of them. |
 | [`rugpui-shell`](crates/rugpui-shell) | The layer *above* the widgets: a window that draws its own title bar, a self-updater that replaces the installed copy with the one GitHub published, the about and update dialogs, a split-pane tree, an editor for a palette, and the pieces a settings form is built out of. Knows nothing about any application — everything specific to one is injected. |
 | [`rugpui-gallery`](crates/rugpui-gallery) | The example, not a library: every widget above in one window, and the worked version of what a host has to do for itself — install an `AssetSource` with `rugpui::ICONS` chained into it, call the three `init`s, keep the state the stateless widgets do not. It is what the screenshots are taken of, and the one crate here that links a platform backend. Not published, and nothing depends on it; it is a workspace member so that CI compiles it on every platform and an example that has gone stale is a build failure. |
@@ -269,7 +269,7 @@ impl rugpui_shell::UpdatePolicy for Policy {
 rugpui_shell::set_update_policy(Box::new(Policy), cx);
 ```
 
-A palette catalogue is built the same way — from the directories you chose
+A palette catalog is built the same way — from the directories you chose
 above, and the id to fall back on when the selected one is deleted:
 
 ```rust
@@ -360,6 +360,6 @@ thing that needs the libraries a backend links: on a Debian-like Linux,
 See the [contribution guide](CONTRIBUTING.md) for development setup, gallery and
 feature checks, local consumer integration and the workflow for submitting changes.
 
-## Licence
+## License
 
 MIT. See [LICENSE](LICENSE).

@@ -84,7 +84,7 @@ Before the first window opens, call [`rugpui::init`](../getting-started.md) (whi
 
 *`multiline(3)`: three rows tall, and `Enter` breaks the line instead of submitting.*
 
-![A greyed, read-only field](../screenshots/text-input/disabled.png)
+![A grayed, read-only field](../screenshots/text-input/disabled.png)
 
 *`disabled(true)`: muted text, no menu, and no actions wired at all.*
 
@@ -135,7 +135,7 @@ Validation is the host's job, which is why `set_invalid` is a setter rather than
 | `cmd/ctrl-v` | `Paste` | insert the clipboard at the caret |
 | `ctrl-cmd-space` (macOS only) | `ShowCharacterPalette` | opens the system emoji / character palette |
 
-Mouse: left press places the caret and starts a drag selection, moving extends it across control and window boundaries, and release ends it (including a release outside the field). Right press focuses the field and opens the edit menu, if it has one. A multiline field scrolls with the wheel, and the caret is kept in view by the element asking gpui to scroll to it after the frame that moved it.
+Mouse: left press places the caret and starts a drag selection, moving extends it across control and window boundaries, and release ends it (including a release outside the field). Right press focuses the field and opens the edit menu, if it has one. A multiline field scrolls with the wheel, and the caret is kept in view by the element asking gpui to scroll to it after the frame that moved it. A single-line field whose text is longer than it is slides the text left under the frame instead, just far enough to keep the caret inside the field's own width, and back again as the caret returns; presses, selections and the IME's candidate window all follow the slide.
 
 IME works because `TextInput` implements `EntityInputHandler` and installs an `ElementInputHandler` over its painted bounds. Composition text is held in a marked range and drawn with a one-pixel underline until it is committed, so Hangul, kana and pinyin all compose in place. Every offset the field stores is a *byte* offset into the real content; when the field is masked a `DisplayMap` translates those to and from the bullet string, which is what keeps the caret correct for multi-byte text.
 
@@ -176,7 +176,7 @@ The frame is 32 px tall for a single line (a 20 px line box with 6 px either sid
 ## Pitfalls
 
 - **Builders run once.** `input.placeholder("…")` on an existing entity will not compile the way you want — use `set_placeholder`. The same goes for the content: only `set_content` and `clear` exist after construction.
-- **A disabled field is inert, not merely grey.** None of the actions, mouse handlers or the right-click menu are wired at all while `disabled(true)`, so there is no row a read-only field could honour.
+- **A disabled field is inert, not merely gray.** None of the actions, mouse handlers or the right-click menu are wired at all while `disabled(true)`, so there is no row a read-only field could honor.
 - **No menu without labels.** A field built without `.context_menu(...)` has no right-click menu; this is the default, not an oversight.
 - **`Enter` means two different things.** Check `is_multiline()` before assuming `on_submit` will ever fire.
 - **Masked fields still hold the real string.** Only the rendering is masked; `content()` returns the plaintext, and copy/cut are refused so it cannot leak to the clipboard.

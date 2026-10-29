@@ -65,7 +65,7 @@ const PART_GAP: f32 = 4.;
 /// tooltip_frame(&theme(cx)).child(my_own_element)
 /// ```
 ///
-/// The text size and colour are set on the frame rather than on its children,
+/// The text size and color are set on the frame rather than on its children,
 /// so anything put inside inherits them and a plain string is already styled
 /// correctly. What is deliberately *not* here is `whitespace_nowrap`: that
 /// belongs to a one-line label, and a frame that forced it on every child would
@@ -94,7 +94,7 @@ pub fn tooltip_frame(theme: &Theme) -> Div {
 /// ```
 ///
 /// The text is captured once and cloned per hover, so the caller can hand over
-/// a localised string without keeping it alive itself.
+/// a localized string without keeping it alive itself.
 pub fn tooltip_label(
     label: impl Into<SharedString>,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
@@ -152,7 +152,7 @@ type BuildElement = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 /// ```
 ///
 /// `build` is handed the same `Window` and `App` the tooltip is being made in,
-/// so it can read a global, measure text, or ask the theme what colour
+/// so it can read a global, measure text, or ask the theme what color
 /// something is — but it must not *keep* anything, since it will be called
 /// again for the next hover.
 ///
@@ -277,9 +277,9 @@ impl Tooltip {
     /// altogether.
     ///
     /// Note that [`img`] is not [`svg`](gpui::svg). The `svg` element throws a
-    /// file's colours away and keeps only its coverage, so an icon drawn with
-    /// it takes the element's `text_color`; `img` rasterises the same file with
-    /// the colours that are written in it. A thumbnail in a tooltip wants the
+    /// file's colors away and keeps only its coverage, so an icon drawn with
+    /// it takes the element's `text_color`; `img` rasterizes the same file with
+    /// the colors that are written in it. A thumbnail in a tooltip wants the
     /// second, which is why this part is an `img`.
     pub fn image(mut self, source: impl Into<ImageSource>, width: Pixels) -> Self {
         self.parts.push(Part::Image {

@@ -24,7 +24,7 @@ gpui.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
-# gpui's headless test platform. The virtualisation, the key handling and the
+# gpui's headless test platform. The virtualization, the key handling and the
 # clipboard only exist once there is a window and a laid-out element tree; the
 # selection model and the four copy formats are pure and are tested without
 # one.

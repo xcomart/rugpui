@@ -51,7 +51,7 @@ The shortcut is decoration only. The key binding itself is registered by the app
 
 `checked` decides a *column*, not a row: a menu with any checked row lays that column out on every row, so the labels stay in a line; a menu with nothing checked never gets the column at all.
 
-A disabled row is inert by having no handler rather than by having one that thinks better of it — which also means clicking it leaves the menu open, since the panel occludes the backdrop a press would otherwise dismiss from. Showing a greyed-out command says "the surface has this, and this is not the moment"; dropping it says nothing.
+A disabled row is inert by having no handler rather than by having one that thinks better of it — which also means clicking it leaves the menu open, since the panel occludes the backdrop a press would otherwise dismiss from. Showing a grayed-out command says "the surface has this, and this is not the moment"; dropping it says nothing.
 
 ![An open menu panel with shortcuts, a rule, a checked row and a disabled one](../screenshots/menu/open.png)
 
@@ -158,7 +158,7 @@ An open menu also closes on `Escape` — a bare one, or with Shift; a chord with
 | `text_muted` | a disabled row's label, and the shortcut hint |
 | `surface_hover` | a hovered row, and the hovered trigger |
 | `surface_active` | the trigger while its menu is open |
-| `icon` | resting colour of the trigger's icon or glyph |
+| `icon` | resting color of the trigger's icon or glyph |
 
 ## Pitfalls
 

@@ -28,7 +28,7 @@ type Node = (&'static str, &'static str, &'static [&'static str]);
 /// The outermost level.
 const ROOTS: &[&str] = &["warehouse", "reporting"];
 
-/// Every node of the sample catalogue.
+/// Every node of the sample catalog.
 const NODES: &[Node] = &[
     (
         "warehouse",
@@ -57,7 +57,7 @@ const NODES: &[Node] = &[
     ("reporting/daily", "daily", &[]),
 ];
 
-/// A read-only catalogue: everything is already in memory, so no node is ever
+/// A read-only catalog: everything is already in memory, so no node is ever
 /// [`ChildState::NotLoaded`] and the tree never has to ask for a fetch.
 pub struct Catalog;
 
@@ -142,7 +142,7 @@ const CONTACTS: &[Contact] = &[
 /// its background; the two lines, the weights, the pill and the way the second
 /// line justifies against the row's width are all here, which is the whole
 /// point of [`ListSource::render_item`]. The rows are 44 px tall because the
-/// gallery asks for that height — the list virtualises on one height for every
+/// gallery asks for that height — the list virtualizes on one height for every
 /// row, so a card row is a taller *list*, not a taller row.
 pub struct Contacts;
 
@@ -274,7 +274,7 @@ const MAX_TOTAL: f32 = 5410.20;
 const CELL_PADDING: f32 = 6.;
 
 /// Twelve rows, four of which hold a null — which is drawn as `NULL` in the
-/// null colour rather than as the empty string, the distinction the grid exists
+/// null color rather than as the empty string, the distinction the grid exists
 /// to keep. The null in `channel` is there to be seen twice: the badge falls
 /// back to the grid's own marker, and the dropdown over it opens on its `NULL`
 /// row.
@@ -387,7 +387,7 @@ impl GridSource for Orders {
 
     fn column(&self, index: usize) -> GridColumn<'_> {
         let (name, kind) = COLUMNS[index];
-        // The key column is drawn in its own colour, and is half of what makes
+        // The key column is drawn in its own color, and is half of what makes
         // a cell editable at all.
         GridColumn::new(name, kind).primary_key(index == 0)
     }

@@ -76,7 +76,7 @@ a screenshot cannot hold a pointer still.*
 | `tooltip_frame` | `theme: &Theme` | Returns the `Div` that box *is*, with nothing in it. |
 
 The text is captured once and cloned per hover, so the caller can hand over a
-localised string without keeping it alive itself. `Tooltip`'s own options are
+localized string without keeping it alive itself. `Tooltip`'s own options are
 [below](#composite-tooltips).
 
 ## Custom content
@@ -93,7 +93,7 @@ where
 ```
 
 `tooltip_frame` carries the margin, the padding, the corner, the surface, the
-border, the shadow, the 11 px type and the text colour — everything that makes a
+border, the shadow, the 11 px type and the text color — everything that makes a
 tooltip look like a tooltip, and nothing about what is inside it. The type style
 is set on the frame rather than on its children, so a plain string handed to
 `.child(..)` is already styled correctly. What it deliberately does *not* carry
@@ -123,7 +123,7 @@ div()
 
 `build` is called once per hover — gpui asks for a fresh view every time the
 pointer settles — and is handed the same `Window` and `App` the tooltip is being
-made in, so it can read a global or ask the theme for a colour. It must not
+made in, so it can read a global or ask the theme for a color. It must not
 *keep* anything, since it will be called again for the next hover; everything it
 needs is cloned into it rather than borrowed.
 
@@ -182,10 +182,10 @@ the gallery registers `icons/preview.svg` in its `ICONS` table. One that does
 parse as a URL is fetched over HTTP; a `PathBuf` reads from disk; a decoded
 `Image` skips loading altogether.
 
-Note that this is `img`, not `svg`. The `svg` element throws a file's colours
+Note that this is `img`, not `svg`. The `svg` element throws a file's colors
 away and keeps only its coverage, so an icon drawn with it takes the element's
 `text_color` — which is exactly right for a monochrome glyph and exactly wrong
-for a thumbnail. `img` rasterises the same file with the colours written in it.
+for a thumbnail. `img` rasterizes the same file with the colors written in it.
 The gallery's `preview.svg` is drawn in three fills for that reason; its
 `folder.svg` is not.
 

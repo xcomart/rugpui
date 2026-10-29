@@ -57,7 +57,7 @@
 //! [`GridSource::render_cell`] hands the host the cell's box and lets it draw
 //! whatever it likes in it; [`GridSource::cell_editor`] says what opens over
 //! that cell when it is edited — a field, a dropdown, or an element of the
-//! host's own. Both default to "the grid's own behaviour", so a source that
+//! host's own. Both default to "the grid's own behavior", so a source that
 //! wants neither says nothing.
 //!
 //! [`Theme::grid_null`]: rugpui::Theme#structfield.grid_null
@@ -96,7 +96,7 @@ pub enum GridColumnAlign {
 /// answer to both questions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GridColumnKind {
-    /// Character data, and the fallback for anything unrecognised.
+    /// Character data, and the fallback for anything unrecognized.
     #[default]
     Text,
     /// Numeric data of any width or scale.
@@ -193,7 +193,7 @@ impl<'a> GridColumn<'a> {
 /// one thing a staging layer can put in a cell that no result set ever holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GridCell<'a> {
-    /// No value at all. Drawn as [`NULL_TEXT`] in the null colour, which is
+    /// No value at all. Drawn as [`NULL_TEXT`] in the null color, which is
     /// what tells it apart from `Text("")` — an empty cell that really does
     /// hold the empty string.
     Null,
@@ -317,7 +317,7 @@ pub struct CellInfo<'a> {
     /// The palette this frame is being drawn with.
     ///
     /// Borrowed rather than cloned: a screenful is several hundred cells, and a
-    /// theme is not a small struct. A host draws with these colours rather than
+    /// theme is not a small struct. A host draws with these colors rather than
     /// with its own, so a custom cell follows the app's theme without being
     /// told it changed.
     pub theme: &'a Theme,
@@ -396,7 +396,7 @@ pub enum CellEditor {
         /// emptying it, which is the distinction this crate is built around.
         nullable: bool,
     },
-    /// An element of the host's own: a date picker, a colour swatch, a lookup
+    /// An element of the host's own: a date picker, a color swatch, a lookup
     /// against another table.
     ///
     /// The host is handed a [`CellEditorContext`] and gives back an element.
@@ -464,7 +464,7 @@ pub trait GridSource: 'static {
     ///
     /// Asked once per *visible* row per frame — the same budget
     /// [`GridSource::cell`] is held to, and for the same reason: a source that
-    /// answered this by walking a million rows would undo the virtualisation on
+    /// answered this by walking a million rows would undo the virtualization on
     /// its own. A staging layer keeps its changes in a map keyed by row, so the
     /// answer is a lookup.
     ///
@@ -518,7 +518,7 @@ pub trait GridSource: 'static {
     ///   clipped to it. Unlike the grid's own text the box carries no padding
     ///   and no alignment — the whole cell is the host's, which is what lets a
     ///   bar reach the edges — so an element that wants to look like the
-    ///   neighbouring cells supplies its own.
+    ///   neighboring cells supplies its own.
     /// * It is built **once per visible cell per frame**, the same budget
     ///   [`GridSource::cell`] is held to. Several hundred calls happen between
     ///   one frame and the next, so it must allocate little and compute
@@ -554,6 +554,23 @@ pub trait GridSource: 'static {
     /// Defaults to [`CellEditor::Text`], the field the grid has always opened.
     fn cell_editor(&self, _row: usize, _column: usize) -> CellEditor {
         CellEditor::Text
+    }
+
+    /// Whether the one-line field opened over the cell at `row` and `column`
+    /// carries a button that hands the edit to a larger editor of the host's
+    /// own.
+    ///
+    /// Asked only when [`GridSource::cell_editor`] answered
+    /// [`CellEditor::Text`], once per edit. The button raises
+    /// [`GridEvent::ExpandRequested`](crate::GridEvent::ExpandRequested) with
+    /// whatever has been typed so far, and the host answers it with its
+    /// editor: a field one line high is a poor place to write a paragraph,
+    /// even into a cell that holds one line today.
+    ///
+    /// Defaults to `false`, and so does every source that has no larger editor
+    /// to open: a button that did nothing would be worse than none.
+    fn cell_expandable(&self, _row: usize, _column: usize) -> bool {
+        false
     }
 }
 
@@ -676,7 +693,7 @@ mod tests {
     }
 
     /// And a cell holding the *string* `NULL` is not the null marker either:
-    /// the text matches, the colour does not.
+    /// the text matches, the color does not.
     #[test]
     fn the_string_null_is_not_the_null_marker() {
         let marker = cell_label(&GridCell::Null);

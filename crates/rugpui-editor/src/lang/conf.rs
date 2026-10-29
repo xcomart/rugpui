@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn a_bare_word_on_its_own_is_not_a_key() {
         // Nothing follows it, so nothing was mapped to anything -- and with no
-        // span at all the word is drawn in the foreground colour.
+        // span at all the word is drawn in the foreground color.
         assert_eq!(spans("standalone"), []);
     }
 
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(found[0], ("url", Token::Key));
         assert!(found.iter().any(|(_, token)| *token == Token::String));
         assert!(found.iter().any(|(_, token)| *token == Token::Comment));
-        // `true` shares the number colour: the literal values of a format with
+        // `true` shares the number color: the literal values of a format with
         // no others.
         assert!(has("debug = true", Token::Number));
         assert!(has("home = $HOME", Token::Variable));

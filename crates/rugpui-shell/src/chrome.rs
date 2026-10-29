@@ -5,7 +5,7 @@
 //! standing in for it — and [`TitlebarStyle`] is the setting that says which.
 //! Everything else here follows from the second choice, and it is far more than
 //! a row of buttons: taking the caption away also takes the drag, the
-//! double-click to maximise, the window menu, the resize borders and the drop
+//! double-click to maximize, the window menu, the resize borders and the drop
 //! shadow, and each of them has to be put back by hand and differently on every
 //! platform.
 //!
@@ -47,7 +47,7 @@ use rounded_clip::RoundedClip;
 /// pixels are the resize grip. It is part of the window's surface but not of
 /// the window as the user
 /// understands it: [`Window::set_client_inset`] publishes the visible bounds
-/// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximises and stacks
+/// through `_GTK_FRAME_EXTENTS`, so the compositor snaps, maximizes and stacks
 /// by the visible edge, exactly as it does for GTK's frames.
 ///
 /// gpui paints a shadow as a Gaussian whose sigma is the blur radius, so its
@@ -85,7 +85,7 @@ const PASS_THROUGH: f32 = SHADOW_BAND - RESIZE_GRIP;
 /// whether the window has a caption at all, so a change only shows after a
 /// restart. The interface offering the setting is expected to say so.
 ///
-/// Serialised in `snake_case`, which is the spelling the settings files of
+/// Serialized in `snake_case`, which is the spelling the settings files of
 /// every application using this crate already carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -130,7 +130,7 @@ pub fn draws_own_titlebar(style: TitlebarStyle, window: &Window) -> bool {
 /// Windows needs none of them. The row reports itself as
 /// [`WindowControlArea::Drag`](gpui::WindowControlArea::Drag), the hit test
 /// turns that into `HTCAPTION`, and the window procedure then does the
-/// dragging, the aero-snap gestures and the double-click to maximise on its
+/// dragging, the aero-snap gestures and the double-click to maximize on its
 /// own — before the application is ever told a button went down.
 #[cfg(target_os = "windows")]
 pub fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
@@ -142,7 +142,7 @@ pub fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
 /// AppKit still drags the window for the strip its own title bar would have
 /// covered, so only the double-click is left to answer — and it has to go
 /// through [`Window::titlebar_double_click`], which follows whatever the user
-/// picked in System Settings (zoom, minimise, or nothing at all).
+/// picked in System Settings (zoom, minimize, or nothing at all).
 #[cfg(target_os = "macos")]
 pub fn titlebar_gestures(row: Stateful<Div>) -> Stateful<Div> {
     row.on_click(|event, window, _cx| {
@@ -191,7 +191,7 @@ pub fn client_tiling(_window: &Window) -> Option<gpui::Tiling> {
 /// server-side one.
 ///
 /// `Some` exactly when the compositor granted client-side decorations, with the
-/// edges that currently touch a screen or neighbour edge marked tiled — those
+/// edges that currently touch a screen or neighbor edge marked tiled — those
 /// edges get no band, no shadow and no resize grip. Fullscreen counts as tiled
 /// all round.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -218,7 +218,7 @@ pub fn opening_client_inset(style: TitlebarStyle) -> Option<gpui::Pixels> {
 /// pointer. Call it on every render with what [`client_tiling`] answered.
 ///
 /// The inset keeps `_GTK_FRAME_EXTENTS` in step, so the compositor snaps,
-/// maximises and stacks by the visible edge rather than the surface's. The
+/// maximizes and stacks by the visible edge rather than the surface's. The
 /// input region stops at the [`RESIZE_GRIP`] around that edge, so a click in
 /// the rest of the shadow reaches the window underneath, as it does next to
 /// any window the compositor frames. Both are cleared under server-side
@@ -341,7 +341,7 @@ fn frame_shape(frame: Div, tiling: gpui::Tiling, edge_width: f32) -> Div {
 /// included, so the shadow band has to start the resize itself — the compositor
 /// takes over once told, exactly as it does for the title-bar drag. The strips
 /// cover the inner [`RESIZE_GRIP`] of the band, the corner squares reach past it
-/// into the window, and every tiled edge goes without: a maximised or snapped
+/// into the window, and every tiled edge goes without: a maximized or snapped
 /// window has no border to drag there. The band outside the grip is left to
 /// [`apply_client_inset`]'s input region, which lets the pointer through it.
 pub fn render_resize_edges(tiling: gpui::Tiling) -> Vec<AnyElement> {

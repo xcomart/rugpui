@@ -74,7 +74,7 @@ impl Button {
         self
     }
 
-    /// Greys the button out and stops it from reacting to clicks.
+    /// Grays the button out and stops it from reacting to clicks.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -158,7 +158,7 @@ impl RenderOnce for Button {
             colors.label
         };
         // The outline is always present, merely transparent, so that gaining
-        // focus recolours it instead of resizing the button.
+        // focus recolors it instead of resizing the button.
         let border = match colors.border {
             Some(border) if disabled => border.opacity(0.5),
             Some(border) => border,

@@ -1,4 +1,4 @@
-//! Markdown, coloured the way a reader skims it rather than the way CommonMark
+//! Markdown, colored the way a reader skims it rather than the way CommonMark
 //! parses it.
 //!
 //! Markdown is the one format here whose *content* is prose, so the job is not
@@ -17,12 +17,12 @@
 //! `FENCED_BACKTICK` and `FENCED_TILDE` — which is two bits of the sixteen
 //! [`LineState::COMPOSABLE_BITS`] allows.
 //!
-//! # What each thing is coloured as
+//! # What each thing is colored as
 //!
 //! The tokens are shared with six configuration formats, so the mapping is by
 //! role rather than by name:
 //!
-//! * A heading is [`Token::Key`] — the left-hand-side colour. A heading is a
+//! * A heading is [`Token::Key`] — the left-hand-side color. A heading is a
 //!   section header, which is exactly what `[section]` is in a `.conf`, and it
 //!   takes the whole line because a heading *is* the line.
 //! * A fenced code block's body is [`Token::String`]: it is literal text that
@@ -30,7 +30,7 @@
 //!   every other language here. The fence lines themselves are
 //!   [`Token::Comment`], being markup about the block rather than part of it —
 //!   including the info string, which is spelled the way a comment is read.
-//! * A blockquote is [`Token::Comment`], the quiet colour: it is context
+//! * A blockquote is [`Token::Comment`], the quiet color: it is context
 //!   carried in from elsewhere, and it should recede the way a comment does.
 //! * A horizontal rule is [`Token::Comment`] for the same reason — it is a mark
 //!   on the page with no text of its own.
@@ -38,12 +38,12 @@
 //!   item's text stays prose and the column of bullets stands out down the left.
 //! * Inline code is [`Token::String`], to agree with the fenced kind.
 //! * Strong is [`Token::Keyword`] and emphasis is [`Token::Number`]: two
-//!   weights of "this word matters more than its neighbours", the louder colour
+//!   weights of "this word matters more than its neighbors", the louder color
 //!   on the louder markup. `Number` is where a palette puts the literal values
 //!   of the configuration formats, and it is what these lexers spend on the
 //!   quieter of two emphases.
 //! * A link's text is [`Token::Variable`] — it names something that lives
-//!   elsewhere, which is what the variable colour means everywhere else here —
+//!   elsewhere, which is what the variable color means everywhere else here —
 //!   and its target is [`Token::String`], the target being a literal.
 //! * An HTML comment is [`Token::Comment`], which needs no argument.
 //!
@@ -52,30 +52,30 @@
 //! * **Indented code blocks.** Four spaces at the head of a line means code
 //!   only when nothing else is open, and a line scanner cannot tell that from
 //!   the second paragraph of a list item, which is indented exactly as far.
-//!   Colouring both would put half the lists in a document in the string colour;
-//!   colouring neither is wrong only where fences are not used, and fences are
+//!   Coloring both would put half the lists in a document in the string color;
+//!   coloring neither is wrong only where fences are not used, and fences are
 //!   what people write.
 //! * **YAML front matter.** A `---` on the first line of a file opens it, and
-//!   the first line is the one thing this lexer cannot recognise: it is handed
+//!   the first line is the one thing this lexer cannot recognize: it is handed
 //!   [`LineState::START`], and so is every line after a blank one. Front matter
 //!   is therefore not expressible without a state the framework does not have,
 //!   and the opening `---` reads as the horizontal rule it also is.
 //! * **Setext headings** — a line underlined with `===` or `---` — for the same
-//!   reason in reverse: the underline is seen a line too late to recolour the
+//!   reason in reverse: the underline is seen a line too late to recolor the
 //!   text above it, and the underline itself already reads as a rule.
 //! * **Inline spans do not cross lines.** An emphasis or a code span left open
 //!   at the end of a line stays plain rather than swallowing the paragraph, and
-//!   an HTML comment left open colours its first line only. A fence is the one
+//!   an HTML comment left open colors its first line only. A fence is the one
 //!   inline-looking thing that carries, and it carries because it is a block.
 //! * **Double-backtick code spans** are read as two empty spans around plain
 //!   text. `` `` `` is written to put a backtick *inside* code, which is rare
 //!   enough not to be worth a second scanner.
 //! * **Reference links** — `[text][label]` and the `[label]: url` line that
-//!   defines them — are not coloured; only the inline `[text](url)` form is.
+//!   defines them — are not colored; only the inline `[text](url)` form is.
 //!   The label form resolves against the whole document, and a line scanner
 //!   would be guessing.
 //! * A heading's line is one run: inline spans inside it are not looked for,
-//!   because a heading already has the colour that says what it is.
+//!   because a heading already has the color that says what it is.
 
 use crate::highlight::{Highlighter, LineState, Span, Token};
 use crate::lang::scan::{Spans, char_step, indent_of, skip_spaces, word_boundary};
@@ -285,7 +285,7 @@ fn inline(spans: &mut Spans, line: &str, from: usize) {
                 match emphasis(bytes, at, byte, width) {
                     Some(end) => {
                         // Two markers, two weights: `**` is the louder of them
-                        // and gets the louder colour.
+                        // and gets the louder color.
                         let token = if width == 2 {
                             Token::Keyword
                         } else {
@@ -306,7 +306,7 @@ fn inline(spans: &mut Spans, line: &str, from: usize) {
                 None => at += 1,
             },
             b'<' if bytes[at..].starts_with(b"<!--") => {
-                // Unclosed, it colours this line and no more; see the module
+                // Unclosed, it colors this line and no more; see the module
                 // documentation for why nothing is carried.
                 let end = html_comment_end(bytes, at + 4).unwrap_or(len);
                 spans.push(Token::Comment, at, end);
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn a_list_marker_is_coloured_and_its_text_is_not() {
+    fn a_list_marker_is_colored_and_its_text_is_not() {
         assert_eq!(spans("- item"), [("-", Token::Keyword)]);
         assert_eq!(spans("  1. first"), [("1.", Token::Keyword)]);
         assert_eq!(spans("12) twelfth")[0].1, Token::Keyword);
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn an_unclosed_marker_stays_plain() {
-        // No span at all, so the whole line is drawn in the foreground colour.
+        // No span at all, so the whole line is drawn in the foreground color.
         for line in ["a * b", "half *open", "2 * 3 = 6", "snake_case_name"] {
             assert_eq!(spans(line), [], "{line:?}");
         }

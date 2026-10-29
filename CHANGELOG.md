@@ -9,6 +9,53 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-29
+
+### Added
+
+- A grid cell's one-line field can carry a button that hands the edit to a
+  larger editor of the host's own. A source opts in per cell with
+  `GridSource::cell_expandable`; pressing the button closes the field with
+  nothing staged and raises `GridEvent::ExpandRequested` with what had been
+  typed. `GridView::expand_edit` does the same from code,
+  `GridView::is_expandable` says whether the open field offers it, and
+  `GridView::expand_tooltip` / `set_expand_tooltip` label the button. Its mark
+  is the new `rugpui::EXPAND`, in `rugpui::ICONS`.
+
+### Fixed
+
+- A single-line `TextInput` slides its text left under the field to keep the
+  caret in view. Until now a line longer than the field ran on past its
+  right-hand edge, caret and all, where it was cut off out of sight — and in
+  a grid field with an expand button beside it the caret seemed to go under
+  the button. The text is cut at the field's own edges, and a press, a
+  selection and an input method's candidate window all follow the slide.
+
+### Changed
+
+- `TabBar` runs the parts of a strip its owner leaves to it, off its own
+  per-element state. Given no `.scrollbar(...)` it draws the overlay bar along
+  its bottom edge: scrolling the tabs or resting the pointer on that edge puts
+  it up, and the thumb can be dragged. Given no `.on_menu_open_change(...)` it
+  still shows the dropdown listing every tab, and opens and closes it itself.
+  Given no `.scroll_handle(...)` it scrolls with a handle of its own. A tab that
+  becomes active is scrolled into view. Until now a strip whose owner kept no
+  `ScrollbarState`, hide timer and drag listener scrolled without a bar, and
+  one without the handler had no dropdown at all. A consumer that passes its
+  own bar, handle or open state keeps it; one that ran a bar only for a tab
+  strip can drop that state and pass nothing. A strip that left the dropdown
+  out by setting no handler now shows it.
+- `locale::check_locale_dir` also fails on an unquoted value with a `#` after
+  a space. YAML reads the rest of such a line as a comment, so the value loads
+  cut short — `Every color has to be written as #RRGGBB.` showed as only the
+  words before the `#` — and the failure names the file, the key and what was
+  lost. A consumer whose locale files have such a value has to quote it before
+  its locale test passes again.
+- Identifiers, comments and docs use US spelling. `rugpui-shell`'s
+  `menu_rows::greyed` is now `grayed`, and `ThemeEditorEvent::Cancelled` is
+  `Canceled`; a consumer that calls the one or matches the other has to
+  rename it. The vendored gpui keeps its upstream spelling.
+
 ## [0.1.12] - 2026-10-26
 
 ### Added
@@ -163,12 +210,12 @@ revision past it.
 - `rugpui-shell`: `PaneTree::swap` exchanges the places of two panes. Each
   pane moves with its id, and the splits and their ratios stay where they are.
 - `rugpui`: `MenuEntry::swatch` and `SelectOption::swatch` lead a row with a
-  square of the given colour. A menu with any swatched row lays the square's
+  square of the given color. A menu with any swatched row lays the square's
   column out on every row; a `Select` reserves nothing on a row without one and
   shows the selected option's square on the trigger. `SelectOption` has a new
   public field, `swatch: Option<Hsla>`, and no longer derives `Eq`; code that
   builds a `SelectOption` literal has to supply the field.
-- `rugpui`: `ColorPicker`, a stateless colour picker — a saturation/value
+- `rugpui`: `ColorPicker`, a stateless color picker — a saturation/value
   field over a hue strip, a `#rrggbb` field kept in step with both, optional
   preset swatches, a tab stop and keys —
   working in the new `Hsv` type, which converts to and from `Hsla`, `Rgba` and
@@ -198,7 +245,7 @@ revision past it.
 - The vendored X11 `WM_DELETE_WINDOW` patch is gone: upstream now runs
   `should_close` and `close` outside the client borrow itself (zed#63089).
 - `zlog`, `ztracing` and `ztracing_macro` are Apache-2.0 upstream now
-  (zed#63573), so the GPL-3.0 licence exceptions are removed from `deny.toml`.
+  (zed#63573), so the GPL-3.0 license exceptions are removed from `deny.toml`.
   wgpu comes from a pinned git revision of `gfx-rs/wgpu`, which a consumer
   running `cargo deny` has to allow as a source.
 
@@ -254,7 +301,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.12...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.13...dev
+[0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10

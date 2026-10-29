@@ -82,7 +82,7 @@ mutates and whatever decides `disabled(..)`, and both live in the host view.
 ## Keyboard and mouse
 
 - Hover and press are styled through gpui's `hover`/`active` styles. On
-  `Primary` and `Danger` the hover and press fills are the base colour shifted
+  `Primary` and `Danger` the hover and press fills are the base color shifted
   by ±6% lightness, computed by `rugpui::theme::shift_lightness`; `Secondary`
   hovers to `surface_active` and presses to `surface_active` darkened by 4%,
   and `Ghost` uses `surface_hover` and `surface_active` as they are.
@@ -98,7 +98,7 @@ Read at render time from the global [`Theme`](../theming.md):
 
 - `accent` — `Primary` fill, and the focus outline of every variant.
 - `danger` — `Danger` fill.
-- `background` — the label colour on the two filled variants.
+- `background` — the label color on the two filled variants.
 - `surface_hover` / `surface_active` — `Secondary` fill and its press state, and
   the hover/press fills of `Ghost`.
 - `border` — the `Secondary` outline.
@@ -107,8 +107,8 @@ Read at render time from the global [`Theme`](../theming.md):
 ## Pitfalls
 
 - The outline is always drawn, merely transparent for variants that have none.
-  That is deliberate: gaining focus recolours the border instead of adding one,
-  so a focused button does not change size and shove its neighbours along.
+  That is deliberate: gaining focus recolors the border instead of adding one,
+  so a focused button does not change size and shove its neighbors along.
 - `id` has to be unique among siblings. Two buttons sharing an id will confuse
   gpui's hover and press tracking.
 - `on_click` is *not* stored when `disabled(true)` is set, so a handler cannot

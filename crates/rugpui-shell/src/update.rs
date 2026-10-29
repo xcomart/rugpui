@@ -55,7 +55,7 @@
 //! A workbench is opened to get work done, and an update check is the least
 //! important thing happening at start-up. Every way it can go wrong — no
 //! network, a captive portal answering HTML, GitHub rate-limiting the address,
-//! a tag someone pushed by hand in a shape the parser does not recognise — has
+//! a tag someone pushed by hand in a shape the parser does not recognize — has
 //! the same correct response: say nothing and carry on. So [`check`] ends every
 //! failure path in a `log::debug!` and a `None`.
 //!
@@ -204,7 +204,7 @@ use crate::release_notes::{self, Block};
 
 /// Whether the start-up check is allowed to make a request at all.
 ///
-/// The one knob the host has over this module's behaviour, and it exists for
+/// The one knob the host has over this module's behavior, and it exists for
 /// test suites. gpui's test executor runs background tasks inline whenever a
 /// test parks, so a workspace built dozens of times in a suite would make
 /// dozens of real requests to github.com — a test run that needs the network,
@@ -443,7 +443,7 @@ pub fn require_signed_checksums(checksums: SignedChecksums) -> bool {
 pub struct Release {
     /// The git tag GitHub published it under, e.g. `"v0.2.0"`.
     ///
-    /// Kept verbatim rather than normalised, because this is also what gets
+    /// Kept verbatim rather than normalized, because this is also what gets
     /// written to `settings.json` when the user ignores the version, and the two
     /// are compared as strings.
     pub tag: String,
@@ -1009,10 +1009,10 @@ fn write_display_version(
 /// because they are written by different programs and agree on nothing else:
 /// Inno Setup stores `InstallLocation` with a trailing backslash, the two may
 /// differ in case on a filesystem that does not care, and either may run
-/// through a junction or a substituted drive. Canonicalising resolves all of
+/// through a junction or a substituted drive. Canonicalizing resolves all of
 /// that to the one form the operating system itself would.
 ///
-/// A path that does not exist cannot be canonicalised, and the answer there is
+/// A path that does not exist cannot be canonicalized, and the answer there is
 /// `false`: a recorded install location pointing at a directory that is gone
 /// describes some other, broken installation, and is emphatically not this one.
 #[cfg(any(windows, test))]
@@ -1682,7 +1682,7 @@ fn holds_all(dir: &Path, names: &[&str]) -> bool {
 ///
 /// The published names are plain, so this returns them unchanged; a name
 /// carrying a separator — which only a compromised or confused API could send —
-/// is replaced wholesale rather than sanitised, because there is no correct
+/// is replaced wholesale rather than sanitized, because there is no correct
 /// guess at what it was meant to be.
 fn archive_name(asset: &str) -> &str {
     let plain = !asset.is_empty()
@@ -2996,7 +2996,7 @@ mod tests {
         let path = installed.path();
         assert!(same_directory(path, path));
         // The shape Inno Setup actually stores. Comparing the two as text would
-        // fail here, which is the whole reason the comparison canonicalises.
+        // fail here, which is the whole reason the comparison canonicalizes.
         let trailing = format!("{}{}", path.display(), std::path::MAIN_SEPARATOR);
         assert!(same_directory(Path::new(&trailing), path));
         // And a leading or trailing space of the kind a hand-edited registry
@@ -3020,7 +3020,7 @@ mod tests {
         assert!(!same_directory(&nested, installed.path()));
         assert!(!same_directory(installed.path(), &nested));
 
-        // Nothing there to canonicalise. The answer is "no", never a panic:
+        // Nothing there to canonicalize. The answer is "no", never a panic:
         // an entry pointing at a directory that is gone is someone else's
         // broken installation.
         assert!(!same_directory(

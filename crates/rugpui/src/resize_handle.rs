@@ -37,15 +37,15 @@
 //! and in nothing else: the bar runs the whole length of the band, so what the
 //! pointer can grab and what the eye is told to grab end at the same place.
 //!
-//! ## Why the bar is not always centred in its band
+//! ## Why the bar is not always centered in its band
 //!
 //! Where the bar sits across the band depends on what the band is marking.
 //! [`ResizeHandle::at`] puts the band astride a line — the seam between two
-//! panes — so the grab area is symmetric about it and the bar is centred in the
+//! panes — so the grab area is symmetric about it and the bar is centered in the
 //! band, which puts it back on the line. [`ResizeHandle::at_end`] and
 //! [`ResizeHandle::at_start`] put the whole band *inside* the thing being
 //! resized, flush with one of its edges, and the line the eye already sees
-//! there is that edge — a panel's hairline border, usually. A bar centred in
+//! there is that edge — a panel's hairline border, usually. A bar centered in
 //! such a band would float a few pixels in from the border and read as a second
 //! rule beside it, so it is pushed flush with the same edge the band is and
 //! lands on top of the border instead.
@@ -132,7 +132,7 @@ impl HandleState {
 
 /// The phase a bar in `current` moves to, given a pointer and a press.
 ///
-/// The whole of the handle's behaviour, and pure, so that the awkward pairs —
+/// The whole of the handle's behavior, and pure, so that the awkward pairs —
 /// the pointer leaving mid-drag, a release with the pointer still on the band —
 /// can be stated as answers rather than traced through gpui's event order.
 ///
@@ -177,7 +177,7 @@ pub(crate) fn fade_key(id: &ElementId) -> ElementId {
 /// Where along the axis the band sits, and which edge of it the bar hugs.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Placement {
-    /// Centred on an offset from the container's leading edge.
+    /// Centered on an offset from the container's leading edge.
     At(Length),
     /// Flush with the container's leading edge — its left, or its top.
     Start,
@@ -247,13 +247,13 @@ impl<T: 'static> ResizeHandle<T> {
         }
     }
 
-    /// Centres the band on `offset` from the container's leading edge.
+    /// Centers the band on `offset` from the container's leading edge.
     ///
     /// The placement for a band astride a line rather than inside an edge: a
     /// splitter's divider sits at `relative(ratio)` of its container and the
     /// band is pulled back half its own thickness, so the grab area is symmetric
-    /// about the seam. The bar is centred in the band to match, which puts it
-    /// back on the line the band was centred on.
+    /// about the seam. The bar is centered in the band to match, which puts it
+    /// back on the line the band was centered on.
     pub fn at(mut self, offset: impl Into<Length>) -> Self {
         self.placement = Placement::At(offset.into());
         self
@@ -263,8 +263,8 @@ impl<T: 'static> ResizeHandle<T> {
     /// [`Axis::Horizontal`], its bottom on [`Axis::Vertical`].
     ///
     /// The placement for a panel that is resized by dragging its own edge. The
-    /// whole band is inside the panel, so none of it hangs over the neighbour,
-    /// and the bar is pushed flush with the same edge rather than centred: what
+    /// whole band is inside the panel, so none of it hangs over the neighbor,
+    /// and the bar is pushed flush with the same edge rather than centered: what
     /// is already drawn there is the panel's own border, and the bar lands on
     /// top of it instead of floating a few pixels in from it.
     pub fn at_end(mut self) -> Self {
@@ -327,7 +327,7 @@ impl<T: 'static> RenderOnce for ResizeHandle<T> {
         // thicknesses in either order and still get a bar that fits its band.
         let band_width = f32::from(thickness).max(0.);
         let bar_width = px(f32::from(self.bar).clamp(0., band_width));
-        // Centred across the band by the room left over, which is the one
+        // Centered across the band by the room left over, which is the one
         // measurement that stays right whatever either thickness is set to.
         let gutter = px((band_width - f32::from(bar_width)) / 2.);
 
@@ -381,7 +381,7 @@ impl<T: 'static> RenderOnce for ResizeHandle<T> {
             ),
         };
 
-        // Pulled back half its own thickness, so that a band centred on a line
+        // Pulled back half its own thickness, so that a band centered on a line
         // is symmetric about it. The two flush placements need no such offset:
         // the whole band is meant to be inside the edge it names.
         let offset = px(-f32::from(thickness) / 2.);
@@ -535,7 +535,7 @@ mod tests {
         cx.read(|cx| *state.read(cx))
     }
 
-    /// The pure half of the handle's behaviour, stated as answers.
+    /// The pure half of the handle's behavior, stated as answers.
     ///
     /// The two that matter are the ones event order alone would get wrong: the
     /// pointer "leaving" the moment a drag starts, which must not take the bar
@@ -584,7 +584,7 @@ mod tests {
     }
 
     /// Two pixels in from the panel's right edge, halfway down it — inside the
-    /// band only if the band really is flush with that edge rather than centred
+    /// band only if the band really is flush with that edge rather than centered
     /// on it or left at the container's start.
     fn on_the_band() -> Point<Pixels> {
         point(px(PANEL_WIDTH - 2.), px(HARNESS_HEIGHT / 2.))

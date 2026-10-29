@@ -43,7 +43,7 @@ exclude = [
 #     GPU primitive layouts and the platform renderers remain unchanged, and
 #     must stay so: `gpui_apple`, taken from git unpatched, generates the Metal
 #     shader bindings from the *upstream* `gpui/src/scene.rs` and its
-#     neighbours, not from the vendored copies.
+#     neighbors, not from the vendored copies.
 #   * `gpui/src/tab_stop.rs`, `gpui/src/window.rs` and
 #     `gpui/src/elements/div.rs` — modal focus traps, replayed with cached
 #     tab stops, and default Tab traversal for forms without host bindings.
@@ -53,7 +53,7 @@ exclude = [
 #     `set_titlebar_transparent`, which moves an open window between the
 #     caption the platform draws and the one the app draws. gpui settles that
 #     at window creation and offers no way back; an application that offers it
-#     as a setting cannot reopen its window to honour a change without dropping
+#     as a setting cannot reopen its window to honor a change without dropping
 #     whatever the window is holding. It has to reach the backends, so it is a
 #     `PlatformWindow` method, which is why the core is vendored at all rather
 #     than only the two backends that implement it.
@@ -168,7 +168,7 @@ gpui_macos = { path = "vendor/gpui_macos" }
 gpui_windows = { path = "vendor/gpui_windows" }
 
 [workspace.package]
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 license = "MIT"
 authors = ["rugpui contributors"]
@@ -264,7 +264,7 @@ ring = "0.17"
 # shared rather than duplicated in the tree; `raw-window-handle` is how gpui
 # hands out the `HWND` it needs. `windows-registry` is the one registry
 # consumer: after a self-update the shell corrects the `DisplayVersion` in the
-# uninstall entry an Inno Setup installer wrote, so that winget still recognises
+# uninstall entry an Inno Setup installer wrote, so that winget still recognizes
 # the installed copy.
 windows = { version = "0.62", features = ["Win32_Graphics_Dwm"] }
 windows-registry = "0.6"

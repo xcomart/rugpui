@@ -2,15 +2,15 @@
 //!
 //! gpui's [`svg`](gpui::svg) element resolves its `path` through the
 //! [`AssetSource`] the application was built with — an [`IconSet`] here — and
-//! paints the result as a *monochrome* sprite: resvg rasterises the file, only
+//! paints the result as a *monochrome* sprite: resvg rasterizes the file, only
 //! the alpha channel survives, and the element's `text_color` supplies the
-//! colour. Two things follow, and both are why an icon drawn for this looks the
+//! color. Two things follow, and both are why an icon drawn for this looks the
 //! way it does:
 //!
-//! * the colours written in an icon never reach the screen, only its coverage
+//! * the colors written in an icon never reach the screen, only its coverage
 //!   does, so a `fill-opacity` below `1` reads as a lighter shade of the tint;
 //! * the tint is whatever the *element* asks for, and unlike text it is not
-//!   inherited from a parent, so a hover that recolours a button has to reach
+//!   inherited from a parent, so a hover that recolors a button has to reach
 //!   the icon through [`group_hover`](gpui::InteractiveElement::group_hover).
 //!
 //! The bytes come from [`include_bytes!`], not from files read at run time: a
@@ -37,7 +37,7 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, Hsla, Pixels, Result, SharedString, Styled, Svg, svg};
 
-/// A self-drawn title bar's minimise button.
+/// A self-drawn title bar's minimize button.
 ///
 /// The four window-control glyphs are drawn edge to edge of the 24×24 box
 /// rather than inset like a toolbar icon: they are painted at half the size of
@@ -54,10 +54,10 @@ use gpui::{AssetSource, Hsla, Pixels, Result, SharedString, Styled, Svg, svg};
 /// the strip reads as one set.
 pub const WINDOW_MINIMIZE: &str = "icons/window-minimize.svg";
 
-/// A self-drawn title bar's maximise button, while the window is not maximised.
+/// A self-drawn title bar's maximize button, while the window is not maximized.
 pub const WINDOW_MAXIMIZE: &str = "icons/window-maximize.svg";
 
-/// A self-drawn title bar's maximise button, while the window *is* maximised.
+/// A self-drawn title bar's maximize button, while the window *is* maximized.
 ///
 /// Two offset squares, the shape every desktop uses for "put it back": the
 /// button keeps its place and only the glyph says which way it will go.

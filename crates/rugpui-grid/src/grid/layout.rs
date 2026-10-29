@@ -16,7 +16,7 @@ pub(super) fn shaped_width(text: &str, font: &Font, size: Pixels, window: &Windo
     let run = TextRun {
         len: text.len(),
         font: font.clone(),
-        // Shaping, not painting: a colour cannot move a glyph's advance, so any
+        // Shaping, not painting: a color cannot move a glyph's advance, so any
         // of them measures the same.
         color: Hsla::default(),
         background_color: None,

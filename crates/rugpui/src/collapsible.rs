@@ -182,7 +182,7 @@ impl Collapsible {
         self
     }
 
-    /// Greys the header and stops it answering presses.
+    /// Grays the header and stops it answering presses.
     ///
     /// The body is still drawn if [`Collapsible::open`] says it is open: a
     /// section can be frozen open as easily as frozen shut, and which of the
@@ -333,7 +333,7 @@ mod tests {
     const HARNESS_HEIGHT: f32 = 200.;
 
     /// A row comfortably inside the header, and inside the shorter trailing
-    /// control centred in it, whatever font the platform picks.
+    /// control centered in it, whatever font the platform picks.
     const ON_THE_HEADER: f32 = 14.;
 
     /// A column inside the header's clickable half, past the arrow box.

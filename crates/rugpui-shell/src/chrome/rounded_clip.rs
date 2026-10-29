@@ -176,7 +176,7 @@ fn rounded_regions(
             if next <= y {
                 continue;
             }
-            // Evaluate at the device pixel's centre; the smooth outline covers
+            // Evaluate at the device pixel's center; the smooth outline covers
             // the boundary of the inner curve.
             let center = (y + next) / 2.;
             let top_inset = inset(center - top);

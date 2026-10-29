@@ -1,4 +1,4 @@
-//! A labelled on/off checkbox.
+//! A labeled on/off checkbox.
 
 use gpui::{App, ClickEvent, ElementId, SharedString, Window, div, prelude::*, px};
 

@@ -22,7 +22,7 @@ pub(super) fn choice_value(
     })
 }
 
-/// The colour a row's marker is drawn in, or `None` for a row nothing has been
+/// The color a row's marker is drawn in, or `None` for a row nothing has been
 /// staged against.
 ///
 /// Derived from the palette rather than added to it, exactly as the grid's own
@@ -30,7 +30,7 @@ pub(super) fn choice_value(
 /// nothing about staged edits and gains nothing it has to know. The three
 /// meanings map onto the three the palette already carries — a change is the
 /// accent, something new is a success, something going is a danger — so a theme
-/// that made its danger colour green would mark deletions green, which is what
+/// that made its danger color green would mark deletions green, which is what
 /// its author asked for.
 pub(super) fn status_color(status: RowStatus, theme: &Theme) -> Option<Hsla> {
     match status {
@@ -172,7 +172,7 @@ impl<S: GridSource> Render for GridView<S> {
             .size_full()
             .overflow_hidden()
             // Nothing, while the window is translucent. The pane behind the grid
-            // already tints these same pixels with the very same colour, so an
+            // already tints these same pixels with the very same color, so an
             // opaque fill here would hide the blur and a tinted one would
             // saturate the surface alpha back to opaque; see
             // `app_settings::window_tint`. The header, the row stripes and the
@@ -272,7 +272,7 @@ impl<S: GridSource> GridView<S> {
             .border_r_1()
             .border_color(theme.border)
             .cursor_pointer()
-            // The one thing the primary key gets: its own colour, on the header
+            // The one thing the primary key gets: its own color, on the header
             // and nowhere else. A key icon would need a font this layer does not
             // pick.
             .text_color(if column.primary_key {
@@ -397,7 +397,7 @@ impl<S: GridSource> GridView<S> {
                     RowStatus::Inserted | RowStatus::Deleted => marker,
                     _ => None,
                 },
-                |row, colour| row.bg(colour.opacity(ROW_TINT)),
+                |row, color| row.bg(color.opacity(ROW_TINT)),
             )
             .child(
                 div()
@@ -416,19 +416,19 @@ impl<S: GridSource> GridView<S> {
                     .text_color(theme.text_muted)
                     .child(SharedString::from((row + 1).to_string()))
                     // The whole of the row marker: a bar on the outer edge of
-                    // the gutter, in the colour the status derives from. It is
+                    // the gutter, in the color the status derives from. It is
                     // on the edge rather than beside the number so that a
                     // column of them can be read down at a glance, and it is
                     // three pixels wide so that the number it shares the gutter
                     // with is still the thing being read.
-                    .children(marker.map(|colour| {
+                    .children(marker.map(|color| {
                         div()
                             .absolute()
                             .left_0()
                             .top_0()
                             .bottom_0()
                             .w(px(STATUS_WIDTH))
-                            .bg(colour)
+                            .bg(color)
                     })),
             )
             .child(
@@ -454,7 +454,7 @@ impl<S: GridSource> GridView<S> {
     /// Draws one cell.
     ///
     /// Plain divs with no id and no listeners: the whole of the pointer
-    /// behaviour is [`GridView::hit`], so a cell is only a box with something in
+    /// behavior is [`GridView::hit`], so a cell is only a box with something in
     /// it.
     ///
     /// The source gets first refusal through [`GridSource::render_cell`]; what
@@ -598,7 +598,7 @@ impl<S: GridSource> GridView<S> {
             .key_context(EDITOR_KEY_CONTEXT)
             .absolute()
             .left(px(placed.x - self.h_offset))
-            // Centred on the row rather than fitted into it: the field is
+            // Centered on the row rather than fitted into it: the field is
             // taller than a row and squeezing it would clip its own border.
             .top(px(
                 editing.row as f32 * ROW_HEIGHT + scrolled_by - (EDITOR_HEIGHT - ROW_HEIGHT) / 2.
@@ -610,7 +610,59 @@ impl<S: GridSource> GridView<S> {
             .occlude();
 
         let field = match &editing.editor {
-            OpenEditor::Field { input } => field.child(input.clone()),
+            OpenEditor::Field {
+                input,
+                expandable: false,
+            } => field.child(input.clone()),
+            OpenEditor::Field {
+                input,
+                expandable: true,
+            } => {
+                let theme = theme(cx);
+                // Beside the field rather than over its right-hand end, so that
+                // the text never runs underneath it. The field keeps the rest of
+                // the column's width.
+                field
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(2.))
+                    .child(div().flex_1().min_w_0().child(input.clone()))
+                    .child(
+                        div()
+                            .id("grid-cell-expand")
+                            .debug_selector(|| "grid-cell-expand".into())
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .w(px(EXPAND_BUTTON_WIDTH))
+                            .h(px(EDITOR_HEIGHT))
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.surface)
+                            .hover(|button| button.bg(theme.surface_hover))
+                            .cursor_pointer()
+                            .when_some(self.expand_tooltip.clone(), |button, label| {
+                                button.tooltip(tooltip_label(label))
+                            })
+                            // Kept from the grid underneath: a press that reached
+                            // it would take the focus off the field — which
+                            // commits — before the click could hand the edit on.
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(|grid, _: &ClickEvent, _, cx| {
+                                grid.expand_edit(cx);
+                            }))
+                            .child(
+                                gpui::svg()
+                                    .size(px(EXPAND_ICON_SIZE))
+                                    .flex_none()
+                                    .path(rugpui::EXPAND)
+                                    .text_color(theme.icon),
+                            ),
+                    )
+            }
             OpenEditor::Choice {
                 focus,
                 rows,

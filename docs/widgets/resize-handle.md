@@ -77,7 +77,7 @@ ResizeHandle::new(
 | method | argument | default | effect |
 | --- | --- | --- | --- |
 | `ResizeHandle::new` | `id: impl Into<ElementId>`, `axis: gpui::Axis`, `payload: T` | — | Creates a handle that drags along `axis` carrying `payload`. `Horizontal` is a tall thin band that moves left and right, with the east-west resize cursor; `Vertical` is the transpose. See below for why `id` is unusual. |
-| `at` | `impl Into<Length>` | — | Centres the band on an offset from the container's leading edge — `relative(ratio)`, or a `px`. The band is pulled back half its own thickness, and the bar is centred in it. |
+| `at` | `impl Into<Length>` | — | Centers the band on an offset from the container's leading edge — `relative(ratio)`, or a `px`. The band is pulled back half its own thickness, and the bar is centered in it. |
 | `at_end` | — | **the default** | Puts the whole band inside the container's trailing edge — `right_0()` on `Horizontal`, `bottom_0()` on `Vertical` — with the bar flush against that same edge. |
 | `at_start` | — | | The mirror of `at_end`: `left_0()` / `top_0()`, bar flush with the leading edge. |
 | `thickness` | `Pixels` | `6 px` | How thick the band that answers a press is. The grab area alone: widening it never makes the bar heavier. |
@@ -95,7 +95,7 @@ no view has any use for it, so the handle keeps it under gpui's element state �
 the same store an `on_click` uses to remember it saw a press — keyed by the
 handle's own id. It comes into being the first time the band is drawn and is
 gone the moment it stops being drawn, which is exactly as long as a fade should
-live. Nothing to declare, nothing to initialise, nothing to reset.
+live. Nothing to declare, nothing to initialize, nothing to reset.
 
 What the host does keep is whatever the drag is *for* — a width, a ratio — and
 that would have existed anyway.
@@ -152,13 +152,13 @@ arbitrary.
 
 - **`at(offset)`** puts the band *astride a line* — the seam between two panes,
   which belongs to neither of them. The band is pulled back half its thickness
-  so the grab area is symmetric about that line, and the bar is centred in the
+  so the grab area is symmetric about that line, and the bar is centered in the
   band by whatever room is left over, which puts it back exactly on the line it
-  was centred about.
+  was centered about.
 - **`at_end()` / `at_start()`** put the whole band *inside* the thing being
-  resized, flush with one of its edges, so none of it hangs over the neighbour
+  resized, flush with one of its edges, so none of it hangs over the neighbor
   and nothing else has to leave room for it. The line the eye already sees there
-  is that edge — a panel's hairline border, usually. A bar centred in such a
+  is that edge — a panel's hairline border, usually. A bar centered in such a
   band would float two or three pixels in from the border and read as a second
   rule beside it, so it is pushed flush with the same edge the band is and lands
   *on top of* the border instead.

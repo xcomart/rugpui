@@ -26,7 +26,7 @@ const MIN_PANEL_HEIGHT: f32 = 160.;
 /// top of everything else.
 ///
 /// Tab and Shift+Tab cycle through the topmost dialog's enabled controls.
-/// Existing host key bindings keep their behaviour within that boundary.
+/// Existing host key bindings keep their behavior within that boundary.
 ///
 /// Clicks on the panel itself are swallowed; only clicks on the backdrop invoke
 /// `on_dismiss`. The backdrop occludes everything under it, so while a dialog
@@ -134,7 +134,7 @@ impl RenderOnce for Modal {
     }
 }
 
-/// Builds a labelled form row: a fixed-width label followed by `control`.
+/// Builds a labeled form row: a fixed-width label followed by `control`.
 ///
 /// Intended for the body of a [`modal`], but usable anywhere a label/control
 /// pair is needed.

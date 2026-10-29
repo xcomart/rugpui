@@ -1,7 +1,7 @@
 //! A grid of selectable cards, each previewing one editor theme.
 //!
 //! Where a chrome theme can be previewed with a few swatches — it is a set of
-//! flat surfaces, and a strip of coloured blocks is an honest picture of one —
+//! flat surfaces, and a strip of colored blocks is an honest picture of one —
 //! a syntax palette cannot. Its colors only mean anything in arrangement: what
 //! a reader is choosing between is not "is this purple nice" but "can I tell a
 //! keyword from a column name at a glance, and is the comment still legible".
@@ -128,16 +128,16 @@ const fn picked(text: &'static str, slot: PreviewSlot) -> PreviewSpan {
 /// The statement every card renders.
 ///
 /// Chosen so that nine slots land on six short lines and no line runs past
-/// seventeen characters: a comment, two flavours of literal, two operators, the
+/// seventeen characters: a comment, two flavors of literal, two operators, the
 /// punctuation between the columns, and identifiers on both sides of a `FROM`.
 /// The reader is meant to be able to answer "can I tell these apart" without
 /// reading the statement at all.
 ///
 /// The last line is not part of the statement, and is there because the editor
-/// colours configuration formats as well as SQL. A `SELECT` has no member name
+/// colors configuration formats as well as SQL. A `SELECT` has no member name
 /// and no `$VAR` in it, so the two slots those formats spend half a screen on
 /// would go unseen on a card that showed a statement alone — and a palette
-/// whose keys are the colour of its identifiers is exactly what somebody
+/// whose keys are the color of its identifiers is exactly what somebody
 /// picking a theme for a YAML file needs to be able to see.
 const PREVIEW_LINES: &[&[PreviewSpan]] = &[
     &[span("-- recent", PreviewSlot::Comment)],

@@ -1,6 +1,6 @@
 # Checkbox
 
-A labelled on/off box for a setting the user reads as a list of independent
+A labeled on/off box for a setting the user reads as a list of independent
 choices. When the choice is "this feature is on or off" and reads better as a
 physical toggle, use [`Switch`](./switch.md) — the two have identical APIs and
 differ only in how they draw.
@@ -91,10 +91,10 @@ changed but nothing asked for a repaint.
 
 ## Pitfalls
 
-- The focus ring is a transparent 1 px border that is only recoloured on focus,
+- The focus ring is a transparent 1 px border that is only recolored on focus,
   so gaining focus costs no layout and the row does not shift.
 - `checked(..)` is what draws; the widget never derives it from previous clicks.
   A `on_toggle` that does not write back leaves a box that flickers nowhere.
 - An unticked box draws no glyph at all — its child is an empty string, and
-  its glyph colour is `transparent_black` — so the tick only enters the tree
+  its glyph color is `transparent_black` — so the tick only enters the tree
   when checked.

@@ -250,7 +250,7 @@ pub enum EditorEvent {
     /// on the editor — `Copy`, `Cut`, `Paste`, `Undo`, `Redo`, `SelectAll`,
     /// `ToggleComment`, `Find`, `RunStatement`, `RunAll`, `RunSelection` — so
     /// the host dispatches them into [`KEY_CONTEXT`] rather than calling
-    /// anything new, and greys them out with [`EditorView::has_selection`],
+    /// anything new, and grays them out with [`EditorView::has_selection`],
     /// [`EditorView::can_undo`], [`EditorView::can_redo`] and
     /// [`EditorView::is_read_only`].
     ContextMenu {
@@ -414,8 +414,8 @@ pub struct EditorView {
     /// `None` — the default — reads [`rugpui::editor_theme`] instead, which is
     /// the application-wide choice and what nearly every editor wants. An
     /// override is for a host whose *documents* carry a palette of their own:
-    /// a terminal session with a colour scheme attached, a diff view that
-    /// wants both sides in the same colours whatever the app is set to.
+    /// a terminal session with a color scheme attached, a diff view that
+    /// wants both sides in the same colors whatever the app is set to.
     palette: Option<EditorTheme>,
     /// The font this one editor is shaped and drawn in, when the host has
     /// pushed one.
@@ -566,7 +566,7 @@ impl EditorView {
         }
     }
 
-    /// Sets the highlighter, which decides what every colour in the buffer is.
+    /// Sets the highlighter, which decides what every color in the buffer is.
     pub fn highlighter(mut self, highlighter: Arc<dyn Highlighter>) -> Self {
         self.syntax.set_highlighter(Some(highlighter), &self.buffer);
         self
@@ -593,7 +593,7 @@ impl EditorView {
 
     /// Changes the highlighter and re-lexes the buffer.
     ///
-    /// [`None`] is a plain-text document: no colours, no comment toggle, and
+    /// [`None`] is a plain-text document: no colors, no comment toggle, and
     /// no statement concept at all — plain text has no `;`-terminated
     /// statements to highlight or run.
     pub fn set_highlighter(
@@ -614,7 +614,7 @@ impl EditorView {
     ///
     /// `None` puts it back on [`rugpui::editor_theme`], the application-wide
     /// palette, which is where it starts and where nearly every editor should
-    /// stay: an override exists for a host whose *document* carries colours of
+    /// stay: an override exists for a host whose *document* carries colors of
     /// its own — a terminal session with a scheme attached, say — and not as a
     /// way to style one pane differently from another for its own sake.
     ///
@@ -848,7 +848,7 @@ impl EditorView {
     /// anything was typed since: undoing back to the saved text reads clean
     /// again, and undoing or redoing away from it reads dirty. A running IME
     /// composition counts as a change — its preview is in the buffer — until
-    /// it is recorded or cancelled. See [`History::mark_clean`].
+    /// it is recorded or canceled. See [`History::mark_clean`].
     pub fn is_dirty(&self) -> bool {
         self.history.in_composition() || !self.history.is_clean()
     }
@@ -2256,7 +2256,7 @@ impl EditorView {
     /// every editor does and the reason is the main use of the gesture: the
     /// menu is nearly always raised *over* a selection in order to copy, cut or
     /// run it, and a press that collapsed the selection first would leave every
-    /// one of those items either greyed out or acting on nothing. §7.8's "a
+    /// one of those items either grayed out or acting on nothing. §7.8's "a
     /// right click moves the selection" is about lists — a tree row, a grid
     /// cell — where the press names one thing; here it would destroy the
     /// argument the menu is about.

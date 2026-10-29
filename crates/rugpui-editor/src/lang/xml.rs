@@ -2,7 +2,7 @@
 //!
 //! XML (and HTML closely enough to share a lexer with it) is not the
 //! "keyword, string, comment" shape [`crate::lang::clike`] covers: what there
-//! is to colour is tag names, attribute names, attribute values, and three
+//! is to color is tag names, attribute names, attribute values, and three
 //! kinds of bracketed run that can carry over a line break — `<!-- -->`,
 //! `<![CDATA[ ]]>`, and `<?...?>` — so this is a small state machine of its
 //! own, closer in shape to a small tag state machine than to

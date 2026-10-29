@@ -41,6 +41,52 @@ fn tab_hands_external_editors_to_the_host_without_a_single_line_field(cx: &mut T
     });
 }
 
+/// The button at the end of an expandable field hands what was typed to the
+/// host, with nothing staged: the press must not reach the grid, whose focus
+/// change would commit the field before the click could hand it on.
+#[gpui::test]
+fn the_expand_button_hands_the_typed_text_to_the_host(cx: &mut TestAppContext) {
+    let mut source = Staged::new();
+    source.expandable = vec![2];
+    let (grid, mut cx) = open(source, cx);
+    grid.update_in(&mut cx, |grid, window, cx| {
+        assert!(grid.begin_edit(1, 2, window, cx));
+        assert!(grid.is_expandable());
+    });
+    cx.simulate_input("!");
+    let button = cx
+        .debug_bounds("grid-cell-expand")
+        .expect("an expandable field draws its button");
+    cx.simulate_click(button.center(), Modifiers::none());
+    cx.run_until_parked();
+
+    assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
+    assert_eq!(
+        grid.drain(),
+        vec![GridEvent::ExpandRequested {
+            row: 1,
+            column: 2,
+            text: "there!".into(),
+        }]
+    );
+}
+
+/// A field whose source made no offer has no button, and asking it to expand
+/// does nothing — the edit stays open, and nothing is raised.
+#[gpui::test]
+fn a_field_without_the_offer_does_not_expand(cx: &mut TestAppContext) {
+    let (grid, mut cx) = open(Staged::new(), cx);
+    grid.update_in(&mut cx, |grid, window, cx| {
+        assert!(grid.begin_edit(1, 2, window, cx));
+        assert!(!grid.is_expandable());
+    });
+    assert!(cx.debug_bounds("grid-cell-expand").is_none());
+    let expanded = grid.update_in(&mut cx, |grid, _, cx| grid.expand_edit(cx));
+    assert!(!expanded);
+    assert_eq!(grid.read(&mut cx, |grid| grid.editing()), Some((1, 2)));
+    assert_eq!(grid.drain(), vec![]);
+}
+
 /// The `NULL` row of a nullable dropdown stages `EditValue::Null`, which is
 /// the gesture that clears a cell rather than emptying it — the distinction
 /// the crate is built around, now with a way for a user to reach it.
@@ -154,7 +200,7 @@ fn a_custom_editor_cancels_through_its_context(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     assert_eq!(grid.read(&mut cx, |grid| grid.editing()), None);
-    assert_eq!(grid.drain(), vec![], "a cancelled editor staged something");
+    assert_eq!(grid.drain(), vec![], "a canceled editor staged something");
 }
 
 /// A source that never opted in cannot be typed into, however the host

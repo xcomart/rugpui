@@ -89,7 +89,7 @@ Two more items in the module are part of the public API:
 ## State the host keeps
 
 One `f32` per divider — the gallery keeps `split_x` and `split_y`. There is
-nothing to initialise and nothing to keep beside it: no drag flag, no phase, no
+nothing to initialize and nothing to keep beside it: no drag flag, no phase, no
 handle. The splitter is rebuilt from `ratio(..)` on every render and reports the
 new share through `on_change`; store it and call `cx.notify()`.
 
@@ -103,7 +103,7 @@ divider, and no view has any use for it, so the handle keeps it under gpui's
 element state — the same store an `on_click` uses to remember it saw a press —
 keyed by the splitter's own id with `split-handle` hung off it. It comes into
 being the first time the divider is drawn and is gone the moment it stops being drawn, which is exactly as long
-as a fade should live. Nothing to declare, nothing to initialise, nothing to
+as a fade should live. Nothing to declare, nothing to initialize, nothing to
 reset: the ratio stays the one thing a host stores per divider.
 
 ## `id` has to be unique in the *window*
@@ -135,7 +135,7 @@ The band the pointer grabs, the rounded accent bar that fades in under it, and
 the little state a fade needs are not this widget's — they are
 [`ResizeHandle`](./resize-handle.md), which a panel resized by dragging its own
 edge uses just as well as a splitter does. The splitter places one at
-`relative(ratio)` with [`at`](./resize-handle.md#builder-options), which centres
+`relative(ratio)` with [`at`](./resize-handle.md#builder-options), which centers
 its 6 px band on the seam so the grab area is symmetric about the line the eye
 sees, and hands it `handle_thickness` and `bar_thickness` unchanged.
 
@@ -227,7 +227,7 @@ Two boxes in a flex line, and two more floating over the seam between them:
   `.at(relative(ratio))`: an absolutely positioned band at the same percentage,
   pulled back half its own thickness so the grab area is symmetric about the line
   the eye sees, `occlude()`ing, carrying the resize cursor for its axis, and
-  painting nothing itself — with the accent bar centred inside it and running the
+  painting nothing itself — with the accent bar centered inside it and running the
   whole length of the seam.
 
 The divider is out of the flow on purpose. One that took part in the layout would

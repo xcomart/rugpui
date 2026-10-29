@@ -1,6 +1,6 @@
 # Theming
 
-Two colour palettes live side by side in `rugpui` and are chosen
+Two color palettes live side by side in `rugpui` and are chosen
 independently: [`Theme`](../crates/rugpui/src/theme.rs) is the *chrome* — panels,
 tabs, buttons, dialogs, the result grid — and
 [`EditorTheme`](../crates/rugpui/src/editor_theme.rs) is the code editor alone.
@@ -26,13 +26,13 @@ first being translated into chrome.
 | `dark: bool` | Whether this is a dark palette. No widget branches on it; the platforms that draw their own window caption need to be told which side of light/dark the app is on, and the palette is the only thing that knows. |
 | `background` | Window / app background. |
 | `surface` | Background of raised chrome: panels, toolbars, the tab bar. |
-| `surface_hover` | Surface colour while the pointer hovers an interactive element. |
-| `surface_active` | Surface colour while an element is pressed or selected. |
+| `surface_hover` | Surface color while the pointer hovers an interactive element. |
+| `surface_active` | Surface color while an element is pressed or selected. |
 | `border` | Hairline separators and control outlines. |
 | `text` | Primary foreground. |
 | `text_muted` | Secondary foreground: hints, placeholders, inactive labels. |
 | `icon` | Resting foreground of an *icon*, as opposed to muted text. **Derived** — see below. |
-| `accent` | Brand colour: the active tab, focus rings, primary buttons. |
+| `accent` | Brand color: the active tab, focus rings, primary buttons. |
 | `danger` | Destructive actions and error states. |
 | `success` | Successful / connected states. |
 | `overlay` | Translucent backdrop behind a modal (carries alpha). |
@@ -48,7 +48,7 @@ change".
 
 ### Stored slots and derived ones
 
-A theme file spells out eleven colours. Everything else in a `Theme` is worked
+A theme file spells out eleven colors. Everything else in a `Theme` is worked
 out from those, for two different reasons.
 
 **`icon` is derived because it has to hold.** Icons used to be painted in
@@ -59,7 +59,7 @@ screen weaker than the text beside it. So `icon` is `text_muted` with its hue an
 saturation kept and only its lightness moved away from the surfaces, by
 bisection, until it clears 4.5:1 against **both** `background` and `surface`.
 (4.5 rather than WCAG's 3:1 for graphical objects, to buy back what the
-antialiasing gives away.) A colour that already clears the bar is left exactly
+antialiasing gives away.) A color that already clears the bar is left exactly
 as it is, which is what keeps a well-judged theme looking like itself. The file
 format carries no `icon` key and will not gain one — nothing may spell it out,
 which is what makes the guarantee reach a palette nobody checked.
@@ -82,7 +82,7 @@ worked out from the eleven when absent:
   page.
 
 "Away from the page" is lighter on a dark palette and darker on a light one; the
-direction comes from the palette's own `dark` flag rather than from the colour,
+direction comes from the palette's own `dark` flag rather than from the color,
 because a light theme's surfaces sit near the top of the lightness axis where
 "add a little" runs out of room. Unlike `icon`, these five *can* be spelled out
 — a grid header is a design choice, not merely a legibility floor — and all six
@@ -147,12 +147,12 @@ together. It is a `Global` too, installed empty by `rugpui::init`.
 
 `CustomUiTheme { id, name, theme }` is a loaded file. `ThemeEntry { id, name,
 dark, builtin }` is what a picker needs to draw a row and nothing more; the
-colours are fetched with `resolve` only for the entries that end up on screen.
+colors are fetched with `resolve` only for the entries that end up on screen.
 
 ### The file format
 
-`ThemeFile` is the on-disk form and `ThemeColors` its colour block. Field names
-serialise exactly as they are written in Rust — no renames — so the JSON is
+`ThemeFile` is the on-disk form and `ThemeColors` its color block. Field names
+serialize exactly as they are written in Rust — no renames — so the JSON is
 snake_case throughout. A complete, valid file:
 
 ```json
@@ -184,7 +184,7 @@ snake_case throughout. A complete, valid file:
 `version` defaults to the version this build writes when absent; `dark` defaults
 to `false`; the five `grid_*` keys may all be omitted. Everything else is
 required. Reading is deliberately forgiving, the way a hand-editable settings
-file is: **keys the format does not know are ignored**, and a colour that will
+file is: **keys the format does not know are ignored**, and a color that will
 not parse falls back to `Theme::dark()`'s value for that slot instead of failing
 the file. For the five optional grid slots a typo means the same as leaving the
 key out — the value is derived — which is the better answer there, since falling
@@ -193,8 +193,8 @@ grid.
 
 `parse_hex(&str) -> Option<Hsla>` accepts `#RRGGBB` and `#RRGGBBAA`, with the
 leading `#` optional and the digits case-insensitive. Anything else — a short
-`#rgb`, a colour name — answers `None`. `to_hex(Hsla) -> String` writes the
-six-digit form when the colour is opaque and the eight-digit form when it is
+`#rgb`, a color name — answers `None`. `to_hex(Hsla) -> String` writes the
+six-digit form when the color is opaque and the eight-digit form when it is
 not, so the ten opaque slots of a file stay readable.
 
 ## `EditorTheme`
@@ -208,7 +208,7 @@ around it, and fourteen are token classes a lexer hands out.
 | frame | `line_highlight`, `gutter`, `gutter_active` |
 | tokens | `keyword`, `string`, `number`, `comment`, `function`, `type`, `operator`, `identifier`, `key`, `variable`, `punctuation`, `bracket_match`, `error`, `warning` |
 
-`foreground` is also the colour of anything the lexer did not classify;
+`foreground` is also the color of anything the lexer did not classify;
 `gutter_active` the line number of the line the caret is on, `line_highlight`
 the band behind that line, `bracket_match` the bracket under the caret and its
 partner. `error` and `warning` are the squiggles and gutter marks a host's
@@ -223,12 +223,12 @@ Two of the token slots arrived after the format was published:
   `${TARGET}`, a YAML anchor or alias, a Markdown link's text.
 
 A file that carries neither is a file whose author never had them to choose, so
-rather than dropping a built-in colour into the middle of theirs, the nearest
+rather than dropping a built-in color into the middle of theirs, the nearest
 thing they *did* choose stands in: `key` takes the file's own `type`, and
 `variable` takes its `function`.
 
 Nothing else here is derived. Every slot of a syntax palette is a choice about
-which token deserves which colour, and an operator is not a shade of a keyword.
+which token deserves which color, and an operator is not a shade of a keyword.
 What replaces derivation is forgiveness of a different shape: an unparseable
 slot falls back to the built-in theme **of the same darkness**, so a typo in a
 light theme cannot drop a near-black keyword onto a near-white page.
@@ -248,7 +248,7 @@ the two tables agree is a property of the built-ins, not of the design — a
 custom theme can exist on one side and not the other, and the two settings stay
 independently selectable.
 
-One short listing in each, with a range selected so the selection colour is in
+One short listing in each, with a range selected so the selection color is in
 the picture beside the current-line band and the caret:
 
 | `one-dark` | `one-light` |
@@ -420,18 +420,18 @@ the choice the code editor made.
 ## Three helpers
 
 - `shift_lightness(color, delta) -> Hsla` — lightness moved by `delta`, clamped
-  to `[0, 1]`. How a widget derives a hover or pressed shade from a base colour
+  to `[0, 1]`. How a widget derives a hover or pressed shade from a base color
   without the theme storing one slot per state.
 - `contrast_ratio(left, right) -> f32` — the WCAG 2.1 ratio, `1.0` to `21.0`,
   symmetric in its arguments so a caller need not know which is the foreground.
-  Alpha plays no part: a translucent colour would have to be composited against
+  Alpha plays no part: a translucent color would have to be composited against
   a specific background before its luminance meant anything.
 - `lerp(from, to, fraction) -> Hsla` — `from` mixed into `to`, channel by
   channel in sRGB, with `fraction` clamped to `[0, 1]`. What a widget animating
   between two slots draws with — the switch's track and knob — and sRGB rather
   than HSL so a fade between unrelated hues goes straight there.
 
-## How a colour reaches a widget
+## How a color reaches a widget
 
 ```mermaid
 flowchart LR
@@ -459,7 +459,7 @@ written down.
 2. Drop it into the `ui_themes` directory your application named through
    `ThemeDirs` (or export a starting point with
    `ThemeFile::from_theme("Tokyo Night", &Theme::dark())` and edit from there —
-   that writes all sixteen colours, including the grid slots).
+   that writes all sixteen colors, including the grid slots).
 3. Reload:
 
    ```rust
@@ -488,15 +488,15 @@ An editor theme is the same five steps through `editor_themes`,
 Two widgets in `rugpui` present these lists:
 
 - [`SchemeSelect`](./widgets/scheme-select.md) — a one-line dropdown over
-  entries that carry colours as well as a name, for a settings form with several
-  catalogues and no room for preview grids.
+  entries that carry colors as well as a name, for a settings form with several
+  catalogs and no room for preview grids.
 - [`EditorThemePicker`](./widgets/editor-theme-picker.md) — a grid of cards, each
   rendering a miniature statement in the palette it is offering, because swatches
   cannot answer "can I still tell a keyword from a column name".
 
-`rugpui-shell` goes further: `ThemeEditor` edits one entry of a catalogue colour
-by colour and writes the file back, and the `ThemeCatalog` trait —
+`rugpui-shell` goes further: `ThemeEditor` edits one entry of a catalog color
+by color and writes the file back, and the `ThemeCatalog` trait —
 with `UiThemeCatalog` and `EditorThemeCatalog` over the two formats here, and
-`CatalogFile::Other` for a third of your own — is what wires a catalogue,
+`CatalogFile::Other` for a third of your own — is what wires a catalog,
 its import and export, and its default id into a settings dialog. See
 [shell.md](./shell.md).

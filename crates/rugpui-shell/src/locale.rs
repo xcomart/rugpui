@@ -190,8 +190,30 @@ const YAML_KEYWORDS: [&str; 22] = [
     "YES", "no", "No", "NO", "on", "On", "ON", "off", "Off", "OFF",
 ];
 
-/// Checks a directory of locale files against the two mistakes that never show
-/// up in a running application.
+/// Where YAML starts a comment inside a value, if it does.
+///
+/// A `#` with whitespace before it opens a comment, so the plain scalar
+/// `Every color has to be written as #RRGGBB.` loads as only the words before
+/// the `#`, and the color format it was there to name is gone. The value here
+/// is already trimmed, so a `#` at its very start had the space after the colon
+/// in front of it, and the whole value is a comment. A quoted value is text all
+/// the way to its closing quote.
+fn comment_start(value: &str) -> Option<usize> {
+    if value.starts_with(['"', '\'']) {
+        return None;
+    }
+    let mut after_space = true;
+    for (at, c) in value.char_indices() {
+        if c == '#' && after_space {
+            return Some(at);
+        }
+        after_space = c == ' ' || c == '\t';
+    }
+    None
+}
+
+/// Checks a directory of locale files against the mistakes that never show up
+/// as mistakes in a running application.
 ///
 /// Meant to be called from one test in the application that owns the files:
 ///
@@ -203,7 +225,7 @@ const YAML_KEYWORDS: [&str; 22] = [
 /// }
 /// ```
 ///
-/// Two properties, both invisible on screen:
+/// Three properties, none of which looks wrong on screen:
 ///
 /// * **Every locale carries exactly the keys [`FALLBACK`] does.** A key missing
 ///   from a translation is answered in English by the per-key fallback, so it
@@ -213,9 +235,12 @@ const YAML_KEYWORDS: [&str; 22] = [
 ///   something other than their text — the first as a null or a boolean, the
 ///   second as a number rendered without its formatting — and both look like a
 ///   line that was simply never written.
+/// * **No unquoted value has a `#` after a space.** YAML reads the rest of the
+///   line as a comment, so the value loads cut short and looks like a sentence
+///   that simply ends there.
 ///
 /// `_version`, which localization tooling writes as a bare number on purpose,
-/// is exempt from the second.
+/// is exempt from the last two.
 ///
 /// # Panics
 ///
@@ -248,6 +273,13 @@ pub fn check_locale_dir(dir: &Path, tags: &[&str]) {
                 value.parse::<f64>().is_err(),
                 "{tag}: {key} is the bare number {value:?} and loads as one; quote it"
             );
+            if let Some(at) = comment_start(value) {
+                panic!(
+                    "{tag}: {key} is unquoted, so YAML reads {:?} as a comment and loads only {:?}; quote it",
+                    &value[at..],
+                    value[..at].trim_end()
+                );
+            }
         }
 
         if *tag == FALLBACK {
@@ -429,6 +461,42 @@ common:
         assert!(
             std::panic::catch_unwind(|| check_locale_dir(dir.path(), &["en", "ko"])).is_err(),
             "a bare number has to be caught"
+        );
+    }
+
+    #[test]
+    fn a_hash_after_a_space_passes_quoted_and_is_caught_unquoted() {
+        let dir = tempfile::tempdir().expect("a temp directory");
+        let write = |tag: &str, body: &str| {
+            std::fs::write(dir.path().join(format!("{tag}.yml")), body).expect("a locale file");
+        };
+
+        // Quoted, the `#` is text; with no space before it, it is text anyway.
+        write(
+            "en",
+            "settings:\n  invalid: \"Every color has to be written as #RRGGBB.\"\n  issue: Issue#42\n",
+        );
+        write(
+            "ko",
+            "settings:\n  invalid: '모든 색은 #RRGGBB 형식으로 써야 합니다.'\n  issue: 이슈#42\n",
+        );
+        check_locale_dir(dir.path(), &["en", "ko"]);
+
+        // The value that loaded as only "Every color has to be written as".
+        write(
+            "ko",
+            "settings:\n  invalid: 모든 색은 #RRGGBB 형식으로 써야 합니다.\n  issue: 이슈#42\n",
+        );
+        assert!(
+            std::panic::catch_unwind(|| check_locale_dir(dir.path(), &["en", "ko"])).is_err(),
+            "an unquoted ` #` has to be caught"
+        );
+
+        // A `#` straight after the colon makes the whole value a comment.
+        write("ko", "settings:\n  invalid: #RRGGBB\n  issue: 이슈#42\n");
+        assert!(
+            std::panic::catch_unwind(|| check_locale_dir(dir.path(), &["en", "ko"])).is_err(),
+            "a value that is all comment has to be caught"
         );
     }
 

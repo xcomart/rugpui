@@ -46,7 +46,7 @@ const TRIGGER_SIZE: f32 = 28.;
 /// not.
 const TRIGGER_ICON: f32 = 16.;
 
-/// Style group of a trigger, so hovering the button recolours the icon in it.
+/// Style group of a trigger, so hovering the button recolors the icon in it.
 ///
 /// Shared by every [`MenuButton`] rather than made unique per button: a
 /// `group_hover` resolves against the nearest ancestor carrying the name, so
@@ -85,14 +85,14 @@ const PANEL_MAX_WIDTH: f32 = 360.;
 /// Width of the column a check mark sits in.
 const CHECK_WIDTH: f32 = 16.;
 
-/// Edge length of the colour square a row can lead with; see
+/// Edge length of the color square a row can lead with; see
 /// [`MenuEntry::swatch`].
 pub(crate) const SWATCH_SIZE: f32 = 12.;
 
-/// Space between a row's colour square and its label.
+/// Space between a row's color square and its label.
 const SWATCH_GAP: f32 = 8.;
 
-/// A square of `color`, framed so that a colour close to the panel's own still
+/// A square of `color`, framed so that a color close to the panel's own still
 /// reads as a square: what [`MenuEntry::swatch`] and
 /// [`SelectOption::swatch`](crate::select::SelectOption::swatch) draw.
 pub(crate) fn color_swatch(color: Hsla, theme: &Theme) -> Div {
@@ -108,7 +108,7 @@ pub(crate) fn color_swatch(color: Hsla, theme: &Theme) -> Div {
 /// What a checked row is marked with.
 ///
 /// A glyph rather than an asset: the mark has to line up with a row of text and
-/// take the row's colour, which is what a character does for free.
+/// take the row's color, which is what a character does for free.
 const CHECK_MARK: &str = "\u{2713}";
 
 /// Key a test looks a drawn panel's bounds up by.
@@ -116,7 +116,7 @@ const CHECK_MARK: &str = "\u{2713}";
 /// gpui compiles the call that records it away outside a test build, so this
 /// costs the application nothing; it is here because the width of a panel is
 /// now a decision rather than a constant, and a decision wants a test.
-const PANEL_SELECTOR: &str = "rugpui-menu-panel";
+pub(crate) const PANEL_SELECTOR: &str = "rugpui-menu-panel";
 
 /// Distance the dropdown keeps from the window edges when it would overflow.
 const WINDOW_MARGIN: f32 = 6.;
@@ -154,7 +154,7 @@ pub struct MenuEntry {
     disabled: bool,
     /// Whether the row carries a check mark.
     checked: bool,
-    /// The colour square drawn before the label, if any.
+    /// The color square drawn before the label, if any.
     swatch: Option<Hsla>,
 }
 
@@ -219,7 +219,7 @@ impl MenuEntry {
     /// the menu open, since the panel occludes the backdrop that a press
     /// otherwise dismisses the menu from. That is the point of showing the row
     /// rather than dropping it: a command that is missing tells the reader
-    /// nothing, while one that is greyed out says the surface has it and this
+    /// nothing, while one that is grayed out says the surface has it and this
     /// is not the moment.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
@@ -241,10 +241,10 @@ impl MenuEntry {
 
     /// Leads the label with a square of `color`.
     ///
-    /// For the menus whose rows *are* colours, where the name alone says less
-    /// than the colour it stands for. Like the check mark, the square has a
+    /// For the menus whose rows *are* colors, where the name alone says less
+    /// than the color it stands for. Like the check mark, the square has a
     /// column of its own that is laid out on every row of a menu that has one,
-    /// so a row without a colour — "none", say — keeps its label in line with
+    /// so a row without a color — "none", say — keeps its label in line with
     /// the rest.
     pub fn swatch(mut self, color: Hsla) -> Self {
         self.swatch = Some(color);
@@ -388,7 +388,7 @@ fn menu_panel(
     // only indented its own row would leave the labels stepping sideways down
     // the list.
     let checkable = entries.iter().any(|entry| entry.checked);
-    // The same, for the colour column.
+    // The same, for the color column.
     let swatched = entries.iter().any(|entry| entry.swatch.is_some());
     // Only a panel that may run out of room truncates. A fixed-width one was
     // measured for its own rows, and an ellipsis there would be a regression
@@ -744,7 +744,7 @@ impl MenuButton {
     /// Sets the label shown when the pointer rests on the trigger.
     ///
     /// Taken as text rather than looked up here: this layer holds no strings of
-    /// its own, so the localised sentence comes from the view that builds the
+    /// its own, so the localized sentence comes from the view that builds the
     /// button.
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip = Some(tooltip.into());
@@ -794,11 +794,11 @@ impl RenderOnce for MenuButton {
         }
 
         // A trigger only ever wears a mark — an icon, or a glyph standing in
-        // for one — never a word, so its resting colour is the theme's icon
+        // for one — never a word, so its resting color is the theme's icon
         // tint rather than the muted text a label would take.
         let tint = if open { theme.text } else { theme.icon };
         let hover_tint = theme.text;
-        // An SVG takes its colour from its own `text_color`, which — unlike a
+        // An SVG takes its color from its own `text_color`, which — unlike a
         // glyph's — does not inherit from the button, so the open and hover
         // shades have to be handed to it directly. `icon` wins over `glyph` if
         // a caller sets both, and a caller who sets neither gets the default
@@ -871,8 +871,8 @@ impl RenderOnce for MenuButton {
         // trigger, not off the trigger itself. An `anchored` element is
         // absolutely positioned, and an absolutely positioned box is aligned by
         // its parent's `align-items`; hanging it directly in the `items_center`
-        // row would centre the whole panel on the 28px button instead of
-        // starting it at the button's top-left corner. This box neither centres
+        // row would center the whole panel on the 28px button instead of
+        // starting it at the button's top-left corner. This box neither centers
         // its children nor takes up space, so the panel starts exactly one
         // [`DROP_OFFSET`] below the top-left of the trigger.
         let overlays = div()
@@ -980,13 +980,13 @@ mod tests {
             }
         }
 
-        /// The same row, led by a colour square.
+        /// The same row, led by a color square.
         fn swatched(mut self) -> Self {
             self.swatched = true;
             self
         }
 
-        /// The same row, greyed out.
+        /// The same row, grayed out.
         fn disabled(mut self) -> Self {
             self.disabled = true;
             self
@@ -1364,7 +1364,7 @@ mod tests {
         );
     }
 
-    /// The colour column is the menu's too, and sits closer to its label than
+    /// The color column is the menu's too, and sits closer to its label than
     /// the row's gap: one square widens every row by the square and its own
     /// gap.
     #[gpui::test]
@@ -1379,7 +1379,7 @@ mod tests {
         assert_eq!(
             panel_width(&mut swatched_cx) - bare,
             SWATCH_SIZE + SWATCH_GAP,
-            "the column is laid out once for the menu, on the coloured row and \
+            "the column is laid out once for the menu, on the colored row and \
              the plain one alike"
         );
     }

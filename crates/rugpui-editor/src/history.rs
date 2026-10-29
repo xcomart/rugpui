@@ -458,7 +458,7 @@ impl History {
     /// Ends a composition, recording it as one edit that inserted `inserted`.
     ///
     /// A composition that inserted exactly what it displaced records nothing,
-    /// which is what makes a cancelled composition invisible to undo.
+    /// which is what makes a canceled composition invisible to undo.
     pub fn end_composition(&mut self, inserted: String, after: SelectionState) {
         let Some((start, removed, before)) = self.composition.take() else {
             return;

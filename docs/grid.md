@@ -9,10 +9,10 @@ The rows arrive through a trait the host implements, [`GridSource`](../crates/ru
 Five things, from the [crate header](../crates/rugpui-grid/src/lib.rs):
 
 * **A million rows scroll without a stutter.** Neither axis lays out more than the viewport can show, and no per-frame work is proportional to the size of the result.
-* **Null is not the empty string.** `GridCell::Null` draws the marker `NULL` in a muted colour; `GridCell::Text("")` draws an empty cell. They are different values and they look different. Two of the four copy formats can carry the difference; two cannot, and [`copy.rs`](../crates/rugpui-grid/src/copy.rs) says which.
+* **Null is not the empty string.** `GridCell::Null` draws the marker `NULL` in a muted color; `GridCell::Text("")` draws an empty cell. They are different values and they look different. Two of the four copy formats can carry the difference; two cannot, and [`copy.rs`](../crates/rugpui-grid/src/copy.rs) says which.
 * **The grid does not sort.** It holds the first *n* rows of an answer the server holds all of, so sorting what is here would put the wrong rows at the top. A header click raises `GridEvent::SortRequested` and nothing moves until the host comes back with new rows.
 * **The grid does not stage an edit either.** It draws which rows and cells have been changed and it hosts the editor — because only it knows where a cell is on screen. What a staged value *becomes* is the host's, and reaches it as `GridEvent::EditCommitted`.
-* **What a cell shows, and what opens over it, are the source's.** `render_cell` lets the source draw a cell itself; `cell_editor` lets it say whether that cell is edited with a field, a dropdown or something the host built. Both default to the grid's own behaviour.
+* **What a cell shows, and what opens over it, are the source's.** `render_cell` lets the source draw a cell itself; `cell_editor` lets it say whether that cell is edited with a field, a dropdown or something the host built. Both default to the grid's own behavior.
 
 ## The shape of it
 
@@ -26,7 +26,7 @@ flowchart LR
     H -- "implements" --> S
     S -- "asked only about<br/>what is on screen" --> G
     G -- "emits" --> E
-    E -- "NearEnd / SortRequested /<br/>CellActivated / EditCommitted /<br/>ContextMenu" --> H
+    E -- "NearEnd / SortRequested /<br/>CellActivated / EditCommitted /<br/>ExpandRequested / ContextMenu" --> H
     H -- "source_mut / refresh / reset" --> G
 ```
 
@@ -50,8 +50,9 @@ Implement it on whatever the host already keeps the result in, so there is one c
 | `cell_editable(&self, row, column)` | no | `bool` | Defaults to `false`, so a source that has not thought about editing cannot be edited by accident. Asked per gesture, not per frame. |
 | `render_cell(&self, row, column, info, window, cx)` | no | `Option<AnyElement>` | Defaults to `None`, which is the grid drawing its own text. Asked once per visible cell per frame. See [drawing a cell yourself](#drawing-a-cell-yourself). |
 | `cell_editor(&self, row, column)` | no | `CellEditor` | Defaults to `CellEditor::Text`, the field the grid has always opened. Asked per gesture, right after `cell_editable`. See [choosing the editor](#choosing-the-editor). |
+| `cell_expandable(&self, row, column)` | no | `bool` | Defaults to `false`. Asked once per edit, only for a `CellEditor::Text` field. `true` puts a button at the field's end that hands the edit to a larger editor of yours. See [handing a field to a larger editor](#handing-a-field-to-a-larger-editor). |
 
-The five defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
+The defaulted methods are the truth for the read-only sources — a plan, a `DESCRIBE`, a diff — which are half of what the grid is pointed at.
 
 Here is the gallery's source, trimmed. See [`rugpui-gallery/src/data.rs`](../crates/rugpui-gallery/src/data.rs) for the whole of it:
 
@@ -141,7 +142,7 @@ While the source says `HasMore`, the grid raises `GridEvent::NearEnd` once the v
 
 `row_status(row)` says how a whole row is marked — `Unchanged`, `Modified`, `Inserted` or `Deleted`. The four do not overlap: a row that was inserted and then changed again is still `Inserted`, because that is the statement it will become. A `Deleted` row is still drawn, in its place, with its values struck through; making it vanish would renumber everything under it and leave the user nothing to change their mind about.
 
-`cell_dirty(row, column)` is the per-cell half of `Modified` — the row marker says the row was touched, this says where. A dirty cell is tinted with the accent colour behind its text. Note that `cell()` returns the *staged* value for a dirty cell: the grid draws what it is given and knows nothing of what was there before.
+`cell_dirty(row, column)` is the per-cell half of `Modified` — the row marker says the row was touched, this says where. A dirty cell is tinted with the accent color behind its text. Note that `cell()` returns the *staged* value for a dirty cell: the grid draws what it is given and knows nothing of what was there before.
 
 ![A grid with modified, inserted and deleted rows marked](./screenshots/grid/staged.png)
 
@@ -258,9 +259,9 @@ let grid = cx.new(|cx| {
 
 Give it a bounded box to live in — the gallery puts it in a bordered box that fills its half of a vertical [`Splitter`](./widgets/splitter.md) — and render it with `self.grid.clone()`.
 
-![A result grid with fitted columns and a coloured key column](./screenshots/grid/default.png)
+![A result grid with fitted columns and a colored key column](./screenshots/grid/default.png)
 
-*The default drawing: every column fitted to its content, the primary key in its own colour, row numbers down the left, and nulls spelled `NULL` rather than left blank.*
+*The default drawing: every column fitted to its content, the primary key in its own color, row numbers down the left, and nulls spelled `NULL` rather than left blank.*
 
 ### Column widths
 
@@ -301,7 +302,7 @@ What it costs, per column: one pass over the sampled rows comparing character co
 | `is_column_hidden(column)` / `set_column_hidden(column, hidden, cx)` | source column, `bool` | Hiding clears the selection, because display positions renumber. |
 | `hidden_column_count()` | — | Whether "show every column" is worth offering. |
 | `show_all_columns(cx)` | — | The way back: a hidden column has no heading to right click. |
-| `column_name(column)` | source column | `Option<&str>`, for labelling a menu item. |
+| `column_name(column)` | source column | `Option<&str>`, for labeling a menu item. |
 | `autofit_column(column, cx)` | source column | Fit one column to its content, sampling the first 500 rows and capped at 480 px. What a double click on the resize grip does. Explicit, so it takes back a width the user dragged. Lands on the next draw, which is where the measuring can happen. |
 | `autofit_all_columns(cx)` | — | The same for every column at once, for a menu's "fit all columns". Also takes back dragged widths. |
 | `select_cell(row, column, cx)` / `extend_selection(row, column, cx)` | display column | Replace or stretch, and scroll the cell into view. |
@@ -348,6 +349,13 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
         EditValue::Null => view.stage_null(*row, *column, cx),
     },
 
+    // The expand button at the end of a field was pressed. The field is closed
+    // with nothing staged; open your larger editor on `text`, and stage what
+    // it gives back yourself.
+    GridEvent::ExpandRequested { row, column, text } => {
+        view.open_large_editor(*row, *column, text.clone(), window, cx)
+    }
+
     // A right click. The grid has already taken the focus and moved the
     // selection if it had to; the items, their strings and what they do are
     // yours.
@@ -358,11 +366,11 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
 .detach();
 ```
 
-`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` carries a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
+`GridEvent` is `Clone` but not `Copy`, because `EditCommitted` and `ExpandRequested` carry a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
 
 ## Selection
 
-[`selection.rs`](../crates/rugpui-grid/src/selection.rs) is pure arithmetic — no window, no source, no colours. A `Selection` is a `Vec<CellRange>` plus an *anchor* (the corner a `Shift` gesture pivots around) and a *cursor* (the cell the arrow keys move). Five methods cover every gesture: `replace`, `add`, `extend_to`, `replace_rows`/`add_rows`, and `select_all`. `clamp(rows, columns)` drops any part hanging over a source that shrank.
+[`selection.rs`](../crates/rugpui-grid/src/selection.rs) is pure arithmetic — no window, no source, no colors. A `Selection` is a `Vec<CellRange>` plus an *anchor* (the corner a `Shift` gesture pivots around) and a *cursor* (the cell the arrow keys move). Five methods cover every gesture: `replace`, `add`, `extend_to`, `replace_rows`/`add_rows`, and `select_all`. `clamp(rows, columns)` drops any part hanging over a source that shrank.
 
 A `CellAddress` is `{ row, column }`, and its `column` is the column's **display position** — the nth column currently on screen, left to right — not the source column. Hiding a column therefore renumbers the ones after it, which is exactly why `set_column_hidden` and `show_all_columns` clear the selection. Addressing by source column instead would let a "rectangle" survive a hide by drawing with a hole in it, which is worse.
 
@@ -443,6 +451,18 @@ pub enum CellEditor {
 
 **`External`** opens nothing in the grid: the host shows an editor of its own somewhere else — a multiline dialog, say. `begin_edit` commits any field already open, moves the selection onto the cell and raises `GridEvent::CellActivated` for it, also when it was reached by `Tab` from the cell beside it, and leaves the focus to the host's editor. Answer that event without calling `begin_edit` again, and hand the value back through your staging layer.
 
+### Handing a field to a larger editor
+
+A field is one line high, which is a poor place to write a paragraph — even into a cell that holds one line today. A source whose host has a larger editor (a multiline dialog, say) answers `cell_expandable` with `true` for the cells it may open, and the field then carries a small button at its right-hand end, drawn beside it rather than over it so that the text never runs underneath. Pressing it closes the field **with nothing staged** and raises `GridEvent::ExpandRequested { row, column, text }`, where `text` is what the field held: whatever had been typed, the cell's own text if nothing had, the empty string for a null cell. The grid leaves the focus to the host's editor, and the value comes back through your staging layer, as it does from an `External` editor. `GridView::expand_edit(cx)` does the same from code, and `GridView::is_expandable()` says whether the open field offers it.
+
+![A text field open over one cell of a grid, with a small expand button at its right-hand end](./screenshots/grid/expand-editor.png)
+
+*`cell_expandable` answering `true` for the `note` column: the same field, with the button beside it.*
+
+The press is kept from the grid underneath it: a press that reached the grid would take the focus off the field, and a field that loses the focus commits — so the edit would be staged once by the commit and again by the larger editor.
+
+The button wears `rugpui::EXPAND`, so the host's `AssetSource` needs `rugpui::ICONS` chained into it. The grid holds no strings, so its tooltip is the host's: `GridView::expand_tooltip(label)` when building the grid, or `set_expand_tooltip` later; without one the button shows none.
+
 **`Choice`** is a [`Select`](./widgets/select.md) opened over the cell, already open on the value the cell holds — a trigger the user had to click again would be one gesture too many. Clicking a row stages it there and then, with no `Enter` to press. With `nullable: true` the list gains a leading `NULL` row that stages `EditValue::Null`, which is how a user reaches the null a nullable column can hold; the row is told from a value row by *position*, so a column whose values include the string `NULL` does not clear itself when the user picks the value they meant. `Escape`, or a press anywhere outside the list, dismisses it with nothing staged. Being a `Select`, its trigger wears `rugpui::CARET_DOWN` like every other dropdown, so the host's `AssetSource` needs `rugpui::ICONS` chained into it — see [getting started](./getting-started.md#with_assets).
 
 The arrows walk the list without picking as they go, and `Enter` stages where they stopped. That is the one place the grid does not simply hand the keys to the control: the focus is on the box the list hangs from rather than on the trigger inside it, so `Select`'s own arrow handling never sees the keystroke — and an arrow that staged every row it passed over would write three values on the way to the fourth.
@@ -480,7 +500,7 @@ fn cell_editor(&self, _row: usize, column: usize) -> CellEditor {
 }
 ```
 
-**`Custom`** hands the host a `CellEditorContext` and takes back an element — a date picker, a colour swatch, a lookup against another table.
+**`Custom`** hands the host a `CellEditorContext` and takes back an element — a date picker, a color swatch, a lookup against another table.
 
 | field | is |
 | --- | --- |
@@ -607,13 +627,13 @@ The dirty tint and the row tint are drawn at low alpha (0.16 and 0.10) so the te
 From the [`grid.rs`](../crates/rugpui-grid/src/grid.rs) header. Nothing per frame is proportional to the number of rows or to the number of columns — only to the number of both that fit on screen.
 
 * **Rows** go through gpui's `uniform_list`, which lays out only what the viewport can reach. `visible_rows()` is the range it built, and is what the guarantee is stated in.
-* **Columns** are virtualised by hand, because there is no `uniform_list` for them and tables with several hundred columns are real. Every column's left edge is kept in a list rebuilt when a width changes, so finding the run the content area can see is two binary searches. A row is drawn as one absolutely positioned strip slid left by the scroll offset, not as a flex row of every cell with the invisible ones clipped.
+* **Columns** are virtualized by hand, because there is no `uniform_list` for them and tables with several hundred columns are real. Every column's left edge is kept in a list rebuilt when a width changes, so finding the run the content area can see is two binary searches. A row is drawn as one absolutely positioned strip slid left by the scroll offset, not as a flex row of every cell with the invisible ones clipped.
 * **The horizontal offset is the grid's own field**, not a gpui scroll container's — a scroll container lays its content out in full, which is exactly the cost being avoided. It also makes the header and the body trivially agree: they read the same number.
 * **Hit testing is arithmetic**, not a listener per cell. A cell that answered presses would need an id and a hitbox, and a screenful is several hundred of both, every frame, for a gesture four numbers resolve.
 * **The viewport is measured during prepaint** by a `canvas` in the body, which asks for a repaint when the width changed. A resize — and the very first frame — costs one extra frame and nothing after that.
 * **Fitting a column shapes a handful of strings, not five hundred.** One pass over the 500-row sample — no allocation, nothing shaped — keeps every value within three characters of the longest, capped at sixteen; only those and the heading go to the text system. The character count narrows the field and deliberately does not pick the winner, because on a proportional face two values of the same length are not the same width. That is what makes an *exact* fit affordable, and exactness is the point: a width guessed from character counts is short by however far the font disagrees with the guess, and short is an ellipsis. Capped at 480 px, so one `TEXT` column cannot push the rest off the screen. This is the one piece of work here that scales with the result rather than with the window, and it is the reason it is bounded at 500 rows and done once per batch rather than once per frame.
 
-The budget this buys is what `row_status`, `cell_dirty` and `render_cell` must respect: a source that answered any of them by walking a million rows would undo the virtualisation on its own. Keep staged changes in a map keyed by row so the answer is a lookup, and keep whatever a custom cell needs — the largest value in the column, a lookup table — beside the result rather than recomputing it per cell.
+The budget this buys is what `row_status`, `cell_dirty` and `render_cell` must respect: a source that answered any of them by walking a million rows would undo the virtualization on its own. Keep staged changes in a map keyed by row so the answer is a lookup, and keep whatever a custom cell needs — the largest value in the column, a lookup table — beside the result rather than recomputing it per cell.
 
 ## Testing without a window
 

@@ -51,7 +51,7 @@ serde_norway = { workspace = true, optional = true }
 custom-syntax = ["dep:anyhow", "dep:serde", "dep:serde_norway"]
 
 [dev-dependencies]
-# gpui's headless test platform. Every behaviour worth holding down here --
+# gpui's headless test platform. Every behavior worth holding down here --
 # input handling above all -- only exists once there is a window and a focused
 # element, so the tests open one. Test-only: the library links gpui without it.
 gpui = { workspace = true, features = ["test-support"] }

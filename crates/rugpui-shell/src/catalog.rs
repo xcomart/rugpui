@@ -1,9 +1,9 @@
-//! A catalogue of palettes: what is in it, what one entry's colours are called,
+//! A catalog of palettes: what is in it, what one entry's colors are called,
 //! and where a file of one goes.
 //!
-//! Two things in this crate are written against a catalogue rather than against
+//! Two things in this crate are written against a catalog rather than against
 //! a particular kind of palette: [`ThemeEditor`](crate::ThemeEditor), which
-//! edits one entry colour by colour, and
+//! edits one entry color by color, and
 //! [`CatalogActions`](crate::CatalogActions), which duplicates, edits, deletes,
 //! imports and exports them. Both work for a chrome theme and for an editor
 //! theme without knowing which they have, because everything the two differ in
@@ -46,7 +46,7 @@ use crate::inject::{label, text};
 /// required and where the derivation starts counting the grid slots from.
 const UI_GRID_FIRST: usize = 11;
 
-/// One entry of a catalogue, as the management row needs to see it.
+/// One entry of a catalog, as the management row needs to see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogEntry {
     /// Stable id, which is also the stem of the file a custom entry lives in.
@@ -60,7 +60,7 @@ pub struct CatalogEntry {
 
 /// One slot of a palette, as the editor has to know it.
 ///
-/// A slot is a colour with a name, a rule about how many hex digits it takes,
+/// A slot is a color with a name, a rule about how many hex digits it takes,
 /// and — for a format that lets a key be left out — a rule about what an empty
 /// field means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +68,7 @@ pub struct Slot {
     /// Element id fragment; never translated.
     ///
     /// The field is named after its slot rather than numbered, so that the
-    /// element keeps its identity as the editor swaps one catalogue's field
+    /// element keeps its identity as the editor swaps one catalog's field
     /// list for another's.
     pub key: &'static str,
     /// Key of the label shown to the left of the field.
@@ -83,7 +83,7 @@ pub struct Slot {
     /// Whether the file may leave the slot out and have it derived.
     ///
     /// An empty field then means "derive it", and
-    /// [`ThemeCatalog::derived_color`] is what says which colour that turned
+    /// [`ThemeCatalog::derived_color`] is what says which color that turned
     /// out to be.
     pub optional: bool,
 }
@@ -108,11 +108,11 @@ pub const fn derived_slot(key: &'static str, label_key: &'static str, alpha: boo
     }
 }
 
-/// One palette file, in whichever format the catalogue holding it uses.
+/// One palette file, in whichever format the catalog holding it uses.
 ///
-/// The two `rugpui` formats are named because this crate's own two catalogues
+/// The two `rugpui` formats are named because this crate's own two catalogs
 /// carry them and the editor's previews are drawn from them. Anything else a
-/// host keeps a catalogue of travels as [`CatalogFile::Other`], which the
+/// host keeps a catalog of travels as [`CatalogFile::Other`], which the
 /// generic code moves around without ever looking inside — every question it
 /// could ask of one is a [`ThemeCatalog`] method instead.
 ///
@@ -148,18 +148,18 @@ impl std::fmt::Debug for CatalogFile {
 /// A type rather than a bare [`anyhow::Error`] because the three cases read
 /// differently to the person who picked the file: one is "this is not a palette
 /// file", one is "this is a palette file, but of the other kind", and one is
-/// "this is a palette file of the right kind with a bad colour in it". Only the
+/// "this is a palette file of the right kind with a bad color in it". Only the
 /// first has anything to gain from the underlying error text.
 #[derive(Debug)]
 pub enum ImportError {
-    /// The file could not be read, or does not parse as this catalogue's
+    /// The file could not be read, or does not parse as this catalog's
     /// format.
     Unreadable(anyhow::Error),
-    /// It parses — as some other catalogue's format, not the one it was offered
+    /// It parses — as some other catalog's format, not the one it was offered
     /// to. Carries the key of the sentence saying which row to try instead,
-    /// because only the catalogue that refused it knows what it is not.
+    /// because only the catalog that refused it knows what it is not.
     WrongKind(&'static str),
-    /// A slot holds something that is not an `#RRGGBB` colour; the key of that
+    /// A slot holds something that is not an `#RRGGBB` color; the key of that
     /// slot's own label.
     BadColor(&'static str),
 }
@@ -194,11 +194,11 @@ impl ImportError {
 /// where the files go, and which entry is selected when the one in hand is
 /// deleted.
 pub trait ThemeCatalog: 'static {
-    /// Key of the heading shown over the editor while one of this catalogue's
+    /// Key of the heading shown over the editor while one of this catalog's
     /// entries is being edited.
     fn kind_label_key(&self) -> &'static str;
 
-    /// Prefix of the element ids of this catalogue's management row.
+    /// Prefix of the element ids of this catalog's management row.
     ///
     /// Static, and never translated: gpui element ids only have to be unique
     /// among their siblings, and two rows are siblings within one form.
@@ -234,7 +234,7 @@ pub trait ThemeCatalog: 'static {
     /// editor saves is what it read, minus the edits.
     fn file_from(&self, name: String, values: &[String], dark: bool) -> CatalogFile;
 
-    /// Directory this catalogue's user files live in.
+    /// Directory this catalog's user files live in.
     ///
     /// Not created by this call: a user who has added no palette of their own
     /// has no such directory, and every caller copes with that.
@@ -276,13 +276,13 @@ pub trait ThemeCatalog: 'static {
     /// is no configuration directory to remove it from.
     fn delete(&self, id: &str) -> Result<()>;
 
-    /// Parses `path` as one of this catalogue's files, refusing anything that
+    /// Parses `path` as one of this catalog's files, refusing anything that
     /// is not one; see the module docs.
     ///
     /// # Errors
     ///
     /// Fails when the file cannot be read, does not parse in this format,
-    /// parses in another one, or holds a value that is not a colour.
+    /// parses in another one, or holds a value that is not a color.
     fn read(&self, path: &Path) -> std::result::Result<CatalogFile, ImportError>;
 
     /// Reloads whichever registry the entries come from.
@@ -293,7 +293,7 @@ pub trait ThemeCatalog: 'static {
 
     /// The name `file` carries.
     ///
-    /// The default handles the two formats this crate knows; a catalogue over
+    /// The default handles the two formats this crate knows; a catalog over
     /// [`CatalogFile::Other`] overrides it.
     fn name_of(&self, file: &CatalogFile) -> String {
         match file {
@@ -312,9 +312,9 @@ pub trait ThemeCatalog: 'static {
         }
     }
 
-    /// The colour the palette would derive for the optional slot at `index`.
+    /// The color the palette would derive for the optional slot at `index`.
     ///
-    /// `None` for a slot that is not optional, and for a catalogue whose format
+    /// `None` for a slot that is not optional, and for a catalog whose format
     /// has no derivations at all — which is the default.
     fn derived_color(&self, _index: usize, _dark: bool, _values: &[String]) -> Option<Hsla> {
         None
@@ -325,7 +325,7 @@ pub trait ThemeCatalog: 'static {
     ///
     /// A palette is judged by what it looks like, not by sixteen hex strings,
     /// and what makes a useful miniature differs entirely between a window
-    /// chrome and a syntax palette — so it is the catalogue that draws one.
+    /// chrome and a syntax palette — so it is the catalog that draws one.
     fn render_preview(
         &self,
         id: &str,
@@ -386,7 +386,7 @@ pub trait ThemeCatalog: 'static {
         self.entries(cx).into_iter().map(|entry| entry.id).collect()
     }
 
-    /// Refuses a file that parses but holds something which is not a colour.
+    /// Refuses a file that parses but holds something which is not a color.
     ///
     /// Checked against the very table the editor's fields are built from, so a
     /// value the import accepts is one the editor would also let be saved
@@ -404,7 +404,7 @@ pub trait ThemeCatalog: 'static {
     }
 }
 
-/// Whether `value` is a colour a palette file accepts.
+/// Whether `value` is a color a palette file accepts.
 ///
 /// Stricter than [`rugpui::parse_hex`] on purpose: that helper takes an alpha
 /// channel wherever it finds one, while only a handful of slots are ever
@@ -421,7 +421,7 @@ pub fn valid_hex(value: &str, alpha: bool, optional: bool) -> bool {
     length_ok && rugpui::parse_hex(trimmed).is_some()
 }
 
-/// The chrome themes of [`ThemeRegistry`], as a catalogue.
+/// The chrome themes of [`ThemeRegistry`], as a catalog.
 pub struct UiThemeCatalog {
     /// Where the user's own files go.
     dirs: ThemeDirs,
@@ -430,7 +430,7 @@ pub struct UiThemeCatalog {
 }
 
 impl UiThemeCatalog {
-    /// A catalogue over `dirs`, falling back to `default_id`.
+    /// A catalog over `dirs`, falling back to `default_id`.
     pub fn new(dirs: ThemeDirs, default_id: impl Into<String>) -> Self {
         Self {
             dirs,
@@ -447,7 +447,7 @@ impl UiThemeCatalog {
     }
 }
 
-/// The editor themes of [`EditorThemeRegistry`], as a catalogue.
+/// The editor themes of [`EditorThemeRegistry`], as a catalog.
 pub struct EditorThemeCatalog {
     /// Where the user's own files go.
     dirs: ThemeDirs,
@@ -456,7 +456,7 @@ pub struct EditorThemeCatalog {
 }
 
 impl EditorThemeCatalog {
-    /// A catalogue over `dirs`, falling back to `default_id`.
+    /// A catalog over `dirs`, falling back to `default_id`.
     pub fn new(dirs: ThemeDirs, default_id: impl Into<String>) -> Self {
         Self {
             dirs,
@@ -838,7 +838,7 @@ pub(crate) fn ui_colors(values: &[String]) -> ThemeColors {
     }
 }
 
-/// The colour the palette would derive for the grid slot at `index`.
+/// The color the palette would derive for the grid slot at `index`.
 ///
 /// Worked out by asking [`ThemeFile::to_theme`] the same question the loader
 /// asks: the slot is blanked out, the rest of the fields are left as they are,
@@ -922,7 +922,7 @@ mod tests {
 
     use super::*;
 
-    /// A catalogue over a scratch directory, for the questions that do not
+    /// A catalog over a scratch directory, for the questions that do not
     /// touch the disk at all.
     fn ui() -> UiThemeCatalog {
         UiThemeCatalog::new(dirs(Path::new("/nowhere")), "dark")
@@ -955,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn a_six_digit_colour_is_accepted_everywhere() {
+    fn a_six_digit_color_is_accepted_everywhere() {
         for value in ["#ff0000", "ff0000", "  #AABBCC  "] {
             for alpha in [false, true] {
                 for optional in [false, true] {
@@ -980,7 +980,7 @@ mod tests {
     }
 
     #[test]
-    fn anything_that_is_not_a_colour_is_refused() {
+    fn anything_that_is_not_a_color_is_refused() {
         for value in ["#", "#abc", "#abcde", "#gghhii", "rebeccapurple"] {
             for alpha in [false, true] {
                 for optional in [false, true] {
@@ -1046,7 +1046,7 @@ mod tests {
     fn an_omitted_grid_slot_is_an_empty_field_and_stays_omitted() {
         // The distinction the editor exists to show: a file that leaves the
         // grid out has to open with five empty fields, and saving it again
-        // without touching them must not turn those into explicit colours.
+        // without touching them must not turn those into explicit colors.
         let mut file = ThemeFile::from_theme("Mine", &Theme::dracula());
         file.colors.grid_header = None;
         file.colors.grid_row_alt = None;
@@ -1065,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn an_omitted_grid_slot_still_has_a_colour_to_show() {
+    fn an_omitted_grid_slot_still_has_a_color_to_show() {
         // The swatch must never go blank: an automatic slot shows whatever the
         // palette derived, which is what the loader would have used.
         let mut file = ThemeFile::from_theme("Mine", &Theme::light());
@@ -1137,7 +1137,7 @@ mod tests {
     /// getting that backwards would let an editor theme called `dracula` — a
     /// chrome id, and a free editor id — be refused.
     #[test]
-    fn a_builtin_id_is_refused_by_the_catalogue_that_reserves_it() {
+    fn a_builtin_id_is_refused_by_the_catalog_that_reserves_it() {
         let root = tempfile::tempdir().expect("a temporary directory");
         let ui = UiThemeCatalog::new(dirs(root.path()), "dark");
         let editor = EditorThemeCatalog::new(dirs(root.path()), "one-dark");
@@ -1153,7 +1153,7 @@ mod tests {
         // A name with nothing to slug cannot become a file name either.
         assert!(ui.save("   ", &chrome_file()).is_err());
         assert!(editor.save("테마", &editor_file()).is_err());
-        // A free id, on the other hand, lands where the catalogue says it does.
+        // A free id, on the other hand, lands where the catalog says it does.
         let written = ui.save("mine", &chrome_file()).expect("a free chrome id");
         assert!(written.starts_with(ui.dir().expect("a chrome directory")));
         let written = editor
@@ -1162,10 +1162,10 @@ mod tests {
         assert!(written.starts_with(editor.dir().expect("an editor directory")));
     }
 
-    /// A catalogue refuses a file of the other format outright, so that a
+    /// A catalog refuses a file of the other format outright, so that a
     /// `save` cannot quietly write a chrome palette into the editor directory.
     #[test]
-    fn a_catalogue_never_writes_a_file_of_the_other_kind() {
+    fn a_catalog_never_writes_a_file_of_the_other_kind() {
         let root = tempfile::tempdir().expect("a temporary directory");
         let ui = UiThemeCatalog::new(dirs(root.path()), "dark");
         let editor = EditorThemeCatalog::new(dirs(root.path()), "one-dark");
@@ -1180,7 +1180,7 @@ mod tests {
     #[test]
     fn an_exported_file_reads_back_as_the_entry_it_came_from() {
         // The whole point of the pair: what an export writes is what an import
-        // takes, for both catalogues and without a trip through the settings
+        // takes, for both catalogs and without a trip through the settings
         // directory. A built-in is used on purpose — exporting one is how a
         // user gets a starting point, so it has to survive the round trip.
         let directory = tempfile::tempdir().expect("a temporary directory");
@@ -1202,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_of_the_other_catalogue_is_refused_by_name() {
+    fn a_file_of_the_other_catalog_is_refused_by_name() {
         // The refusal this module exists for: the two formats are close enough
         // to look interchangeable, and installing half a palette because the
         // absent keys defaulted would be the worst outcome of the two.
@@ -1216,7 +1216,7 @@ mod tests {
             Err(ImportError::WrongKind(key)) => {
                 assert_eq!(key, "settings.manage.import_not_an_editor_theme");
             }
-            other => panic!("the editor catalogue accepted a chrome file: {other:?}"),
+            other => panic!("the editor catalog accepted a chrome file: {other:?}"),
         }
 
         editor.write(&editor_file(), &path).expect("the export");
@@ -1224,7 +1224,7 @@ mod tests {
             Err(ImportError::WrongKind(key)) => {
                 assert_eq!(key, "settings.manage.import_not_a_theme");
             }
-            other => panic!("the chrome catalogue accepted an editor file: {other:?}"),
+            other => panic!("the chrome catalog accepted an editor file: {other:?}"),
         }
     }
 
@@ -1260,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slot_that_is_not_a_colour_is_refused_by_the_slot_it_belongs_to() {
+    fn a_slot_that_is_not_a_color_is_refused_by_the_slot_it_belongs_to() {
         // `ThemeFile::to_theme` would happily substitute its fallback here,
         // which is right for a directory scan and wrong for one deliberate
         // import: the user has to be told the file is not what it claims.
@@ -1279,7 +1279,7 @@ mod tests {
             Err(ImportError::BadColor(slot)) => {
                 assert_eq!(slot, "settings.editor.slot.accent");
             }
-            other => panic!("accepted a colour that is not one: {other:?}"),
+            other => panic!("accepted a color that is not one: {other:?}"),
         }
 
         // An eighth digit on a slot that is never drawn translucent is refused
@@ -1298,7 +1298,7 @@ mod tests {
             other => panic!("accepted an opaque slot with alpha: {other:?}"),
         }
 
-        // But a grid slot the file simply leaves out is not a bad colour; it is
+        // But a grid slot the file simply leaves out is not a bad color; it is
         // the one thing an empty slot is allowed to mean.
         let CatalogFile::UiTheme(mut chrome) = chrome_file() else {
             unreachable!("a chrome file");
@@ -1350,7 +1350,7 @@ mod tests {
     }
 
     #[test]
-    fn the_two_catalogues_never_share_a_name_of_their_own() {
+    fn the_two_catalogs_never_share_a_name_of_their_own() {
         let ui = ui();
         let editor = editor();
         // An element prefix shared would collide two sibling rows' ids; a
@@ -1371,7 +1371,7 @@ mod tests {
     fn an_editorless_host_has_no_editor_directory_to_write_to() {
         // `ThemeDirs::editor_themes` is optional because the code editor is: an
         // application that embeds the chrome widgets and no editor has no
-        // second palette, and the catalogue has to say so rather than invent a
+        // second palette, and the catalog has to say so rather than invent a
         // place.
         let catalog = EditorThemeCatalog::new(
             ThemeDirs {

@@ -34,7 +34,7 @@ pub const DEFAULT_TAB_WIDTH: usize = 4;
 
 /// The widest tab stop an editor accepts.
 ///
-/// Not a taste judgement: a value read from a hand-edited settings file can
+/// Not a taste judgment: a value read from a hand-edited settings file can
 /// be anything, and a tab a thousand columns wide is a line the shaper has to
 /// lay out a thousand spaces of.
 pub const MAX_TAB_WIDTH: usize = 16;

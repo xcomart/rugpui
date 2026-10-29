@@ -2,7 +2,7 @@
 //! incremental.
 //!
 //! The editor holds no lexer of its own. It holds a [`Highlighter`] — a trait
-//! with one method, "give me the coloured runs of this line, given the state
+//! with one method, "give me the colored runs of this line, given the state
 //! the line before it ended in" — and a table of implementations ships with the
 //! crate: [`SqlHighlighter`](crate::sql_syntax::SqlHighlighter) and the base
 //! languages of [`lang`](crate::lang). An editor with no highlighter at all is
@@ -55,14 +55,14 @@ use rugpui::EditorTheme;
 
 use crate::buffer::Buffer;
 
-/// One of the token colours an editor palette hands out.
+/// One of the token colors an editor palette hands out.
 ///
 /// Every variant but [`Token::QuotedIdentifier`] names one of the fourteen
 /// token slots of [`EditorTheme`], so that mapping a span
-/// onto a colour is a total function with no fallback and no invented slot;
+/// onto a color is a total function with no fallback and no invented slot;
 /// `QuotedIdentifier` shares [`Token::Identifier`]'s slot rather than adding a
 /// fifteenth. Text a highlighter classifies as nothing at all gets no span,
-/// and the renderer draws it in the palette's foreground colour.
+/// and the renderer draws it in the palette's foreground color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Token {
     /// Reserved words: `select`, `from`, and a template's statement names.
@@ -107,7 +107,7 @@ pub enum Token {
     ///
     /// No highlighter ever emits this one: the bracket pair is found by
     /// [`crate::syntax::bracket_pair`] over the caret, not by a line lexer, and
-    /// the element paints it as a quad under the text rather than as a colour
+    /// the element paints it as a quad under the text rather than as a color
     /// on it. The variant exists so that the enum is exactly the palette's
     /// fourteen token slots.
     BracketMatch,
@@ -118,12 +118,12 @@ pub enum Token {
     Warning,
 }
 
-/// A run of one line in one colour, in bytes from the start of that line.
+/// A run of one line in one color, in bytes from the start of that line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Span {
     /// The run, relative to the start of the line it was lexed from.
     pub range: Range<usize>,
-    /// What to colour it.
+    /// What to color it.
     pub token: Token,
 }
 
@@ -144,7 +144,7 @@ impl Span {
     }
 }
 
-/// A run of `len` bytes in one colour, in `font`.
+/// A run of `len` bytes in one color, in `font`.
 ///
 /// The plain case: no background, no underline, no strikethrough. The editor
 /// element adds an underline to a copy of one of these when the IME is
@@ -160,7 +160,7 @@ pub(crate) fn plain_run(len: usize, color: Hsla, font: &Font) -> TextRun {
     }
 }
 
-/// The coloured runs of one line, from the spans a [`Highlighter`] gave for it.
+/// The colored runs of one line, from the spans a [`Highlighter`] gave for it.
 ///
 /// The runs have to tile `text`, because gpui shapes a line from a list of runs
 /// whose lengths add up to its length -- but a highlighter's spans need not,
@@ -170,12 +170,12 @@ pub(crate) fn plain_run(len: usize, color: Hsla, font: &Font) -> TextRun {
 ///
 /// Spans are clamped rather than trusted: a highlighter is ordinary code, and
 /// one span past the end of a line would otherwise be a panic inside gpui's
-/// shaper rather than a wrong colour. A span that starts before the previous
+/// shaper rather than a wrong color. A span that starts before the previous
 /// one ended is pulled forward to where that one ended, so the result is
 /// always sorted and non-overlapping whatever came in.
 ///
 /// Public because the editor is not the only thing that draws code with this
-/// crate's colours. A host's completion popup, a diff view, a log pane -- and
+/// crate's colors. A host's completion popup, a diff view, a log pane -- and
 /// [`CodeSnippet`](crate::CodeSnippet), which is this crate's own use of it --
 /// all want the same answer, and the alternative is every one of them getting
 /// the gap-filling subtly wrong.
@@ -218,7 +218,7 @@ pub fn runs_for_spans(
 ///
 /// One arm per variant and no fallback: every [`Token`] maps to one of the
 /// palette's fourteen slots, which is what keeps a highlighter from inventing a
-/// class no theme has a colour for. [`Token::QuotedIdentifier`] shares
+/// class no theme has a color for. [`Token::QuotedIdentifier`] shares
 /// [`Token::Identifier`]'s slot rather than needing one of its own.
 ///
 /// Public for the same reason [`runs_for_spans`] is: a host drawing its own
@@ -301,10 +301,10 @@ impl LineState {
 /// The spans it answers with must be sorted, must not overlap, and must lie
 /// inside `text`. They need not tile it: the bytes no span covers are the ones
 /// the highlighter had no opinion about, and the renderer draws them in the
-/// palette's foreground colour. That is what keeps a highlighter for a language
+/// palette's foreground color. That is what keeps a highlighter for a language
 /// that is mostly prose — a template — from having to invent a token for prose.
 pub trait Highlighter: Send + Sync + 'static {
-    /// The coloured runs of `text`, and the state the line after it starts in.
+    /// The colored runs of `text`, and the state the line after it starts in.
     ///
     /// `text` is one line with its terminator already stripped. `state` is what
     /// this method returned for the line before, or [`LineState::START`] for
@@ -323,7 +323,7 @@ pub trait Highlighter: Send + Sync + 'static {
     /// that the editor should highlight the statement the caret sits in and
     /// let it be run on its own.
     ///
-    /// `false` — the default — turns that behaviour off. Statement highlight
+    /// `false` — the default — turns that behavior off. Statement highlight
     /// and statement execution belong to the SQL editor; a language that
     /// happens to use `;` for something else (a Java template, say) would
     /// only get a misleading selection-like band drawn across unrelated
@@ -427,7 +427,7 @@ impl SyntaxCache {
     /// Offsets are relative to the start of the line. Cheap enough to call once
     /// per visible line per frame, which is exactly how the renderer uses it.
     /// With no highlighter the answer is always empty, and the renderer draws
-    /// the whole line in the foreground colour.
+    /// the whole line in the foreground color.
     pub fn spans(&self, buffer: &Buffer, line: usize) -> Vec<Span> {
         let Some(highlighter) = self.highlighter.as_ref() else {
             return Vec::new();
@@ -502,7 +502,7 @@ mod tests {
     use crate::sql_syntax::SqlHighlighter;
 
     /// A font to hang runs on. Never shaped in these tests -- only the lengths
-    /// and the colours are read -- so the family need not exist.
+    /// and the colors are read -- so the family need not exist.
     fn test_font() -> Font {
         gpui::font("test")
     }

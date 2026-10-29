@@ -39,7 +39,7 @@ if self.running {
 | --- | --- | --- | --- |
 | `Spinner::new` | `id: impl Into<ElementId>` | — | Creates a 16 px spinner drawn in the theme's accent. |
 | `size` | `Pixels` | `px(16.)` | Width and height of the box the arc is drawn inside. |
-| `color` | `Hsla` | the theme's `accent` | Overrides the arc's colour. |
+| `color` | `Hsla` | the theme's `accent` | Overrides the arc's color. |
 
 ![Three spinners turning, in accent, success and danger](../screenshots/spinner/color.gif)
 
@@ -100,8 +100,8 @@ whatever is behind it.
 
 - **The id is the animation's key.** Two spinners sharing one id would fight
   over a single rotation, so ids must be unique among siblings.
-- `color(..)` is worth setting when the spinner sits on a coloured surface the
+- `color(..)` is worth setting when the spinner sits on a colored surface the
   accent disappears into — inside a filled [`Button`](./button.md), say, where
-  the label's own colour is the one that reads.
+  the label's own color is the one that reads.
 - A spinner left in the tree keeps animating and keeps asking for frames. Drop
   it when the work finishes rather than hiding it behind zero opacity.

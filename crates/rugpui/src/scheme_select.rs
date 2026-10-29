@@ -3,7 +3,7 @@
 //! The same control as [`Select`](crate::Select) — trigger, deferred list,
 //! backdrop, arrow keys — over entries that carry colors as well as a name. A
 //! grid of preview cards shows more of each scheme at once, but it costs a form
-//! several rows of height per catalogue; a dialog that has two catalogues, and a
+//! several rows of height per catalog; a dialog that has two catalogs, and a
 //! dozen other settings besides, is better served by one line each with the
 //! colors carried along on the right of every row.
 //!
@@ -111,7 +111,7 @@ pub struct SchemeSwatch {
     /// Label shown at the left of the row.
     name: SharedString,
     /// Colors to preview. `None` renders a muted placeholder pill instead,
-    /// which is how a picker offers "use the other catalogue's answer".
+    /// which is how a picker offers "use the other catalog's answer".
     preview: Option<SchemePreview>,
     /// Text drawn on that placeholder pill. Taken from the caller so the widget
     /// needs no translations of its own.
@@ -444,7 +444,7 @@ impl RenderOnce for SchemeSelect {
             .line_height(px(20.))
             // Everything that answers a pointer or the keyboard hangs off this
             // one branch, so a disabled control is inert rather than merely
-            // grey: nothing to hover, nothing to click, nothing to tab to.
+            // gray: nothing to hover, nothing to click, nothing to tab to.
             .when(!disabled, |this| {
                 this.cursor_pointer()
                     .hover(|style| style.bg(theme.surface_hover))
@@ -514,7 +514,7 @@ impl RenderOnce for SchemeSelect {
                     .size(px(CHEVRON_SIZE))
                     .flex_none()
                     .path(chevron_icon.clone().unwrap_or_else(|| CARET_DOWN.into()))
-                    // An SVG takes its colour from its own `text_color`, which
+                    // An SVG takes its color from its own `text_color`, which
                     // — unlike text's — does not inherit from the box around
                     // it, so the muted tint has to be handed to it directly.
                     .text_color(theme.text_muted),

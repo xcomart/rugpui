@@ -153,7 +153,7 @@ impl FindState {
     ///
     /// The match that was replaced is dropped and every one after it shifts;
     /// nothing is re-scanned, so a replacement that *creates* a new match does
-    /// not find it until the next search. That is the behaviour every editor
+    /// not find it until the next search. That is the behavior every editor
     /// has, and the alternative — rescanning a 100MB buffer per replacement —
     /// is not one.
     pub fn shift_after_replace(&mut self, range: &Range<usize>, new_len: usize) {

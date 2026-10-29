@@ -45,7 +45,7 @@
 //! Where the files live, when they are read and whether they are re-read is the
 //! host's business, which is why no directory walker ships here. What *is* here
 //! is forgiving in the same way the loader above is: a rule inside a file that
-//! cannot be honoured — an empty delimiter, a quote that is not one character,
+//! cannot be honored — an empty delimiter, a quote that is not one character,
 //! a `keywords` group nobody has heard of — is dropped and described rather
 //! than failing the file. [`Definition::parse_with_warnings`] hands the
 //! complaints back; [`Definition::parse`] logs them.
@@ -65,23 +65,23 @@
 //!     escape: false            # whether a `\` escapes the next character (default true)
 //!   - quote: '"'
 //!   - pair: ['"""', '"""']     # an open/close pair, which does cross lines
-//! keywords:                    # group name -> how the words in it are coloured
+//! keywords:                    # group name -> how the words in it are colored
 //!   keyword: [def, class, if, else, for, while, return, import]
 //!   literal: ["True", "False", "None"]
 //! keywords_ignore_case: false  # match keywords whatever their case (default false)
 //! variables: ["$"]             # sigils: `$NAME` and `${...}` become variables
-//! sections: false              # colour a leading `[section]` as a key
-//! keys: none                   # none | colon | equals: colour `key:` / `key=`
-//! numbers: true                # colour numeric literals (default true)
+//! sections: false              # color a leading `[section]` as a key
+//! keys: none                   # none | colon | equals: color `key:` / `key=`
+//! numbers: true                # color numeric literals (default true)
 //! ```
 //!
 //! Every key is optional. A file holding nothing but `name` and `files` is
-//! legal and gives a language that is matched and drawn in one colour, which is
+//! legal and gives a language that is matched and drawn in one color, which is
 //! a perfectly good way to start.
 //!
 //! The four groups `keywords` may name are the tokens a word can reasonably be:
 //! `keyword`, `literal`, `key` and `variable`. `literal` is
-//! [`Token::Number`](crate::Token) — a palette has one colour for the values a
+//! [`Token::Number`](crate::Token) — a palette has one color for the values a
 //! format writes out, and `true` is one of them. A group by any other name is
 //! warned about and ignored rather than failing the file.
 //! `keywords_ignore_case` covers the whole definition rather than one group,
@@ -101,13 +101,13 @@
 //!
 //! * No regular expressions, and no context. A word is a keyword wherever it
 //!   stands, and `key:` is a key only at the head of its line, so the keys of
-//!   an inline `{a: 1}` are not coloured.
+//!   an inline `{a: 1}` are not colored.
 //! * Nesting is not tracked. A block comment ends at the first closing
 //!   delimiter, whatever opened in between; the same goes for a `pair` string,
 //!   inside which a backslash escapes nothing.
 //! * One kind of block comment and one line comment per language.
 //! * No heredocs, no indentation-delimited block scalars, no interpolation
-//!   coloured inside a string. The languages that need those are the ones with
+//!   colored inside a string. The languages that need those are the ones with
 //!   a lexer of their own.
 //!
 //! # The state, in seven bits
@@ -189,7 +189,7 @@ pub struct Definition {
     sections: bool,
     /// Which separator makes the word at the head of a line a key.
     keys: KeyStyle,
-    /// Whether numeric literals are coloured.
+    /// Whether numeric literals are colored.
     numbers: bool,
 }
 
@@ -256,7 +256,7 @@ impl KeyStyle {
 }
 
 impl Definition {
-    /// Reads a definition from `yaml`, logging whatever could not be honoured.
+    /// Reads a definition from `yaml`, logging whatever could not be honored.
     ///
     /// Fails only when the file is not a definition at all — malformed YAML, or
     /// a key whose value is of the wrong shape. A key this build has never
@@ -312,7 +312,7 @@ impl Definition {
         self.comment.as_deref()
     }
 
-    /// How `word` is coloured, when the definition says anything about it.
+    /// How `word` is colored, when the definition says anything about it.
     ///
     /// Called once per word of every line drawn, so neither branch allocates. A
     /// case-insensitive dictionary is stored lowercased and its search folds
@@ -544,7 +544,7 @@ fn lex(line: &str, state: LineState, definition: &Definition) -> (Vec<Span>, Lin
 /// starts.
 ///
 /// A `[section]` runs to the last `]` on the line, as it does in the flat
-/// configuration formats — which colours a `]` inside a trailing comment as
+/// configuration formats — which colors a `]` inside a trailing comment as
 /// part of the header, and is the reading that survives the header being typed.
 fn head(spans: &mut Spans, line: &str, definition: &Definition) -> usize {
     let bytes = line.as_bytes();
@@ -568,7 +568,7 @@ fn head(spans: &mut Spans, line: &str, definition: &Definition) -> usize {
 /// The end of the `$NAME` or `${...}` whose sigil is at `at`.
 ///
 /// `None` when the sigil introduces nothing, which leaves it as plain text
-/// rather than colouring a bare `$` at the end of a line.
+/// rather than coloring a bare `$` at the end of a line.
 fn variable_end(line: &str, at: usize) -> Option<usize> {
     let bytes = line.as_bytes();
     let len = bytes.len();
@@ -641,7 +641,7 @@ struct SyntaxFile {
     /// What to call the language.
     #[serde(default)]
     name: String,
-    /// What the language is recognised by.
+    /// What the language is recognized by.
     #[serde(default)]
     files: FileMatchers,
     /// The line comment prefix.
@@ -669,12 +669,12 @@ struct SyntaxFile {
     /// unknown value is a warning about one key instead of a rejected file.
     #[serde(default)]
     keys: Option<String>,
-    /// Whether numeric literals are coloured. Absent means yes.
+    /// Whether numeric literals are colored. Absent means yes.
     #[serde(default)]
     numbers: Option<bool>,
 }
 
-/// What a definition is recognised by.
+/// What a definition is recognized by.
 #[derive(Debug, Clone, Default, Deserialize)]
 struct FileMatchers {
     /// Extensions, with no leading dot.
@@ -704,8 +704,8 @@ struct StringField {
 
 /// The [`Token`] a `keywords` group name asks for.
 ///
-/// Only the tokens a *word* can sensibly be. Colouring a word as a comment or a
-/// number is not a thing anybody wants — `literal` is the number colour, but it
+/// Only the tokens a *word* can sensibly be. Coloring a word as a comment or a
+/// number is not a thing anybody wants — `literal` is the number color, but it
 /// is asked for by what the word *means* rather than by what it is drawn as —
 /// and leaving the rest out keeps the list of legal group names short enough to
 /// remember.
@@ -738,7 +738,7 @@ fn slug(name: &str) -> String {
 /// Turns a parsed file into the definition the lexer runs on, with everything
 /// that had to be dropped along the way.
 ///
-/// Nothing here fails. A rule that cannot be honoured — an empty delimiter, a
+/// Nothing here fails. A rule that cannot be honored — an empty delimiter, a
 /// quote that is not one character, a `keywords` group nobody has heard of — is
 /// dropped and described, leaving the rest of the definition working.
 fn compile(file: SyntaxFile) -> (Definition, Vec<String>) {
@@ -1025,7 +1025,7 @@ keywords:
     }
 
     #[test]
-    fn a_rule_that_cannot_be_honoured_is_dropped_and_the_rest_kept() {
+    fn a_rule_that_cannot_be_honored_is_dropped_and_the_rest_kept() {
         let (mixed, warnings) = Definition::parse_with_warnings(
             r#"
 name: Mixed
@@ -1086,7 +1086,7 @@ keys: sideways
     }
 
     #[test]
-    fn keywords_are_coloured_by_the_group_they_are_in() {
+    fn keywords_are_colored_by_the_group_they_are_in() {
         let python = definition(PYTHON);
         let found = spans(&python, "def run(): return None");
         assert_eq!(found[0], ("def", Token::Keyword));

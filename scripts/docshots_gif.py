@@ -9,9 +9,9 @@ milliseconds of jitter between asking for one and getting it — so the moment a
 frame was taken says nothing useful about where in the cycle it caught the
 widget. The frames' *content* does. Both widgets here move monotonically
 through one cycle, so every frame can be placed by looking at it: a spinner by
-the angle of its moving pixels about the arc's centre, a sweep by their
+the angle of its moving pixels about the arc's center, a sweep by their
 horizontal centroid. Sorting by that recovers the order the frames would have
-been drawn in, and the gaps between neighbouring positions say how long each
+been drawn in, and the gaps between neighboring positions say how long each
 frame should be held for so the cycle plays back at the speed the widget really
 moves at.
 
@@ -162,7 +162,7 @@ def spin_phases(frames, median):
 
     left, right = max(spans, key=area)
     rows = [y for x, y in everywhere if left <= x <= right]
-    centre = ((left + right) / 2, (min(rows) + max(rows)) / 2)
+    center = ((left + right) / 2, (min(rows) + max(rows)) / 2)
 
     phases = []
     for mask in masks:
@@ -172,7 +172,7 @@ def spin_phases(frames, median):
             continue
         mean_x = sum(x for x, _ in inside) / len(inside)
         mean_y = sum(y for _, y in inside) / len(inside)
-        angle = atan2(mean_x - centre[0], -(mean_y - centre[1])) % TAU
+        angle = atan2(mean_x - center[0], -(mean_y - center[1])) % TAU
         phases.append(angle / TAU)
     return phases
 
@@ -209,13 +209,13 @@ def sweep_phases(frames, median):
         if len(mask) < MIN_MOVING:
             phases.append(None)
             continue
-        centre = (sum(x for x, _ in mask) / len(mask) - track_left) / track
-        if centre < SWEEP_FRACTION / 2:
-            left = 2 * centre - SWEEP_FRACTION
-        elif centre > 1 - SWEEP_FRACTION / 2:
-            left = 2 * centre - 1
+        center = (sum(x for x, _ in mask) / len(mask) - track_left) / track
+        if center < SWEEP_FRACTION / 2:
+            left = 2 * center - SWEEP_FRACTION
+        elif center > 1 - SWEEP_FRACTION / 2:
+            left = 2 * center - 1
         else:
-            left = centre - SWEEP_FRACTION / 2
+            left = center - SWEEP_FRACTION / 2
         eased = (left + SWEEP_FRACTION) / (1 + SWEEP_FRACTION)
         phases.append(unease(eased))
     return phases
@@ -226,7 +226,7 @@ def lay_out(order, period_ms):
 
     A frame is held until the next one's turn comes round, so its delay is the
     gap to its successor — and the last frame's is the gap round to the first,
-    which is what makes the loop seamless. Delays are then quantised to the
+    which is what makes the loop seamless. Delays are then quantized to the
     centiseconds a GIF actually stores, with the rounding error handed to the
     longest frames so the cycle still adds up to exactly one period.
     """
@@ -271,17 +271,17 @@ def write_gif(frames, positions, delays, out):
     chosen = [frames[position] for position in positions]
     width, height = chosen[0].size
     # One palette for the whole animation, taken from every frame at once: a
-    # palette per frame would have each of them quantise its antialiasing
+    # palette per frame would have each of them quantize its antialiasing
     # differently and the background would crawl.
     strip = Image.new("RGB", (width, height * len(chosen)))
     for index, frame in enumerate(chosen):
         strip.paste(frame, (0, index * height))
     palette = strip.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
-    quantised = [frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in chosen]
-    quantised[0].save(
+    quantized = [frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in chosen]
+    quantized[0].save(
         out,
         save_all=True,
-        append_images=quantised[1:],
+        append_images=quantized[1:],
         duration=delays,
         loop=0,
         optimize=False,

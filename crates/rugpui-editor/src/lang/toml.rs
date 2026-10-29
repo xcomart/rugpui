@@ -19,7 +19,7 @@
 //!   comparison a key too, except that TOML has no comparisons.
 //! * A multi-line string's closing delimiter is found by searching for three
 //!   quotes, without regard for a backslash before them. `\"""` inside a
-//!   `"""` string ends it early, in colour only.
+//!   `"""` string ends it early, in color only.
 
 use crate::highlight::{Highlighter, LineState, Span, Token};
 use crate::lang::scan::{Spans, char_step, number, quote_body, skip_spaces, word_boundary};

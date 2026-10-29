@@ -13,7 +13,9 @@ use rugpui::{
     ChildState, ListRowInfo, ListSource, ListView, TreeRowInfo, TreeSource, TreeView, theme,
 };
 use rugpui_editor::{EditorView, MarkKind, highlighter_for_extension};
-use rugpui_grid::{GridCell, GridColumn, GridColumnKind, GridSource, GridView, RowStatus};
+use rugpui_grid::{
+    CellEditor, CellInfo, GridCell, GridColumn, GridColumnKind, GridSource, GridView, RowStatus,
+};
 
 use super::{Motion, Shot, framed, panel};
 use crate::{
@@ -112,6 +114,14 @@ pub const SHOTS: &[Shot] = &[
         build: grid_text_editor,
     },
     Shot {
+        name: "grid/expand-editor",
+        width: 840.,
+        height: 300.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: grid_expand_editor,
+    },
+    Shot {
         name: "editor/sql",
         width: 560.,
         height: 300.,
@@ -182,7 +192,7 @@ fn tree_loading(_window: &mut Window, cx: &mut App) -> AnyView {
     })
 }
 
-/// The gallery's catalogue with one branch still being fetched.
+/// The gallery's catalog with one branch still being fetched.
 struct Fetching;
 
 impl TreeSource for Fetching {
@@ -285,7 +295,7 @@ fn grid_panel<S: GridSource>(cx: &mut App, grid: Entity<GridView<S>>) -> AnyView
 }
 
 /// The result as it arrives: autofitted columns, a key column in its own
-/// colour, nulls drawn as `NULL` rather than as nothing.
+/// color, nulls drawn as `NULL` rather than as nothing.
 fn grid_default(_window: &mut Window, cx: &mut App) -> AnyView {
     let grid = cx.new(|cx| GridView::new(Plain, cx));
     grid_panel(cx, grid)
@@ -353,6 +363,65 @@ fn grid_text_editor(window: &mut Window, cx: &mut App) -> AnyView {
         grid
     });
     grid_panel(cx, grid)
+}
+
+/// The same field over a source that offers a larger editor for its notes: the
+/// button at the field's end.
+fn grid_expand_editor(window: &mut Window, cx: &mut App) -> AnyView {
+    let grid = cx.new(|cx| {
+        let mut grid = GridView::new(Expandable, cx).expand_tooltip("Open in the text editor");
+        grid.begin_edit(6, EXPANDED_NOTE, window, cx);
+        grid
+    });
+    grid_panel(cx, grid)
+}
+
+/// The gallery's result, whose free-text note offers the host's larger editor.
+struct Expandable;
+
+/// The free-text `note` column of [`Orders`], the one [`Expandable`] offers the
+/// larger editor for — the same column `grid/text-editor` opens its field on.
+const EXPANDED_NOTE: usize = 5;
+
+impl GridSource for Expandable {
+    fn column_count(&self) -> usize {
+        Orders.column_count()
+    }
+
+    fn column(&self, index: usize) -> GridColumn<'_> {
+        Orders.column(index)
+    }
+
+    fn row_count(&self) -> usize {
+        Orders.row_count()
+    }
+
+    fn cell(&self, row: usize, column: usize) -> GridCell<'_> {
+        Orders.cell(row, column)
+    }
+
+    fn render_cell(
+        &self,
+        row: usize,
+        column: usize,
+        info: &CellInfo<'_>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        Orders.render_cell(row, column, info, window, cx)
+    }
+
+    fn cell_editable(&self, row: usize, column: usize) -> bool {
+        Orders.cell_editable(row, column)
+    }
+
+    fn cell_editor(&self, row: usize, column: usize) -> CellEditor {
+        Orders.cell_editor(row, column)
+    }
+
+    fn cell_expandable(&self, _row: usize, column: usize) -> bool {
+        column == EXPANDED_NOTE
+    }
 }
 
 /// The gallery's result with the two hand-drawn columns left off.
@@ -601,7 +670,7 @@ const WRAP_CARET: usize = 60;
 
 /// The listing the per-palette editor shot draws.
 ///
-/// Short, and chosen to reach as many token colours as it can: a comment, a
+/// Short, and chosen to reach as many token colors as it can: a comment, a
 /// keyword, an identifier, a string, a number, an operator and a function.
 const THEME_SQL: &str = "\
 -- Orders that have not shipped, by value.
@@ -613,10 +682,10 @@ SELECT o.order_id,
  LIMIT 100;
 ";
 
-/// What the per-palette editor shot leaves selected, so the selection colour is
+/// What the per-palette editor shot leaves selected, so the selection color is
 /// in the picture beside the current-line band and the caret.
 ///
 /// `o.order_id` on the second line: an identifier rather than a word of the
-/// comment above it, so the selection is drawn over a colour the palette
+/// comment above it, so the selection is drawn over a color the palette
 /// actually chose.
 const THEME_SELECTION: std::ops::Range<usize> = 49..59;

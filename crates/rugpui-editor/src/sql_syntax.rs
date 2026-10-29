@@ -18,7 +18,7 @@
 //! * a word is a keyword if it is one of [`KEYWORDS`], a function if a `(`
 //!   follows it, and an identifier otherwise;
 //! * `${...}` is a placeholder — a host that substitutes a catalog or a schema
-//!   into a stored query writes one — and it is painted in the type colour so
+//!   into a stored query writes one — and it is painted in the type color so
 //!   that it stands out of the SQL around it rather than blending into a
 //!   string.
 //!
@@ -352,7 +352,7 @@ impl Lexer<'_> {
                         continue;
                     }
                     // Something the lexer has no opinion about: leave it
-                    // uncoloured and step over one whole character, never one
+                    // uncolored and step over one whole character, never one
                     // byte of one.
                     self.at = self.next_char_boundary(self.at);
                 }
@@ -718,7 +718,7 @@ mod tests {
 
     #[test]
     fn an_unclassifiable_character_is_stepped_over_whole() {
-        // A stray `¶` colours nothing and must not split a UTF-8 sequence.
+        // A stray `¶` colors nothing and must not split a UTF-8 sequence.
         assert_eq!(spans("¶ a"), vec![("a", Token::Identifier)]);
     }
 }

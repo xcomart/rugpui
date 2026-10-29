@@ -202,7 +202,7 @@ impl UpdateDialog {
     ///
     /// Opens *before* the answer so the click has a visible effect on a slow
     /// connection, and so the user can walk away from the question by
-    /// dismissing it. A check the user cancelled that way stays cancelled: the
+    /// dismissing it. A check the user canceled that way stays canceled: the
     /// answer is applied only if the dialog is still in [`State::Checking`] when
     /// it lands.
     ///
@@ -405,7 +405,7 @@ impl UpdateDialog {
 
     /// What the primary button does for a release with no build to install.
     ///
-    /// The original behaviour, kept for the platforms the project publishes no
+    /// The original behavior, kept for the platforms the project publishes no
     /// asset for and for a release whose assets do not include the expected
     /// name: send the browser to the page and get out of the way.
     fn open_page(&mut self, release: &Release, cx: &mut Context<Self>) {
@@ -657,7 +657,7 @@ impl UpdateDialog {
                             .children(share.map(note)),
                     )
                     .child(note(available(release)))
-                    // A hairline track in the border colour, so an idle-looking
+                    // A hairline track in the border color, so an idle-looking
                     // bar reads as part of the frame, with only the accent fill
                     // claiming attention.
                     .child(

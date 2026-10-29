@@ -6,7 +6,7 @@
 //! rule in [`crate::history`], the matcher in [`crate::find`], the windowing in
 //! [`crate::syntax`]. What is here is everything that only exists once there is
 //! a focused element and a platform input handler attached to it, which is the
-//! whole of the IME story and the whole of the virtualisation story.
+//! whole of the IME story and the whole of the virtualization story.
 
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -747,7 +747,7 @@ fn the_highlighter_can_be_changed_under_the_buffer(cx: &mut TestAppContext) {
 // --- what a completion popup reads ------------------------------------------
 
 #[gpui::test]
-fn a_plain_text_editor_has_no_colours_and_no_comment_toggle(cx: &mut TestAppContext) {
+fn a_plain_text_editor_has_no_colors_and_no_comment_toggle(cx: &mut TestAppContext) {
     let (editor, mut cx) = open("select 1;\n", cx);
     editor.update(&mut cx, |editor, cx| editor.set_highlighter(None, cx));
     editor.update(&mut cx, |editor, cx| {
@@ -820,7 +820,7 @@ fn run_statement_emits_the_span_statement_at_would_cut(cx: &mut TestAppContext) 
 
     // The caret inside the first, just past its semicolon, on the blank line
     // after it, inside the second, and at its end: the last three are where
-    // "which statement" is a judgement call rather than a lookup.
+    // "which statement" is a judgment call rather than a lookup.
     for (offset, expected) in [
         (3, "select 1"),
         (9, "select 1"),
@@ -1041,7 +1041,7 @@ fn replace_next_after_an_edit_replaces_the_match_that_moved(cx: &mut TestAppCont
     assert_eq!(editor.read(&mut cx, EditorView::selection), 8..10);
 }
 
-// --- virtualisation and cost -------------------------------------------------
+// --- virtualization and cost -------------------------------------------------
 
 /// A script of `lines` statements, one per line.
 fn long_script(lines: usize) -> String {
@@ -1076,7 +1076,7 @@ fn drawing_a_hundred_thousand_lines_styles_only_the_visible_ones(cx: &mut TestAp
 /// Regression: the bar was handed the scrolled *fraction* where its geometry
 /// expects the scrolled *distance* in the same unit as the range, so the thumb
 /// sat pinned to the top of the track however far the surface had scrolled. The
-/// slip started here and travelled out with every port of the editor.
+/// slip started here and traveled out with every port of the editor.
 #[gpui::test]
 fn the_thumb_follows_the_scroll(cx: &mut TestAppContext) {
     use gpui::px;

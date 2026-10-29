@@ -1,7 +1,7 @@
 //! Which cells are picked.
 //!
 //! Pure arithmetic over row and column numbers — no window, no source, no
-//! colours — so the awkward half of a grid's behaviour can be settled where it
+//! colors — so the awkward half of a grid's behavior can be settled where it
 //! is cheap to test. A click, a shift-click, a ctrl-click, a drag, a row header
 //! and `Ctrl+A` all end up calling one of five methods on [`Selection`], and
 //! everything the widget draws or copies is read back out of it.

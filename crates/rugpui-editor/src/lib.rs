@@ -86,8 +86,8 @@
 //! needs from the document — [`EditorView::word_before_caret`],
 //! [`EditorView::line_before_caret`], [`EditorView::caret_bounds`],
 //! [`EditorView::replace_range`] — so that no caller ever has to work out a
-//! byte offset into the rope for itself, plus the two functions that colour a
-//! line the way the editor colours it: [`runs_for_spans`] and [`color_for`].
+//! byte offset into the rope for itself, plus the two functions that color a
+//! line the way the editor colors it: [`runs_for_spans`] and [`color_for`].
 //!
 //! # Code that is read rather than typed into
 //!

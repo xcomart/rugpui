@@ -3,7 +3,7 @@
 //!
 //! Some documents are two languages at once. A template is a file of some other
 //! language — Java, XML, PHP, SQL — with `${…}` statements sprinkled through
-//! it, and the useful colouring of one is both at once: the Java is Java, and
+//! it, and the useful coloring of one is both at once: the Java is Java, and
 //! the statements stand out of it. A shell script with an embedded here-doc,
 //! a Markdown file with fenced code, a query with a host language's
 //! placeholders in it: the shape recurs. That is what this composes.

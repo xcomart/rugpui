@@ -4,13 +4,15 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    App, Context, DragMoveEvent, ElementId, FocusHandle, Hsla, IsZero, KeyBinding, MouseButton,
-    Pixels, Point, Render, ScrollHandle, SharedString, Window, actions, div, prelude::*, px, svg,
-    transparent_black,
+    App, Context, DragMoveEvent, ElementId, Entity, FocusHandle, Hsla, IsZero, KeyBinding,
+    MouseButton, Pixels, Point, Render, ScrollHandle, SharedString, Window, actions, div,
+    prelude::*, px, svg, transparent_black,
 };
 
 use crate::menu::{MenuButton, MenuEntry};
-use crate::scrollbar::Scrollbar;
+use crate::scrollbar::{
+    Scrollbar, ScrollbarAxis, ScrollbarState, answer_own_scrollbar, own_scrollbar,
+};
 use crate::theme::{Theme, theme};
 use crate::tooltip::tooltip_label;
 
@@ -52,7 +54,7 @@ const KEY_CONTEXT: &str = "TabBar";
 /// bar handed a [`TabBar::focus_handle`] carries, so the arrows keep meaning
 /// what they meant everywhere else in the app. The reorder chords follow the
 /// platform's command key — `cmd` on macOS, `ctrl` elsewhere — the way the
-/// text input's clipboard chords do. On macOS the key labelled Delete sends
+/// text input's clipboard chords do. On macOS the key labeled Delete sends
 /// `backspace`, so it closes the tab there too.
 pub fn init(cx: &mut App) {
     let modifier = if cfg!(target_os = "macos") {
@@ -141,11 +143,11 @@ pub struct TabItem {
     pub closable: bool,
     /// Connection state dot. `None` renders no dot at all.
     pub status: Option<TabStatus>,
-    /// Dot colour chosen by the owner, overriding the one [`TabItem::status`]
+    /// Dot color chosen by the owner, overriding the one [`TabItem::status`]
     /// would take from the theme.
     ///
     /// For the strips whose dot means something the four states cannot say — a
-    /// pane's tabs mark which connection each of them belongs to, in the colour
+    /// pane's tabs mark which connection each of them belongs to, in the color
     /// that connection's profile carries. `None` leaves the status in charge.
     pub dot: Option<Hsla>,
     /// Mark drawn after the title. `None` renders no mark at all, and a tab may
@@ -178,16 +180,16 @@ impl TabItem {
         self
     }
 
-    /// Attaches a dot in a colour of the caller's choosing.
+    /// Attaches a dot in a color of the caller's choosing.
     ///
-    /// Wins over [`TabItem::status`] when both are set, because a colour named
+    /// Wins over [`TabItem::status`] when both are set, because a color named
     /// outright is the more specific of the two.
     pub fn dot(mut self, color: Hsla) -> Self {
         self.dot = Some(color);
         self
     }
 
-    /// Draws the asset at `icon` after the title, labelled `tooltip` on hover.
+    /// Draws the asset at `icon` after the title, labeled `tooltip` on hover.
     ///
     /// Both come from the caller, icon path included, for the reason given on
     /// [`TabBar::tooltips`]: this layer carries neither text nor assets of its
@@ -282,7 +284,7 @@ pub struct DraggedTab {
 ///     })
 /// ```
 ///
-/// A drag cancelled with a release outside every drop target reaches no drop
+/// A drag canceled with a release outside every drop target reaches no drop
 /// handler, so the owner's root also calls [`TabDropState::clear`] on its own
 /// mouse-up — a no-op after a drop, which already took the bar.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -399,7 +401,56 @@ impl Render for DragGhost {
     }
 }
 
-/// A stateless tab strip.
+/// What a bar keeps between frames for the parts of it no owner runs.
+///
+/// Kept per element through gpui's keyed state, the way a dropdown keeps its
+/// keyboard search, so the strip a view rebuilds every frame still scrolls
+/// with a bar, opens its tab list and brings a newly active tab into view
+/// without that view keeping a handle, a [`ScrollbarState`], a timer, a drag
+/// listener or a flag for any of it. Each piece only stands in for what the
+/// owner did not hand over.
+struct StripState {
+    /// The tab row's scroll, for an owner that tracks none through
+    /// [`TabBar::scroll_handle`].
+    scroll: ScrollHandle,
+    /// The overlay bar's state, for an owner that draws none through
+    /// [`TabBar::scrollbar`].
+    scrollbar: ScrollbarState,
+    /// Whether the tab list is out, for an owner that does not hold it through
+    /// [`TabBar::on_menu_open_change`].
+    menu_open: bool,
+    /// The active index the last frame was drawn with, so a change of tab is
+    /// noticed and the new one brought into view.
+    active: usize,
+}
+
+impl StripState {
+    /// The state of the bar `id`, and whether `active` has taken over the top
+    /// since the frame before.
+    ///
+    /// A strip seen for the first time has nothing to compare with and counts
+    /// as unchanged: it opens where its handle already stands.
+    fn of(
+        id: &ElementId,
+        active: usize,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (Entity<Self>, bool) {
+        let state =
+            window.use_keyed_state(ElementId::from((id.clone(), "strip")), cx, |_, _| Self {
+                scroll: ScrollHandle::new(),
+                scrollbar: ScrollbarState::new(),
+                menu_open: false,
+                active,
+            });
+        let switched = state.update(cx, |state, _| {
+            std::mem::replace(&mut state.active, active) != active
+        });
+        (state, switched)
+    }
+}
+
+/// A tab strip that keeps no selection of its own.
 ///
 /// The bar owns no selection state: the parent view passes the current tabs and
 /// the active index on every render, and reacts to [`TabBar::on_select`],
@@ -407,10 +458,12 @@ impl Render for DragGhost {
 /// The context menu itself is the parent's too — the bar only reports where the
 /// right-click landed.
 ///
-/// The tab list scrolls horizontally once it overflows; the dropdown listing
-/// every tab and the "+" button stay pinned to the right edge. Scrolling the
-/// active tab back into view is the parent's job, through the handle it passes
-/// to [`TabBar::scroll_handle`].
+/// The tab list scrolls horizontally once it overflows, with an overlay bar
+/// along its bottom edge; the dropdown listing every tab and the "+" button
+/// stay pinned to the right edge. A tab that becomes active is scrolled into
+/// view. The scrolling, the bar and the dropdown run off the bar's own state
+/// unless the owner takes one over — see [`TabBar::scroll_handle`],
+/// [`TabBar::scrollbar`] and [`TabBar::on_menu_open_change`].
 #[derive(IntoElement)]
 pub struct TabBar {
     id: ElementId,
@@ -464,14 +517,15 @@ impl TabBar {
         }
     }
 
-    /// Draws `bar` over the tabs as the overlay scroll indicator.
+    /// Draws `bar` over the tabs in place of the one the strip draws itself.
     ///
-    /// Passed in rather than built here, and only while it should be on screen:
-    /// a bar comes and goes with the scrolling, which is state this widget
-    /// cannot keep — it is built afresh on every render. The owner keeps a
-    /// [`ScrollbarState`](crate::scrollbar::ScrollbarState) beside the handle it
-    /// gives [`TabBar::scroll_handle`], and owns the drag too, since the same
-    /// id it built the bar with is what tells that drag from any other.
+    /// Without it the strip runs an overlay bar of its own along its bottom
+    /// edge, off its per-element state: scrolling the tabs or resting the
+    /// pointer on that edge puts it up, and the thumb can be dragged. That is
+    /// what most owners want. Pass one only to drive it from a
+    /// [`ScrollbarState`] the owner already keeps beside the handle it gives
+    /// [`TabBar::scroll_handle`]; the owner then answers drags of it too, since
+    /// the id it built the bar with is what tells that drag from any other.
     pub fn scrollbar(mut self, bar: Scrollbar) -> Self {
         self.scrollbar = Some(bar);
         self
@@ -493,7 +547,7 @@ impl TabBar {
     /// "+", and the close button on every tab.
     ///
     /// Passed in rather than looked up, like every other string here: this layer
-    /// carries no text of its own, so the localised wording belongs to the view
+    /// carries no text of its own, so the localized wording belongs to the view
     /// that builds the bar. Any of them left unset simply shows no tooltip.
     pub fn tooltips(
         mut self,
@@ -521,14 +575,23 @@ impl TabBar {
 
     /// Tracks the horizontal scroll of the tab list with `handle`.
     ///
-    /// The handle indexes the tabs in display order, so the parent can bring the
-    /// active tab back into view with [`gpui::ScrollHandle::scroll_to_item`].
+    /// Without one the strip scrolls with a handle of its own, which lasts as
+    /// long as the strip is drawn in consecutive frames. Pass one to keep the
+    /// position across frames the strip is not drawn in — a pane's strip while
+    /// another connection is on top — or to scroll it from outside. The handle
+    /// indexes the tabs in display order; the strip itself brings a tab into
+    /// view through [`gpui::ScrollHandle::scroll_to_item`] when it becomes the
+    /// active one, and an owner can do the same at any other time.
     pub fn scroll_handle(mut self, handle: &ScrollHandle) -> Self {
         self.scroll_handle = Some(handle.clone());
         self
     }
 
-    /// Sets whether the tab dropdown is currently shown.
+    /// Sets whether the tab dropdown is currently shown, for an owner that
+    /// holds that state through [`TabBar::on_menu_open_change`].
+    ///
+    /// Read only alongside that handler; a strip without it keeps the state
+    /// itself.
     pub fn menu_open(mut self, open: bool) -> Self {
         self.menu_open = open;
         self
@@ -570,10 +633,13 @@ impl TabBar {
         self
     }
 
-    /// Called with the open state the tab dropdown would like to be in.
+    /// Called with the open state the tab dropdown would like to be in, which
+    /// hands that state to the owner along with [`TabBar::menu_open`].
     ///
-    /// Setting this handler is what makes the dropdown button appear; it is
-    /// still left out while the bar has no tabs to list.
+    /// The dropdown is there whether or not this is set — it is only left out
+    /// while the bar has no tabs to list — and without it the strip opens and
+    /// closes the list by itself. Set it when the owner has to close the list
+    /// on its own account, say because another of its menus is opening.
     pub fn on_menu_open_change(
         mut self,
         handler: impl Fn(bool, &mut Window, &mut App) + 'static,
@@ -669,11 +735,11 @@ impl TabBar {
     /// widget is rebuilt every frame and could not keep one of its own. While
     /// it holds focus the active tab wears an accent ring and the keys [`init`]
     /// binds work the strip: Left and Right (Home and End) ask
-    /// [`TabBar::on_select`] for the neighbouring (first, last) tab, Delete
+    /// [`TabBar::on_select`] for the neighboring (first, last) tab, Delete
     /// asks [`TabBar::on_close`] to close the active one when it is closable,
     /// and Ctrl+Shift+PageUp / PageDown (Cmd on macOS) ask
     /// [`TabBar::on_reorder`] to move it one place, as a drop in the gap past
-    /// its neighbour would — which needs a [`TabBar::drag_source`] tag, the
+    /// its neighbor would — which needs a [`TabBar::drag_source`] tag, the
     /// source a reorder reports. At either end of the strip a key does nothing.
     ///
     /// The bar does not take focus when a tab is clicked: a click on a tab
@@ -710,8 +776,8 @@ fn key_request(command: KeyCommand, active: usize, len: usize) -> Option<KeyRequ
         KeyCommand::First => (active != 0).then_some(KeyRequest::Select(0)),
         KeyCommand::Last => (active + 1 != len).then_some(KeyRequest::Select(len - 1)),
         KeyCommand::Close => Some(KeyRequest::Close(active)),
-        // One place left is the gap before the left neighbour; one place
-        // right is the gap past the right neighbour, since the gap straight
+        // One place left is the gap before the left neighbor; one place
+        // right is the gap past the right neighbor, since the gap straight
         // after the tab is where it already is.
         KeyCommand::MoveLeft => active
             .checked_sub(1)
@@ -744,7 +810,6 @@ impl RenderOnce for TabBar {
         let on_close = self.on_close;
         let on_context_menu = self.on_context_menu;
         let close_tooltip = self.close_tooltip;
-        let scroll_handle = self.scroll_handle.clone();
         let drag_source = self.drag_source;
         let on_reorder = self.on_reorder;
         let drop_indicator = self.drop_indicator;
@@ -773,9 +838,58 @@ impl RenderOnce for TabBar {
         // beside it.
         let line_height = window.line_height();
 
-        // An empty bar has nothing to list, so its dropdown stays away.
-        let on_menu_open_change = self.on_menu_open_change.filter(|_| !self.tabs.is_empty());
-        let menu = on_menu_open_change.map(|on_open_change| {
+        let (strip, switched) = StripState::of(&id, active, window, cx);
+        let scroll_handle = self
+            .scroll_handle
+            .clone()
+            .unwrap_or_else(|| strip.read(cx).scroll.clone());
+        // Only when the tab on top has changed: a tab the owner brought up — from
+        // the dropdown, a command, a click on one half hidden under the edge — is
+        // never left out of sight, while a strip the user has scrolled away from
+        // its active tab stays where they put it.
+        if switched && active < tab_count {
+            scroll_handle.scroll_to_item(active);
+        }
+
+        // An owner that brings a bar keeps answering for it; every other strip
+        // runs one off its own state, so no strip scrolls without a bar.
+        let bar_id = ElementId::from((id.clone(), "scrollbar"));
+        let own_bar = self.scrollbar.is_none();
+        let bar = self.scrollbar.unwrap_or_else(|| {
+            own_scrollbar(
+                &strip,
+                |state| &mut state.scrollbar,
+                bar_id.clone(),
+                ScrollbarAxis::Horizontal,
+                &scroll_handle,
+                cx,
+            )
+        });
+
+        // An empty bar has nothing to list, so its dropdown stays away — and a
+        // list the strip held open itself goes with it, rather than springing
+        // back open with the next tab to arrive.
+        let (menu_open, on_open_change) = match self.on_menu_open_change {
+            Some(handler) => (self.menu_open, handler),
+            None => {
+                let empty = self.tabs.is_empty();
+                let open = strip.update(cx, |state, _| {
+                    state.menu_open &= !empty;
+                    state.menu_open
+                });
+                let strip = strip.clone();
+                let handler: OpenChangeHandler = Rc::new(move |open, _window, cx| {
+                    strip.update(cx, |state, cx| {
+                        if state.menu_open != open {
+                            state.menu_open = open;
+                            cx.notify();
+                        }
+                    });
+                });
+                (open, handler)
+            }
+        };
+        let menu = (!self.tabs.is_empty()).then(|| {
             let entries = self
                 .tabs
                 .iter()
@@ -784,7 +898,7 @@ impl RenderOnce for TabBar {
                     // The list is a choice, not a set of commands: the row of
                     // the tab that is showing carries the menu's check mark.
                     // It used to be pushed into the shortcut slot, on the right
-                    // and in the muted hint colour, because there was nowhere
+                    // and in the muted hint color, because there was nowhere
                     // else to put it.
                     let mut entry = MenuEntry::new(tab.title.clone()).checked(index == active);
                     if let Some(handler) = on_select.clone() {
@@ -798,7 +912,7 @@ impl RenderOnce for TabBar {
                 .glyph(TAB_MENU_GLYPH)
                 .when_some(self.menu_icon.clone(), MenuButton::icon)
                 .when_some(self.menu_tooltip.clone(), MenuButton::tooltip)
-                .open(self.menu_open)
+                .open(menu_open)
                 .entries(entries)
                 .on_open_change(move |open, window, cx| on_open_change(open, window, cx))
         });
@@ -850,6 +964,7 @@ impl RenderOnce for TabBar {
         let tab_theme = theme.clone();
         let on_reorder_tabs = on_reorder.clone();
         let drop_gap_tabs = drop_gap.clone();
+        let wheel_handle = scroll_handle.clone();
         let tabs: Vec<_> = self
             .tabs
             .into_iter()
@@ -970,7 +1085,8 @@ impl RenderOnce for TabBar {
                             },
                         )
                     })
-                    .when_some(scroll_handle.clone(), |this, handle| {
+                    .map(|this| {
+                        let handle = wheel_handle.clone();
                         // The occlusion above cuts the scrolling row out of the hit
                         // test wherever a tab covers it, and gpui asks the row's own
                         // hit box before it scrolls anything — so a wheel turned
@@ -1116,6 +1232,18 @@ impl RenderOnce for TabBar {
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
+            // The whole bar rather than the row the bar is drawn over: a thumb
+            // dragged past the dropdown is still this strip's drag.
+            .when(own_bar, |this| {
+                answer_own_scrollbar(
+                    this,
+                    &strip,
+                    |state| &mut state.scrollbar,
+                    bar_id.clone(),
+                    ScrollbarAxis::Horizontal,
+                    &scroll_handle,
+                )
+            })
             .when_some(keys, |this, (handle, answer)| {
                 let on = |command| {
                     let answer = answer.clone();
@@ -1180,9 +1308,7 @@ impl RenderOnce for TabBar {
                             .items_center()
                             .size_full()
                             .overflow_x_scroll()
-                            .when_some(self.scroll_handle.as_ref(), |this, handle| {
-                                this.track_scroll(handle)
-                            })
+                            .track_scroll(&scroll_handle)
                             // Past the last tab, where there is no tab to land
                             // on: the strip's length, which the owner appends at.
                             .when_some(
@@ -1213,7 +1339,7 @@ impl RenderOnce for TabBar {
                             ))
                         },
                     )
-                    .children(self.scrollbar.and_then(|bar| bar.render(&theme))),
+                    .children(bar.render(&theme)),
             )
             .children(menu)
             .when_some(self.on_new, |this, handler| {
@@ -2621,5 +2747,193 @@ mod tests {
             Some(KeyRequest::Move { from: 2, to: 1 })
         );
         assert_eq!(key_request(Close, 1, 3), Some(KeyRequest::Close(1)));
+    }
+
+    /// A strip whose owner hands over the tabs, the active index and a handle
+    /// to read the position back from, and nothing else: the bar, the tab list
+    /// and bringing a tab into view are all the strip's own.
+    struct BareHarness {
+        tabs: Vec<TabItem>,
+        active: usize,
+        strip: ScrollHandle,
+        selected: Vec<usize>,
+    }
+
+    impl Render for BareHarness {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            div().size_full().text_size(px(INHERITED_TEXT)).child(
+                TabBar::new("tabs")
+                    .tabs(self.tabs.clone())
+                    .active(self.active)
+                    .scroll_handle(&self.strip)
+                    .on_select(move |index, _window, cx| {
+                        this.update(cx, |harness, cx| {
+                            harness.active = index;
+                            harness.selected.push(index);
+                            cx.notify();
+                        });
+                    }),
+            )
+        }
+    }
+
+    /// Opens a window on a bare strip of `tabs` with `active` on top.
+    fn open_bare(
+        cx: &mut TestAppContext,
+        tabs: Vec<TabItem>,
+        active: usize,
+    ) -> (Entity<BareHarness>, VisualTestContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(move |_, _| BareHarness {
+            tabs,
+            active,
+            strip: ScrollHandle::new(),
+            selected: Vec::new(),
+        });
+        let entity = window.root(cx).expect("the harness window");
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
+        // The first frame has measured nothing to build a bar out of, as in
+        // [`open`].
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        (entity, cx)
+    }
+
+    /// How far along the bare strip is scrolled, counting up from the start.
+    fn bare_offset(harness: &Entity<BareHarness>, cx: &mut VisualTestContext) -> Pixels {
+        harness.read_with(cx, |harness, _| -harness.strip.offset().x)
+    }
+
+    /// No owner bar, and still one to drag: a wheel puts the strip's own bar
+    /// up, and its thumb scrolls the strip.
+    #[gpui::test]
+    fn a_strip_without_an_owner_bar_draws_its_own(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_bare(cx, many_tabs(), 0);
+        turn_the_wheel(
+            &mut cx,
+            point(px(INSIDE_FIRST_TAB), px(ROW_MIDDLE)),
+            ScrollDelta::Lines(point(0., -1.)),
+        );
+        cx.run_until_parked();
+
+        let strip = harness.read_with(&cx, |harness, _| harness.strip.clone());
+        let bar = Scrollbar::for_handle(BAR, ScrollbarAxis::Horizontal, &strip)
+            .thumb()
+            .expect("an overflowing strip");
+        let before = bare_offset(&harness, &mut cx);
+
+        let grab = point(bar.start + px(4.), px(BAR_MIDDLE));
+        cx.simulate_mouse_move(grab, None, Modifiers::none());
+        cx.simulate_mouse_down(grab, MouseButton::Left, Modifiers::none());
+        for step in 1..=6 {
+            let to = point(grab.x + px(20. * step as f32), grab.y);
+            cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::none());
+        }
+        cx.simulate_mouse_up(
+            point(grab.x + px(120.), grab.y),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.run_until_parked();
+
+        assert!(
+            bare_offset(&harness, &mut cx) > before,
+            "dragging the strip's own thumb scrolled nothing"
+        );
+        assert!(
+            harness.read_with(&cx, |harness, _| harness.selected.is_empty()),
+            "the press on the thumb picked a tab"
+        );
+    }
+
+    /// No owner holds the tab list open, and it still opens, picks a tab and
+    /// closes again — and a press outside puts it away without picking one.
+    #[gpui::test]
+    fn a_strip_lists_its_tabs_without_an_owner_menu(cx: &mut TestAppContext) {
+        let tabs = (0..3usize)
+            .map(|index| TabItem::new(ElementId::from(("tab", index)), format!("tab {index}")))
+            .collect();
+        let (harness, mut cx) = open_bare(cx, tabs, 0);
+        let width = cx.update(|window, _| window.viewport_size().width);
+        // No "+" on this strip, so the dropdown is the last thing on the row.
+        let trigger = point(width - px(14.), px(ROW_MIDDLE));
+
+        cx.simulate_click(trigger, Modifiers::none());
+        assert!(
+            cx.debug_bounds(crate::menu::PANEL_SELECTOR).is_some(),
+            "the dropdown did not open"
+        );
+        cx.simulate_click(point(px(INSIDE_FIRST_TAB), px(200.)), Modifiers::none());
+        assert!(
+            cx.debug_bounds(crate::menu::PANEL_SELECTOR).is_none(),
+            "a press outside left the dropdown open"
+        );
+        assert!(harness.read_with(&cx, |harness, _| harness.selected.is_empty()));
+
+        cx.simulate_click(trigger, Modifiers::none());
+        // Three rows of one height: the panel's middle is the middle row.
+        let panel = cx
+            .debug_bounds(crate::menu::PANEL_SELECTOR)
+            .expect("the dropdown opens again");
+        cx.simulate_click(panel.center(), Modifiers::none());
+        assert_eq!(
+            harness.read_with(&cx, |harness, _| harness.selected.clone()),
+            vec![1]
+        );
+        assert!(
+            cx.debug_bounds(crate::menu::PANEL_SELECTOR).is_none(),
+            "picking a tab left the dropdown open"
+        );
+    }
+
+    /// A tab that comes to the top is scrolled into view, and only then: the
+    /// strip opens where its handle stands, and scrolling away from the active
+    /// tab is left alone.
+    #[gpui::test]
+    fn a_newly_active_tab_is_brought_into_view(cx: &mut TestAppContext) {
+        let (harness, mut cx) = open_bare(cx, many_tabs(), CROWDED - 1);
+        assert_eq!(
+            bare_offset(&harness, &mut cx),
+            px(0.),
+            "a strip seen for the first time moved"
+        );
+
+        harness.update(&mut cx, |harness, cx| {
+            harness.active = CROWDED / 2;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let middle = bare_offset(&harness, &mut cx);
+        assert!(middle > px(0.), "the new active tab was left out of sight");
+
+        harness.update(&mut cx, |harness, cx| {
+            harness.active = CROWDED - 1;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let end = harness.read_with(&cx, |harness, _| harness.strip.max_offset().x);
+        assert_eq!(
+            bare_offset(&harness, &mut cx),
+            end,
+            "the last tab was not revealed"
+        );
+
+        turn_the_wheel(
+            &mut cx,
+            point(px(INSIDE_FIRST_TAB), px(ROW_MIDDLE)),
+            ScrollDelta::Lines(point(0., 3.)),
+        );
+        cx.run_until_parked();
+        let scrolled = bare_offset(&harness, &mut cx);
+        assert!(scrolled < end, "the wheel did not scroll the strip back");
+        harness.update(&mut cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert_eq!(
+            bare_offset(&harness, &mut cx),
+            scrolled,
+            "a redraw dragged the strip back to the active tab"
+        );
     }
 }

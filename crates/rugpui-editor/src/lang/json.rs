@@ -10,7 +10,7 @@
 //!
 //! # What is given up
 //!
-//! An unterminated string is coloured to the end of its line rather than being
+//! An unterminated string is colored to the end of its line rather than being
 //! reported. There is nowhere here to report it to, and a half-typed string
 //! reading as a string is exactly right while it is being typed.
 
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn numbers_and_the_three_bare_words() {
-        // The three bare words share the number colour: they are the literal
+        // The three bare words share the number color: they are the literal
         // values of a format that has no others.
         assert_eq!(
             spans("[-1.5e3, true, null]"),

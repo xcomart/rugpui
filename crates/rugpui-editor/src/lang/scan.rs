@@ -5,11 +5,11 @@
 //!
 //! Every lexer built on this is a hand-written state machine over bytes, and
 //! none of them builds a tree. What an editor needs is what a good `cat` would
-//! give you: a comment is grey, a string is green, the left-hand side of a
+//! give you: a comment is gray, a string is green, the left-hand side of a
 //! mapping stands out from the right. A `.yml` that is invalid YAML still has
 //! to be readable *while it is being fixed*, which is the argument against a
 //! real parser as much as the size of one is — a parser tells you the document
-//! is wrong, and a scanner just keeps colouring. So the rule every lexer here
+//! is wrong, and a scanner just keeps coloring. So the rule every lexer here
 //! is held to is that it never panics and never refuses: a line of random bytes
 //! comes out as no spans at all, not as an error.
 //!
@@ -18,7 +18,7 @@
 //! This is the one place these lexers depart from the ones they were grown in.
 //! [`Highlighter::line`](crate::highlight::Highlighter::line) hands the
 //! renderer the runs it has an opinion about, and the bytes between them are
-//! drawn in the palette's foreground colour by the element. So [`Spans`] emits
+//! drawn in the palette's foreground color by the element. So [`Spans`] emits
 //! nothing for the plain stretches rather than filling them in, which is both
 //! less work per line and less to compare in a test: the interesting spans of a
 //! line of prose are what a reader is checking, and a list of them interleaved
@@ -124,7 +124,7 @@ pub(crate) fn indent_of(line: &str) -> usize {
 /// `at`, which is the first byte *inside* the quote.
 ///
 /// `None` when the line ends before the quote closes, which is the caller's cue
-/// to colour the rest of the line and, if its language allows it, carry the
+/// to color the rest of the line and, if its language allows it, carry the
 /// quote to the next line.
 pub(crate) fn quote_body(line: &str, at: usize, quote: u8, escapes: bool) -> Option<usize> {
     let bytes = line.as_bytes();

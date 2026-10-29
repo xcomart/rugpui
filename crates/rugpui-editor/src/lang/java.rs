@@ -249,7 +249,7 @@ impl Lexer<'_> {
     /// An annotation: `@` followed immediately -- no space -- by a name,
     /// painted whole as a type. A lone `@` with nothing after it, or with
     /// blank space, is just punctuation: nothing in Java writes one, but a
-    /// half-typed line should not paint the same token colour as a real one.
+    /// half-typed line should not paint the same token color as a real one.
     fn annotation(&mut self) {
         let start = self.at;
         self.at += 1;
