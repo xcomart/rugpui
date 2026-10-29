@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-29
+
 ### Added
 
 - A grid cell's one-line field can carry a button that hands the edit to a
@@ -49,6 +51,10 @@ revision past it.
   words before the `#` — and the failure names the file, the key and what was
   lost. A consumer whose locale files have such a value has to quote it before
   its locale test passes again.
+- Identifiers, comments and docs use US spelling. `rugpui-shell`'s
+  `menu_rows::greyed` is now `grayed`, and `ThemeEditorEvent::Cancelled` is
+  `Canceled`; a consumer that calls the one or matches the other has to
+  rename it. The vendored gpui keeps its upstream spelling.
 
 ## [0.1.12] - 2026-10-26
 
@@ -295,7 +301,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.12...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.13...dev
+[0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/xcomart/rugpui/compare/v0.1.9...v0.1.10
