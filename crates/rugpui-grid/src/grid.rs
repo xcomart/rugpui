@@ -75,6 +75,12 @@
 //! among them: gpui owns the clipboard and the grid owns the selection, so the
 //! grid does it itself.
 //!
+//! Three more arrive as a [`GridRequest`] instead, and only once the host has
+//! asked for them with [`GridView::key_requests`]: deleting what is selected,
+//! starting an edit from `F2` or from the first character typed, and pasting.
+//! Each is a key that meant something before the grid asked about it, so a
+//! grid whose host has not opted in lets all of them through untouched.
+//!
 //! ## Editing, and the little of it that lives here
 //!
 //! The grid draws edit state and hosts the field the user types into; it stages
@@ -134,8 +140,8 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, DragMoveEvent,
     ElementId, Entity, EventEmitter, FocusHandle, Focusable, Font, Hsla, IsZero, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle,
-    ScrollStrategy, ScrollWheelEvent, SharedString, Size, Subscription, TextRun,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollHandle, ScrollStrategy, ScrollWheelEvent, SharedString, Size, Subscription, TextRun,
     UniformListScrollHandle, Window, actions, canvas, div, point, prelude::*, px, size,
     uniform_list,
 };
@@ -204,6 +210,14 @@ actions!(
         /// Commit the inline editor and open the previous editable cell of the
         /// row.
         EditPrevious,
+        /// Ask the host to delete what is selected: [`GridRequest::Delete`].
+        RequestDelete,
+        /// Ask the host to open the cell under the cursor for editing:
+        /// [`GridRequest::Edit`] with no text.
+        RequestEdit,
+        /// Ask the host to paste the clipboard over the selection:
+        /// [`GridRequest::Paste`].
+        RequestPaste,
     ]
 );
 
@@ -415,7 +429,24 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("escape", CancelEdit, Some(EDITOR_KEY_CONTEXT)),
         KeyBinding::new("tab", EditNext, Some(EDITOR_KEY_CONTEXT)),
         KeyBinding::new("shift-tab", EditPrevious, Some(EDITOR_KEY_CONTEXT)),
+        // The three requests a host opts into with `GridView::key_requests`.
+        // Bound for every grid, and passed on untouched by one that has not
+        // opted in — see `GridView::request_delete` — so a host that never
+        // heard of them finds `Delete`, `F2` and the paste chord reaching
+        // whatever they reached before.
+        KeyBinding::new("delete", RequestDelete, Some(KEY_CONTEXT)),
+        KeyBinding::new("f2", RequestEdit, Some(KEY_CONTEXT)),
+        KeyBinding::new(&format!("{modifier}-v"), RequestPaste, Some(KEY_CONTEXT)),
     ]);
+    // On macOS the key labeled Delete sends `backspace`, as the tab strip
+    // notes for its own Delete; the forward-delete key is `fn` plus it.
+    if cfg!(target_os = "macos") {
+        cx.bind_keys([KeyBinding::new(
+            "backspace",
+            RequestDelete,
+            Some(KEY_CONTEXT),
+        )]);
+    }
 }
 
 /// Which way a column is ordered.
@@ -574,6 +605,71 @@ pub enum GridEvent {
         /// Where the pointer was, in **window** coordinates, which is what the
         /// menu anchors to.
         position: Point<Pixels>,
+    },
+}
+
+/// What the grid asks its host for from the keyboard, once the host has said it
+/// will answer: [`GridView::key_requests`].
+///
+/// A second event type beside [`GridEvent`] rather than more variants of it,
+/// so that a host matching every `GridEvent` keeps compiling unchanged, and a
+/// separate opt-in because each of these keys meant something before the grid
+/// asked about it — `Delete` and the paste chord may be bound further up the
+/// window, and a grid that took them for a request nobody answers would
+/// silently break that. A host subscribes to it like any other event:
+///
+/// ```ignore
+/// cx.subscribe_in(&grid, window, |pane, grid, request: &GridRequest, window, cx| {
+///     match request {
+///         GridRequest::Delete => pane.toggle_delete(grid.read(cx).selection(), cx),
+///         GridRequest::Edit { row, column, text } => grid.update(cx, |grid, cx| match text {
+///             Some(text) => grid.begin_edit_with(*row, *column, text, window, cx),
+///             None => grid.begin_edit(*row, *column, window, cx),
+///         }),
+///         GridRequest::Paste { text } => pane.paste(text, cx),
+///     };
+/// })
+/// .detach();
+/// ```
+///
+/// The grid does none of these itself, for the reason it raises
+/// [`GridEvent::EditCommitted`] instead of writing a value: whether a row can
+/// be deleted, what a pasted block means for a result, and which columns take
+/// it are the host's staging layer's to say.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GridRequest {
+    /// `Delete` was pressed with something selected — `Backspace` too on
+    /// macOS, where that is what the key labeled Delete sends.
+    ///
+    /// Which cells is [`GridView::selection`]; whether that deletes the rows,
+    /// marks them, or clears the values is the host's decision.
+    Delete,
+    /// The user wants to edit the cell under the cursor.
+    ///
+    /// Raised by `F2` with `text` set to `None`, and by typing a printable
+    /// character with `text` set to what was typed — the spreadsheet gesture,
+    /// where the keystroke that starts an edit is also its first character.
+    /// Only for a cell [`GridSource::cell_editable`] accepts; on any other the
+    /// key goes on to whatever it would have reached. A host answers with
+    /// [`GridView::begin_edit`] or [`GridView::begin_edit_with`].
+    Edit {
+        /// The row.
+        row: usize,
+        /// The source column, unaffected by hiding or by column widths.
+        column: usize,
+        /// What was typed, or `None` for `F2`.
+        text: Option<String>,
+    },
+    /// The paste chord — `Ctrl+V`, `Cmd+V` on macOS — with text on the
+    /// clipboard and a cell under the cursor.
+    ///
+    /// `text` is the clipboard as it stands; the selection it lands on is
+    /// [`GridView::selection`]. Splitting it into rows and columns is the
+    /// host's, since only the host knows whether a tab in a value is a column
+    /// break or a tab.
+    Paste {
+        /// The clipboard's text.
+        text: String,
     },
 }
 
@@ -823,6 +919,9 @@ pub struct GridView<S: GridSource> {
     h_bar: ScrollbarState,
     v_bar_id: ElementId,
     h_bar_id: ElementId,
+    /// Whether the keys behind [`GridRequest`] ask the host or pass through —
+    /// see [`GridView::key_requests`].
+    key_requests: bool,
     /// The UI scale the last frame was drawn at — see [`GridView::scaled`].
     ///
     /// Read off the global at the top of every draw and kept here rather than
@@ -860,6 +959,7 @@ impl<S: GridSource> GridView<S> {
             h_bar: ScrollbarState::new(),
             v_bar_id: ElementId::from(("rugpui-grid-vbar", cx.entity_id())),
             h_bar_id: ElementId::from(("rugpui-grid-hbar", cx.entity_id())),
+            key_requests: false,
             scale: rugpui::ui_scale(cx),
         };
         grid.ensure_layout();
@@ -894,6 +994,27 @@ impl<S: GridSource> GridView<S> {
     pub fn tab_index(mut self, index: isize) -> Self {
         self.focus_handle = self.focus_handle.clone().tab_index(index).tab_stop(true);
         self
+    }
+
+    /// Whether `Delete`, `F2`, typing and the paste chord raise a
+    /// [`GridRequest`] — off unless the host turns it on.
+    ///
+    /// Off, those keys pass through the grid exactly as they did before it
+    /// knew about them, to whatever the window binds further up. On, each one
+    /// that has something to act on becomes a request and stops there; one
+    /// that has nothing — no selection, no cell under the cursor, a cell
+    /// that takes no edit, an empty clipboard — still passes through. Nothing
+    /// is asked while the inline editor is open: the keys are the field's.
+    pub fn key_requests(mut self, enabled: bool) -> Self {
+        self.key_requests = enabled;
+        self
+    }
+
+    /// Turns the requests on or off after the fact — a result that has just
+    /// become writable, say.
+    pub fn set_key_requests(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.key_requests = enabled;
+        cx.notify();
     }
 
     /// `value` pixels at the UI scale the grid is drawn at.
@@ -1047,6 +1168,8 @@ impl<S: GridSource> GridView<S> {
 }
 
 impl<S: GridSource> EventEmitter<GridEvent> for GridView<S> {}
+
+impl<S: GridSource> EventEmitter<GridRequest> for GridView<S> {}
 
 impl<S: GridSource> Focusable for GridView<S> {
     fn focus_handle(&self, _: &App) -> FocusHandle {

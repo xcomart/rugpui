@@ -66,7 +66,7 @@ pub mod selection;
 pub mod source;
 
 pub use copy::{CopyFormat, DEFAULT_INSERT_TABLE, copy_payload};
-pub use grid::{EditValue, GridEvent, GridView, MenuTarget, SortDirection};
+pub use grid::{EditValue, GridEvent, GridRequest, GridView, MenuTarget, SortDirection};
 pub use selection::{CellAddress, CellRange, Selection};
 pub use source::{
     CellCancel, CellCommit, CellEditor, CellEditorBuilder, CellEditorContext, CellInfo, CellLabel,

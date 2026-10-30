@@ -368,6 +368,40 @@ cx.subscribe_in(&grid, window, |view, grid, event, window, cx| match event {
 
 `GridEvent` is `Clone` but not `Copy`, because `EditCommitted` and `ExpandRequested` carry a value; every other variant is four words of nothing. Every `column` in every variant is a **source** column, unaffected by hiding or by dragged widths.
 
+### Keyboard requests
+
+Three more things a host may want to hear about come from keys that meant something before the grid asked about them, so they are a second event type, `GridRequest`, and they are **off** until the host turns them on with `.key_requests(true)` (or `set_key_requests(true, cx)` later):
+
+```rust
+let grid = cx.new(|cx| GridView::new(results, cx).key_requests(true));
+cx.subscribe_in(&grid, window, |view, grid, request: &GridRequest, window, cx| {
+    match request {
+        // `Delete` (and `Backspace` on macOS) with something selected. Which
+        // cells is `grid.read(cx).selection()`; what deleting them means is
+        // yours — mark the rows, clear the values, refuse.
+        GridRequest::Delete => view.delete_selection(grid, cx),
+
+        // `F2` (`text: None`) or a printable character (`text: Some(..)`) on a
+        // cell `cell_editable` accepts.
+        GridRequest::Edit { row, column, text } => {
+            grid.update(cx, |grid, cx| match text {
+                Some(text) => grid.begin_edit_with(*row, *column, text, window, cx),
+                None => grid.begin_edit(*row, *column, window, cx),
+            });
+        }
+
+        // The paste chord with text on the clipboard and a cell under the
+        // cursor. Splitting it into rows and columns is yours.
+        GridRequest::Paste { text } => view.paste(grid, text, cx),
+    }
+})
+.detach();
+```
+
+A second `EventEmitter` rather than more `GridEvent` variants, so that a host that matches every `GridEvent` keeps compiling as it stands; a closure that matches on `GridEvent::…` still infers its event type, and one that ignores its event has to name it (`event: &GridEvent`). Off, `Delete`, `F2`, the paste chord and typing pass straight through the grid to whatever the window binds further up, exactly as before. On, a key that has nothing to act on still passes through: no selection for `Delete`, no cursor cell for paste, a cell that takes no edit for `F2` and typing, an empty clipboard. Nothing is asked while an editor is open — the keys are the field's. The grid does none of the three itself, for the reason it raises `EditCommitted` instead of writing a value.
+
+`begin_edit_with(row, column, text, window, cx)` is `begin_edit` with `text` already in the field, caret after it, so the keystroke that started the edit is its first character. The edit is still compared against the cell's own value when it closes, so the typing stages like anything else typed. A dropdown opens on its first row starting with `text`, ignoring case; a custom or external editor opens exactly as `begin_edit` opens it.
+
 ## Selection
 
 [`selection.rs`](../crates/rugpui-grid/src/selection.rs) is pure arithmetic — no window, no source, no colors. A `Selection` is a `Vec<CellRange>` plus an *anchor* (the corner a `Shift` gesture pivots around) and a *cursor* (the cell the arrow keys move). Five methods cover every gesture: `replace`, `add`, `extend_to`, `replace_rows`/`add_rows`, and `select_all`. `clamp(rows, columns)` drops any part hanging over a source that shrank.
@@ -413,6 +447,10 @@ Bound by `init` in the `GridView` key context, so the arrows and the clipboard c
 | `{mod}-A` | `SelectAll` |
 | `{mod}-C` | `CopyCells` — TSV |
 | `Enter` | `Activate`: raises `CellActivated` on the cursor cell |
+| `Delete` (and `Backspace` on macOS) | `RequestDelete`: `GridRequest::Delete` once [`key_requests`](#keyboard-requests) is on, otherwise passed through |
+| `F2` | `RequestEdit`: `GridRequest::Edit` with no text, the same way |
+| `{mod}-V` | `RequestPaste`: `GridRequest::Paste` with the clipboard's text, the same way |
+| a printable character | `GridRequest::Edit` with the character, the same way — a key-down listener, since no binding can name "any character"; `Shift` is allowed, a command modifier is not |
 
 With nothing picked yet, the first keystroke lands on the first cell rather than one step away from it.
 
