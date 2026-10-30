@@ -2,6 +2,7 @@
 
 use gpui::{App, ClickEvent, ElementId, SharedString, Window, div, prelude::*, px};
 
+use crate::scale::TextSize;
 use crate::theme::theme;
 
 /// Glyph painted inside the box while it is checked.
@@ -94,7 +95,7 @@ impl RenderOnce for Checkbox {
             .border_1()
             .border_color(gpui::transparent_black())
             .cursor_pointer()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(theme.text)
             .when_some(self.tab_index, |this, index| {
                 let accent = theme.accent;
@@ -115,7 +116,7 @@ impl RenderOnce for Checkbox {
                     .border_1()
                     .border_color(box_border)
                     .bg(box_bg)
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(glyph_color)
                     .child(if checked { CHECK_GLYPH } else { "" }),
             )

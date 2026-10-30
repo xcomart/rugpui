@@ -52,6 +52,7 @@ use gpui::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::menu::{ContextMenu, MenuEntry};
+use crate::scale::{TextSize, scaled};
 use crate::theme::theme;
 
 /// How wide the caret is drawn, and how much room a single-line field keeps
@@ -1237,7 +1238,9 @@ impl Render for TextInput {
         // either side. A multiline field keeps the same padding and grows by
         // whole rows, so a two-row field and two one-row fields stack to the
         // same height.
-        let height = rows.map_or(px(32.), |rows| px(12.) + px(20.) * rows as f32);
+        let height = rows.map_or(scaled(32., cx), |rows| {
+            px(12.) + scaled(20., cx) * rows as f32
+        });
 
         // A menu belongs to the field the right-click focused, so one that has
         // outlived the focus — a dialog dismissed from under it, a `Tab` to the
@@ -1271,8 +1274,8 @@ impl Render for TextInput {
             } else {
                 theme.surface
             })
-            .text_size(px(14.))
-            .line_height(px(20.))
+            .text_size(TextSize::Title.size(cx))
+            .line_height(scaled(20., cx))
             .cursor(if disabled {
                 CursorStyle::Arrow
             } else {

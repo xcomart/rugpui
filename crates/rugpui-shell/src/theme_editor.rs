@@ -32,6 +32,7 @@
 //! back to automatic. A required slot has neither.
 
 use rugpui::SmoothScrollExt;
+use rugpui::{TextSize, scaled};
 use std::sync::Arc;
 
 use gpui::{
@@ -411,7 +412,7 @@ impl ThemeEditor {
                     .flex_none()
                     .w(px(64.))
                     .truncate()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(chrome.text_muted)
                     .child(SharedString::from(color.map(to_hex).unwrap_or_default()))
                     .into_any_element()
@@ -451,7 +452,7 @@ impl ThemeEditor {
                     .flex_none()
                     .w(px(LABEL_WIDTH))
                     .truncate()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(if automatic {
                         chrome.text_muted
                     } else {
@@ -497,7 +498,7 @@ impl ThemeEditor {
         let chrome = theme(cx);
         div()
             .pt(px(4.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(chrome.text_muted)
             .child(label(cx, key))
     }
@@ -568,7 +569,7 @@ impl ThemeEditor {
             .or_else(|| (!valid).then(|| label(cx, "settings.editor.invalid")))
             .map(|message| {
                 div()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(chrome.danger)
                     .child(message)
             });
@@ -715,7 +716,7 @@ impl Render for ThemeEditor {
                     .pt(px(4.))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(chrome.text_muted)
                             .child(group_label),
                     )
@@ -777,7 +778,7 @@ pub(crate) fn render_ui_preview(
     name: SharedString,
     values: &[String],
     dark: bool,
-    _cx: &mut App,
+    cx: &mut App,
 ) -> AnyElement {
     let palette = ThemeFile::new("", dark, ui_colors(values)).to_theme();
 
@@ -828,7 +829,7 @@ pub(crate) fn render_ui_preview(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(TextSize::Sm.size(cx))
                         .text_color(palette.text)
                         .child(name),
                 )
@@ -854,7 +855,7 @@ pub(crate) fn render_ui_preview(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(palette.text_muted)
                         .child("Aa Bb Cc 0123"),
                 ),
@@ -868,7 +869,7 @@ pub(crate) fn render_ui_preview(
                 .rounded_sm()
                 .border_1()
                 .border_color(palette.border)
-                .text_size(px(10.))
+                .text_size(scaled(10., cx))
                 .child(
                     div()
                         .flex()

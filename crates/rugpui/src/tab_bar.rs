@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::menu::{MenuButton, MenuEntry};
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::{
     Scrollbar, ScrollbarAxis, ScrollbarState, answer_own_scrollbar, own_scrollbar,
 };
@@ -387,7 +388,7 @@ struct DragGhost {
 }
 
 impl Render for DragGhost {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .px(px(10.))
             .py(px(4.))
@@ -395,7 +396,7 @@ impl Render for DragGhost {
             .border_1()
             .border_color(self.theme.accent)
             .rounded_md()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(self.theme.text)
             .child(self.title.clone())
     }
@@ -964,6 +965,8 @@ impl RenderOnce for TabBar {
         });
 
         let tab_theme = theme.clone();
+        let tab_text = TextSize::Body.size(cx);
+        let close_text = TextSize::Sm.size(cx);
         let on_reorder_tabs = on_reorder.clone();
         let drop_gap_tabs = drop_gap.clone();
         let wheel_handle = scroll_handle.clone();
@@ -1011,7 +1014,7 @@ impl RenderOnce for TabBar {
                     } else {
                         transparent_black()
                     })
-                    .text_size(px(13.))
+                    .text_size(tab_text)
                     .text_color(if is_active {
                         theme.text
                     } else {
@@ -1193,7 +1196,7 @@ impl RenderOnce for TabBar {
                                 .justify_center()
                                 .size(px(16.))
                                 .rounded_sm()
-                                .text_size(px(12.))
+                                .text_size(close_text)
                                 // The mark on a button, not a word in the title
                                 // beside it, so it takes the icon tint.
                                 .text_color(theme.icon)
@@ -1243,7 +1246,7 @@ impl RenderOnce for TabBar {
             .flex_row()
             .items_center()
             .w_full()
-            .h(px(36.))
+            .h(scaled(36., cx))
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
@@ -1387,7 +1390,7 @@ impl RenderOnce for TabBar {
                         .size(px(28.))
                         .mx(px(4.))
                         .rounded_md()
-                        .text_size(px(16.))
+                        .text_size(scaled(16., cx))
                         // Reaches the bare "+" this button falls back to when
                         // no icon was handed in; the icon carries its own tint
                         // above, and the two have to agree.

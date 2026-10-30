@@ -7,6 +7,7 @@ use gpui::{
     ease_in_out, prelude::*, px,
 };
 
+use crate::scale::TextSize;
 use crate::theme::{Theme, lerp, theme};
 
 /// Callback fired with the value the switch is about to take.
@@ -266,7 +267,7 @@ impl RenderOnce for Switch {
             .border_1()
             .border_color(gpui::transparent_black())
             .cursor_pointer()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(theme.text)
             .when_some(self.tab_index, |this, index| {
                 let accent = theme.accent;

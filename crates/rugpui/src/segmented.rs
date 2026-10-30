@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use gpui::{App, ElementId, SharedString, Window, div, prelude::*, px, transparent_black};
 
+use crate::scale::{TextSize, scaled};
 use crate::theme::theme;
 
 /// Callback receiving the index of the segment the user picked.
@@ -114,11 +115,11 @@ impl RenderOnce for Segmented {
                     .flex_grow_1()
                     .items_center()
                     .justify_center()
-                    .h(px(24.))
+                    .h(scaled(24., cx))
                     .px(px(10.))
                     .rounded_sm()
                     .whitespace_nowrap()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .bg(if is_selected {
                         theme.surface_active
                     } else {

@@ -18,6 +18,7 @@ use gpui::{
     div, prelude::*, px,
 };
 use rugpui::{Button, ButtonVariant, modal, theme};
+use rugpui::{TextSize, scaled};
 
 use crate::inject::{identity, label, text};
 
@@ -133,13 +134,13 @@ impl Render for AboutDialog {
             .gap(px(4.))
             .child(
                 div()
-                    .text_size(px(26.))
+                    .text_size(scaled(26., cx))
                     .text_color(theme.text)
                     .child(app.name),
             )
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(theme.text_muted)
                     .child(text(cx, "about.version", &[("version", app.version)])),
             );
@@ -153,7 +154,7 @@ impl Render for AboutDialog {
             .flex()
             .flex_col()
             .gap(px(2.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(theme.text_muted)
             .child(div().child(text(cx, "about.license", &[("license", LICENSE)])))
             .child(div().child(label(cx, "about.credits")));
@@ -176,7 +177,7 @@ impl Render for AboutDialog {
             .child(heading)
             .child(
                 div()
-                    .text_size(px(13.))
+                    .text_size(TextSize::Body.size(cx))
                     .text_color(theme.text)
                     .child(label(cx, "about.tagline")),
             )

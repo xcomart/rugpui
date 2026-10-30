@@ -215,7 +215,10 @@ impl RenderOnce for CodeSnippet {
             // reader has to reassemble, and the surfaces this turns up on are
             // read at a glance.
             .whitespace_nowrap()
-            .text_size(self.text_size.unwrap_or(px(DEFAULT_TEXT_SIZE)))
+            .text_size(
+                self.text_size
+                    .unwrap_or_else(|| rugpui::scaled(DEFAULT_TEXT_SIZE, cx)),
+            )
             .text_color(palette.foreground)
             .when_some(self.font_family, |this, family| this.font_family(family))
             .when(!self.bare, |this| {

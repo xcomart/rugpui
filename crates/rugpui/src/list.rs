@@ -37,6 +37,7 @@ use gpui::{
     ScrollStrategy, UniformListScrollHandle, Window, actions, div, prelude::*, px, uniform_list,
 };
 
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
@@ -224,7 +225,7 @@ pub struct ListView<S: ListSource> {
     selected_index: Option<usize>,
     /// [`ListSource::len`] as of the last rebuild.
     len: usize,
-    row_height: Pixels,
+    row_height: Option<Pixels>,
     /// Whether the two fields above still describe the source.
     dirty: bool,
     scroll: UniformListScrollHandle,
@@ -243,7 +244,7 @@ impl<S: ListSource> ListView<S> {
             selected: None,
             selected_index: None,
             len: 0,
-            row_height: px(DEFAULT_ROW_HEIGHT),
+            row_height: None,
             dirty: true,
             scroll: UniformListScrollHandle::new(),
             bar: ScrollbarState::new(),
@@ -257,7 +258,7 @@ impl<S: ListSource> ListView<S> {
     /// [`uniform_list`] virtualizes under: a row two lines deep is a list of
     /// 44 px rows, not one row that grew.
     pub fn row_height(mut self, height: Pixels) -> Self {
-        self.row_height = height;
+        self.row_height = Some(height);
         self
     }
 
@@ -485,13 +486,16 @@ impl<S: ListSource> ListView<S> {
         };
         let content = self.source.render_item(&id, info, window, cx);
         let menu_id = id.clone();
+        let row_height = self
+            .row_height
+            .unwrap_or_else(|| scaled(DEFAULT_ROW_HEIGHT, cx));
 
         div()
             .id(ElementId::from(("list-row", ix)))
             .flex()
             .flex_row()
             .items_center()
-            .h(self.row_height)
+            .h(row_height)
             .w_full()
             .px(px(ROW_PADDING))
             .when(selected, |this| this.bg(theme.surface_active))
@@ -603,7 +607,7 @@ impl<S: ListSource> Render for ListView<S> {
             .relative()
             .size_full()
             .overflow_hidden()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(theme.text)
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))

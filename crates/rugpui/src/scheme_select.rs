@@ -25,6 +25,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::overlay;
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::{Theme, theme};
@@ -433,15 +434,15 @@ impl RenderOnce for SchemeSelect {
             .items_center()
             .gap(px(8.))
             .w_full()
-            .h(px(TRIGGER_HEIGHT))
+            .h(scaled(TRIGGER_HEIGHT, cx))
             .px(px(8.))
             .rounded_md()
             .overflow_hidden()
             .border_1()
             .border_color(theme.border)
             .bg(theme.surface)
-            .text_size(px(14.))
-            .line_height(px(20.))
+            .text_size(TextSize::Title.size(cx))
+            .line_height(scaled(20., cx))
             // Everything that answers a pointer or the keyboard hangs off this
             // one branch, so a disabled control is inert rather than merely
             // gray: nothing to hover, nothing to click, nothing to tab to.
@@ -546,6 +547,8 @@ impl RenderOnce for SchemeSelect {
             });
 
         let row_theme = theme.clone();
+        let row_height = scaled(ROW_HEIGHT, cx);
+        let row_text = TextSize::Body.size(cx);
         let rows = options
             .iter()
             .cloned()
@@ -564,11 +567,11 @@ impl RenderOnce for SchemeSelect {
                     .flex_none()
                     .items_center()
                     .gap(px(8.))
-                    .h(px(ROW_HEIGHT))
+                    .h(row_height)
                     .px(px(10.))
                     .mx(px(4.))
                     .rounded_sm()
-                    .text_size(px(13.))
+                    .text_size(row_text)
                     .text_color(if is_current { theme.accent } else { theme.text })
                     .bg(if is_current {
                         theme.surface_active

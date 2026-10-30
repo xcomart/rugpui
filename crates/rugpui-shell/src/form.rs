@@ -8,6 +8,7 @@
 //! text field into a number field.
 
 use gpui::{App, Context, Entity, IntoElement, SharedString, div, prelude::*, px};
+use rugpui::TextSize;
 use rugpui::{TextInput, theme};
 
 /// Wraps `body` in a titled card.
@@ -31,7 +32,7 @@ pub fn section<E: IntoElement>(
         .bg(chrome.surface)
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(title),
         )
@@ -42,7 +43,7 @@ pub fn section<E: IntoElement>(
 pub fn hint(words: SharedString, cx: &App) -> impl IntoElement + use<> {
     let chrome = theme(cx);
     div()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(chrome.text_muted)
         .child(words)
 }
@@ -65,7 +66,7 @@ pub fn suffixed<E: IntoElement>(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(words),
         )

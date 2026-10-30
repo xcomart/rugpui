@@ -51,6 +51,7 @@ use gpui::{
     HighlightStyle, IntoElement, KeyDownEvent, MouseButton, MouseUpEvent, Render, ScrollHandle,
     SharedString, StyledText, Window, div, prelude::*, px, relative,
 };
+use rugpui::TextSize;
 use rugpui::{
     Button, ButtonVariant, DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, SmoothScrollExt,
     Theme, hide_later, hide_now, modal, scroll_to, scrolled, theme,
@@ -544,7 +545,7 @@ impl UpdateDialog {
                 .pt(px(4.))
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(TextSize::Sm.size(cx))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.text_muted)
                         .child(heading),
@@ -590,11 +591,15 @@ impl UpdateDialog {
         let theme = theme(cx);
         let app = identity(cx);
         let column = div().flex().flex_col().gap(px(6.));
-        let line =
-            |words: SharedString| div().text_size(px(13.)).text_color(theme.text).child(words);
+        let line = |words: SharedString| {
+            div()
+                .text_size(TextSize::Body.size(cx))
+                .text_color(theme.text)
+                .child(words)
+        };
         let note = |words: SharedString| {
             div()
-                .text_size(px(12.))
+                .text_size(TextSize::Sm.size(cx))
                 .text_color(theme.text_muted)
                 .child(words)
         };

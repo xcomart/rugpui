@@ -56,6 +56,7 @@ use gpui::{
 };
 
 use crate::icons::{CARET_DOWN, CARET_RIGHT};
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::{
     DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
     scrolled,
@@ -817,7 +818,7 @@ impl<S: TreeSource> TreeView<S> {
                 .flex()
                 .flex_row()
                 .items_center()
-                .h(px(ROW_HEIGHT))
+                .h(scaled(ROW_HEIGHT, cx))
                 .w_full()
                 .pl(indent)
                 .pr(px(ROW_PADDING))
@@ -859,7 +860,7 @@ impl<S: TreeSource> TreeView<S> {
             .items_center()
             .justify_center()
             .w(px(ARROW_WIDTH))
-            .h(px(ROW_HEIGHT))
+            .h(scaled(ROW_HEIGHT, cx))
             .when(has_children, |this| {
                 let id = id.clone();
                 this.cursor_pointer()
@@ -882,7 +883,7 @@ impl<S: TreeSource> TreeView<S> {
             .flex()
             .flex_row()
             .items_center()
-            .h(px(ROW_HEIGHT))
+            .h(scaled(ROW_HEIGHT, cx))
             .w_full()
             .pl(indent)
             .pr(px(ROW_PADDING))
@@ -988,7 +989,7 @@ impl<S: TreeSource> Render for TreeView<S> {
             .relative()
             .size_full()
             .overflow_hidden()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(theme.text)
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))

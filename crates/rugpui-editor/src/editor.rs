@@ -2884,7 +2884,7 @@ impl EditorView {
             .bg(theme.surface)
             .border_t_1()
             .border_color(theme.border)
-            .text_size(px(13.))
+            .text_size(rugpui::TextSize::Body.size(cx))
             .text_color(theme.text)
             .on_action(cx.listener(Self::find_next))
             .on_action(cx.listener(Self::find_prev))

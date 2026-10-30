@@ -43,6 +43,7 @@ use gpui::{
     px,
 };
 
+use crate::scale::TextSize;
 use crate::theme::{Theme, theme};
 
 /// Horizontal padding of the label, in pixels.
@@ -115,6 +116,7 @@ struct TooltipLabel {
 impl Render for TooltipLabel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         tooltip_frame(&theme(cx))
+            .text_size(TextSize::Xs.size(cx))
             .whitespace_nowrap()
             .child(self.label.clone())
     }
@@ -179,7 +181,9 @@ struct TooltipContent {
 impl Render for TooltipContent {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = (self.build)(window, cx);
-        tooltip_frame(&theme(cx)).child(content)
+        tooltip_frame(&theme(cx))
+            .text_size(TextSize::Xs.size(cx))
+            .child(content)
     }
 }
 
@@ -512,6 +516,7 @@ mod tests {
         fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let seen = self.seen.clone();
             tooltip_frame(&theme(cx))
+                .text_size(TextSize::Xs.size(cx))
                 .relative()
                 .w(self.size.width)
                 .h(self.size.height)

@@ -377,4 +377,38 @@ mod tests {
         // old one.
         assert_eq!(whole.size.width, px(120.));
     }
+
+    struct Sized {
+        frame: ScrollHandle,
+    }
+
+    impl Render for Sized {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().flex().items_start().child(
+                div()
+                    .id("frame")
+                    .track_scroll(&self.frame)
+                    .child(Button::new("b", "OK")),
+            )
+        }
+    }
+
+    /// The button's height follows the UI scale, and is the old 30 px without
+    /// one.
+    #[gpui::test]
+    fn the_height_follows_the_ui_scale(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, _| Sized {
+            frame: ScrollHandle::new(),
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        for (scale, height) in [(1.0, 30.), (1.5, 45.)] {
+            cx.update(|_, cx| crate::set_ui_scale(scale, cx));
+            cx.run_until_parked();
+            let frame = window
+                .update(&mut cx, |sized, _, _| sized.frame.bounds())
+                .unwrap();
+            assert_eq!(frame.size.height, px(height), "at {scale}");
+        }
+    }
 }
