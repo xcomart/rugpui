@@ -82,8 +82,8 @@ inside a render pass, would take the window down over a missing line of text. A
 
 | Key | Where it is shown | Markers |
 |---|---|---|
-| `common.close` | About dialog, update dialog | |
-| `common.cancel` | Update dialog, delete confirmation, theme editor | |
+| `common.close` | About dialog, update dialog, a toast's close button | |
+| `common.cancel` | Update dialog, delete confirmation, theme editor, `UnsavedWorkDialog` | |
 | `common.save` | Theme editor | |
 | `about.title` | About dialog heading | |
 | `about.version` | Under the wordmark | `version` |
@@ -124,6 +124,11 @@ inside a render pass, would take the window down over a missing line of text. A
 | `settings.manage.import_bad_color` | `ImportError::BadColor` | `file`, `slot` |
 | `settings.manage.import_not_a_theme` | `ImportError::WrongKind`, chrome catalog | `file` |
 | `settings.manage.import_not_an_editor_theme` | `ImportError::WrongKind`, editor catalog | `file` |
+| `close_guard.title_window` `close_guard.title_quit` `close_guard.title_restart` | `UnsavedWorkDialog` title, per `CloseIntent` | |
+| `close_guard.message` | The line above the list of what would be lost | |
+| `close_guard.more` | Under a list cut short at eight | `count` |
+| `close_guard.close_anyway` `close_guard.quit_anyway` `close_guard.restart_anyway` | The button that goes on, per `CloseIntent` | |
+| `close_guard.save_all` | The Save all button, when offered | |
 
 `locale::check_locale_dir` (below) is what keeps a translation from silently
 losing one of these.
@@ -330,6 +335,76 @@ hazard: gpui resolves actions against the focused element of the last drawn
 frame, so reclaim the keyboard around every call that changes what `active()`
 returns. The scroll handle is per pane rather than per window, because two panes
 side by side each scroll their own strip.
+
+## Closing, quitting and restarting
+
+Four gestures end what a window holds: the caption's close button, the
+platform's own close (the title bar it draws, Alt+F4, the window menu, the
+dock), Quit, and the restart after an update. [`close_guard`](../crates/rugpui-shell/src/close_guard.rs)
+is the one path they share, so an application can ask before work is lost.
+
+| Gesture | Goes through |
+|---|---|
+| Caption close button | `request_close(window, cx)`. The strips `window_control_strips` builds already call it; a host building `WindowControls` itself adds `.on_close(rugpui_shell::request_close)`. On Windows the press goes to the window procedure instead, and so through the platform close below. |
+| Platform close | The guard itself: `set_close_guard` registers it with `on_window_should_close`. |
+| Quit | `request_quit(cx)` from the `Quit` action: `cx.on_action(\|_: &Quit, cx\| rugpui_shell::request_quit(cx))`. Every window's guard is asked, the active one first. |
+| Update restart | `request_restart(window, cx)` on `UpdateDialogEvent::Installed`, in place of `set_restart_path` + `cx.restart()`. |
+
+A guard is `Fn(CloseIntent, &mut Window, &mut App) -> bool`: `true` lets the
+gesture through now, `false` holds it and makes the guard responsible for
+asking — and, once the user says go on, for calling `proceed(intent, window, cx)`,
+which performs it without asking again (and sets the restart path for
+`Restart`). A window without a guard closes, quits and restarts as before.
+`request_close`, `request_quit` and `request_restart` are deferred, so they can
+be called from inside a view's own listener.
+
+`CloseGuard` is the guard most applications want. It asks a function for what
+the intent would lose, one line per item, lets the gesture through when the
+list is empty, and otherwise renders `UnsavedWorkDialog` — Cancel (focused, and
+what `Enter`, `Escape` and the backdrop answer), "… anyway", and Save all when
+the application offers one through `with_save_all`:
+
+```rust
+let workspace = cx.weak_entity();
+let guard = cx.new(|cx| {
+    CloseGuard::new(window, cx, move |_intent, _window, cx| {
+        workspace
+            .read_with(cx, |this, cx| this.unsaved_work(cx))
+            .unwrap_or_default()
+    })
+    // Optional: resolves to true when everything was saved.
+    .with_save_all(|window, cx| save_everything(window, cx))
+});
+// Last child of the root, after every other overlay:
+root.child(self.close_guard.clone())
+```
+
+An application with a question flow of its own — one tab at a time, say — calls
+`set_close_guard` with its own function instead, and can still draw
+`UnsavedWorkDialog` with `on_choice` for the final question.
+
+## Toasts
+
+[`toast`](../crates/rugpui-shell/src/toast.rs) is a corner of the window for
+news that does not deserve a dialog. `show_toast(Toast::info(text), cx)` queues
+one from anywhere with an `App` — the queue is a global — and `toast_stack()`
+draws it, stacked up from the bottom-right corner; render it as the last child
+of the window's `relative()` root, after the dialogs, and give it
+`.bottom_inset(px(..))` to clear a status bar.
+
+| Level | Stripe | Stays |
+|---|---|---|
+| `Toast::info` | `accent` | 4 s (`INFO_DURATION`) |
+| `Toast::warning` | the editor theme's `warning` | 8 s (`WARNING_DURATION`) |
+| `Toast::error` | `danger` | until closed |
+
+`.title(..)` adds a bold first line, `.duration(Some(d))` / `.duration(None)`
+overrides how long it stays, and `.in_window(handle)` shows it in one window
+only. `show_toast` returns a `ToastId` for `dismiss_toast`; `clear_toasts` takes
+them all down and `shown_toasts` lists them, which is what an application's test
+asks. At most five are on screen: past that the oldest that would leave anyway
+goes first, so news never pushes a failure out. The close button's tooltip is
+`common.close`; every other word is the application's own message.
 
 ## Menus as rows
 

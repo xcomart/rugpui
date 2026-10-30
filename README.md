@@ -310,7 +310,8 @@ ignoring client-side decorations, X11 having no counterpart to Wayland's
 `NSVisualEffectView` Liquid Glass rebuilt — as well as content clip regions for
 rounded window corners, modal focus traps and default Tab traversal, macOS
 *Services* requests (`on_service_request`), relaunching an updated macOS bundle,
-and the order native scrolling and wheel handlers run in. The root
+an open-file prompt that starts in a folder (`App::prompt_for_paths_in`), and
+the order native scrolling and wheel handlers run in. The root
 [`Cargo.toml`](Cargo.toml) tells the whole story, hunk by hunk.
 
 `vendor/unicode-width` is there for a different reason: nothing in this

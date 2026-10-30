@@ -32,12 +32,13 @@ it can do, and is unrelated to `rugpui::WindowControls`, the element.
 
 ## Builder options
 
-`WindowControls` has one constructor and a single builder method — everything
+`WindowControls` has one constructor and two builder methods — everything
 else it draws was decided before it was built.
 
 | method | argument | effect |
 | --- | --- | --- |
 | `WindowControls::new` | `id: impl Into<ElementId>`, `icons: WindowControlIcons`, `buttons: Vec<WindowButton>` | Creates the strip. `id` must be unique among its siblings and — because a title bar can carry a strip at each end — among the strips themselves. |
+| `on_close` | `Fn(&mut Window, &mut App)` | Runs the handler when the close button is clicked, *instead of* removing the window. The hook a close guard hangs off: `rugpui_shell::request_close` is the handler, and the strips `window_control_strips` builds carry it. Unset, the button removes the window at once, as it always did. On Windows the press goes to the window procedure and reaches the application as the platform's close (`on_window_should_close`) instead. |
 | `with_active` | `active: bool` | Tints the glyphs by the window's active state instead of the resting `icon`: `text` while active, `text_muted` while inactive. Unset, the glyphs stay `icon`. For a custom Linux title bar whose inactive window should quieten its glyphs. |
 
 ## Minimal example
