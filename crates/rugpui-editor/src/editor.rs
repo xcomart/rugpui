@@ -526,6 +526,18 @@ pub fn init(cx: &mut App) {
             ShowCharacterPalette,
             editor,
         ));
+        // Find Next and Find Previous are `Cmd+G` and `Cmd+Shift+G` in every
+        // Mac application with a find bar, and a Mac keyboard has no F3 that
+        // does not first want `fn` held down. Beside F3 rather than instead of
+        // it, so a keyboard that does have one keeps working, and in both
+        // contexts for the same reason the F3 pair is: the bar is driven from
+        // inside itself.
+        bindings.extend([
+            KeyBinding::new("cmd-g", FindNext, editor),
+            KeyBinding::new("cmd-shift-g", FindPrev, editor),
+            KeyBinding::new("cmd-g", FindNext, find),
+            KeyBinding::new("cmd-shift-g", FindPrev, find),
+        ]);
     }
 
     cx.bind_keys(bindings);

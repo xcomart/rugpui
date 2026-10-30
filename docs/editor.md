@@ -248,7 +248,7 @@ is `alt` on macOS and `ctrl` elsewhere.
 | `Undo` / `Redo` | `mod-z` / `mod-shift-z` and `mod-y` | Editor |
 | `RunStatement` / `RunAll` / `RunSelection` | `mod-enter` / `mod-shift-enter` / `mod-alt-enter` | Editor |
 | `Find` / `Replace` | `mod-f` / `mod-h` | Editor **and** EditorFind |
-| `FindNext` / `FindPrev` | `f3` / `shift-f3` | Editor **and** EditorFind |
+| `FindNext` / `FindPrev` | `f3` / `shift-f3`, and on macOS also `cmd-g` / `cmd-shift-g` | Editor **and** EditorFind |
 | `CloseFind` | `escape` | Editor **and** EditorFind |
 | `ReplaceAll` | `mod-alt-enter` | EditorFind |
 | `ReplaceNext` | none by default | Editor (handler only) |
@@ -258,6 +258,12 @@ is `alt` on macOS and `ctrl` elsewhere.
 bar, so a host driving the search itself need not open the bar to use them. The
 editing actions are only installed when the editor is not read-only; the
 navigation, copy, find and run actions always are.
+
+`FindNext` and `FindPrev` take the key whether or not there is anything to find:
+with no query they simply do nothing. On macOS that means `Cmd+G` pressed in an
+editor never reaches a host binding of the same chord at a wider context — move
+such a command to another chord, or rebind `cmd-g` in the `Editor` context after
+`init` if the host really wants it back.
 
 To rebind, add your own `KeyBinding`s in the host's init **after**
 `rugpui_editor::init(cx)` — gpui matches the last binding registered for a
