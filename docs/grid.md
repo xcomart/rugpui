@@ -603,6 +603,10 @@ fn render_menu(&self, cx: &mut Context<Self>) -> Option<ContextMenu> {
 
 The host keeps the open/closed state — the `Option<(MenuTarget, Point<Pixels>)>` above — exactly as it does for every other stateless widget in the kit.
 
+## Size
+
+The grid draws its text at `rugpui::TextSize::Body` — 13 px — and follows the UI scale an application sets with `rugpui::set_ui_scale`: the text, the row height (24 px), the header band (26 px), the row-number gutter (56 px), the inline editor and its expand button, the sort marker and the ceiling a fitted column stops at are all multiplied by it. Paddings, borders and the widths of columns that were never fitted or were dragged are not. At the default scale of `1.0` every one of those is the pixel value it always was. A change of scale is picked up by the next draw, which measures every *fitted* column again at the new text size — a column fitted to 13 px text would otherwise be an ellipsis at 19.5 — and leaves a dragged one where the user put it. `CellInfo::height` is the scaled row height, so a cell the source draws itself grows with the rest.
+
 ## Theme slots
 
 See [theming](./theming.md) for the palette as a whole. The grid draws with five slots of its own and five general ones:

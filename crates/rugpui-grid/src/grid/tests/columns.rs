@@ -575,3 +575,29 @@ fn the_wheel_scrolls_the_columns_sideways_without_scrolling_the_rows(cx: &mut Te
         "a sideways wheel scrolled the rows too"
     );
 }
+
+/// The grid's rows, header and text follow the UI scale, and the pointer
+/// arithmetic follows with them.
+#[gpui::test]
+fn the_rows_follow_the_ui_scale(cx: &mut TestAppContext) {
+    let (grid, mut cx) = open(Huge::new(50, 3, Rc::default()), cx);
+    assert_eq!(
+        grid.read(&mut cx, |grid| grid.scaled(ROW_HEIGHT)),
+        ROW_HEIGHT
+    );
+
+    cx.update(|_, cx| rugpui::set_ui_scale(1.5, cx));
+    cx.run_until_parked();
+    assert_eq!(grid.read(&mut cx, |grid| grid.scaled(ROW_HEIGHT)), 36.);
+
+    // The middle of row 3 at the new size: under the 39 px header, three
+    // 36 px rows down and half of the fourth; and halfway into the first
+    // column, past an 84 px gutter.
+    let y = 26. * 1.5 + 3. * 36. + 18.;
+    let x = 56. * 1.5 + DEFAULT_COLUMN_WIDTH / 2.;
+    click_at(&mut cx, x, y, Modifiers::none(), 1);
+    assert_eq!(
+        grid.read(&mut cx, |grid| grid.selection().cursor()),
+        Some(CellAddress::new(3, 0))
+    );
+}

@@ -298,15 +298,16 @@ impl<S: GridSource> GridView<S> {
             return None;
         }
 
-        let row = (content_y / ROW_HEIGHT) as usize;
+        let row = (content_y / self.scaled(ROW_HEIGHT)) as usize;
         if row >= self.source.row_count() {
             return None;
         }
-        if local_x < GUTTER_WIDTH {
+        let gutter = self.scaled(GUTTER_WIDTH);
+        if local_x < gutter {
             return Some(Hit::Gutter(row));
         }
 
-        let x = local_x - GUTTER_WIDTH + self.h_offset;
+        let x = local_x - gutter + self.h_offset;
         let display = self
             .laid_out
             .partition_point(|placed| placed.x + self.column_width(placed.column) <= x);
@@ -475,7 +476,7 @@ impl<S: GridSource> GridView<S> {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(ROW_HEIGHT));
+        let delta = event.delta.pixel_delta(px(self.scaled(ROW_HEIGHT)));
         // A plain mouse has no sideways wheel, so `Shift` folds the vertical one
         // onto the horizontal axis — the convention every other scrolling
         // surface uses.
@@ -513,12 +514,10 @@ impl<S: GridSource> GridView<S> {
     /// content area, which is the body less the gutter.
     pub(super) fn horizontal_bar(&self) -> Scrollbar {
         let body = self.base_handle().bounds();
+        let gutter = px(self.scaled(GUTTER_WIDTH));
         let track = Bounds::new(
-            body.origin + point(px(GUTTER_WIDTH), px(0.)),
-            size(
-                (body.size.width - px(GUTTER_WIDTH)).max(px(0.)),
-                body.size.height,
-            ),
+            body.origin + point(gutter, px(0.)),
+            size((body.size.width - gutter).max(px(0.)), body.size.height),
         );
         Scrollbar::new(
             self.h_bar_id.clone(),
@@ -572,7 +571,7 @@ impl<S: GridSource> GridView<S> {
             .flex()
             .flex_row()
             .flex_none()
-            .h(px(HEADER_HEIGHT))
+            .h(px(self.scaled(HEADER_HEIGHT)))
             .w_full()
             .bg(theme.grid_header)
             .border_b_1()
@@ -581,7 +580,7 @@ impl<S: GridSource> GridView<S> {
                 div()
                     .id("grid-corner")
                     .flex_none()
-                    .w(px(GUTTER_WIDTH))
+                    .w(px(self.scaled(GUTTER_WIDTH)))
                     .h_full()
                     .border_r_1()
                     .border_color(theme.border)

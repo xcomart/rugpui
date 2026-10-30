@@ -226,9 +226,16 @@ const KEY_CONTEXT: &str = "GridView";
 const EDITOR_KEY_CONTEXT: &str = "GridCellEditor";
 
 /// Height of one body row, and therefore the unit [`uniform_list`] measures in.
+///
+/// At the default UI scale. This and the other sizes that hold text — the
+/// header band, the gutter, the text itself, the inline editor — are multiplied
+/// by [`rugpui::ui_scale`] wherever they are used, through
+/// [`GridView::scaled`], so that an application's interface size reaches the
+/// rows as well as the fields; everything else here is the frame around the
+/// text and stays as it is written.
 const ROW_HEIGHT: f32 = 24.;
 
-/// Height of the column header band.
+/// Height of the column header band, at the default UI scale.
 const HEADER_HEIGHT: f32 = 26.;
 
 /// Width of the row-number gutter down the left-hand edge.
@@ -252,8 +259,10 @@ const CELL_BORDER: f32 = 1.;
 ///
 /// A constant rather than a number in `render` because fitting a column has to
 /// shape at exactly the size the cells are drawn at: measured at any other size
-/// the answer is a fit to a table nobody is looking at.
-const TEXT_SIZE: f32 = 13.;
+/// the answer is a fit to a table nobody is looking at. It is
+/// [`rugpui::TextSize::Body`], and like the row height it is scaled where it is
+/// used.
+const TEXT_SIZE: f32 = rugpui::TextSize::Body.base();
 
 /// Width a column is given before it has been fitted or dragged.
 ///
@@ -814,6 +823,13 @@ pub struct GridView<S: GridSource> {
     h_bar: ScrollbarState,
     v_bar_id: ElementId,
     h_bar_id: ElementId,
+    /// The UI scale the last frame was drawn at — see [`GridView::scaled`].
+    ///
+    /// Read off the global at the top of every draw and kept here rather than
+    /// looked up where it is used, because the arithmetic that turns a pointer
+    /// into a row runs in event handlers that have no business disagreeing
+    /// with the frame the pointer is looking at.
+    scale: f32,
 }
 
 impl<S: GridSource> GridView<S> {
@@ -844,6 +860,7 @@ impl<S: GridSource> GridView<S> {
             h_bar: ScrollbarState::new(),
             v_bar_id: ElementId::from(("rugpui-grid-vbar", cx.entity_id())),
             h_bar_id: ElementId::from(("rugpui-grid-hbar", cx.entity_id())),
+            scale: rugpui::ui_scale(cx),
         };
         grid.ensure_layout();
         grid
@@ -877,6 +894,16 @@ impl<S: GridSource> GridView<S> {
     pub fn tab_index(mut self, index: isize) -> Self {
         self.focus_handle = self.focus_handle.clone().tab_index(index).tab_stop(true);
         self
+    }
+
+    /// `value` pixels at the UI scale the grid is drawn at.
+    ///
+    /// The one conversion every height that holds text goes through, so that
+    /// the row the pointer arithmetic finds and the row the list draws can
+    /// never be measured at two different sizes. Exactly `value` at the
+    /// default scale.
+    pub(crate) fn scaled(&self, value: f32) -> f32 {
+        value * self.scale
     }
 
     /// Sets the table name written into a copied `INSERT`.

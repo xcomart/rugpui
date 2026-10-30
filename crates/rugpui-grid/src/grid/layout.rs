@@ -322,13 +322,19 @@ impl<S: GridSource> GridView<S> {
         // shove every column after it along, and the user has just clicked on
         // one of them.
         let name = self.source.column(column).name;
-        let mut widest = shaped_width(name, font, px(TEXT_SIZE), window)
+        let text_size = px(self.scaled(TEXT_SIZE));
+        let mut widest = shaped_width(name, font, text_size, window)
             + HEADING_GAP
-            + shaped_width(SORT_ASCENDING, font, px(SORT_MARKER_SIZE), window);
+            + shaped_width(
+                SORT_ASCENDING,
+                font,
+                px(self.scaled(SORT_MARKER_SIZE)),
+                window,
+            );
 
         for row in self.candidate_rows(column, rows) {
             let label = cell_label(&self.source.cell(row, column));
-            widest = widest.max(shaped_width(&label.text, font, px(TEXT_SIZE), window));
+            widest = widest.max(shaped_width(&label.text, font, text_size, window));
         }
 
         // Rounded up, and up rather than to the nearest, for the same reason the
@@ -337,7 +343,7 @@ impl<S: GridSource> GridView<S> {
         // short of the box it was measured for.
         (widest + CELL_PADDING * 2. + CELL_BORDER)
             .ceil()
-            .clamp(MIN_COLUMN_WIDTH, MAX_AUTOFIT_WIDTH)
+            .clamp(MIN_COLUMN_WIDTH, self.scaled(MAX_AUTOFIT_WIDTH))
     }
 
     /// The sampled rows whose value in `column` is worth shaping: everything
@@ -468,7 +474,7 @@ impl<S: GridSource> GridView<S> {
     /// when the width changed, because the header was drawn against the old one
     /// — see the module docs.
     pub(super) fn measured(&mut self, area: Size<Pixels>, cx: &mut Context<Self>) {
-        let width = (f32::from(area.width) - GUTTER_WIDTH).max(0.);
+        let width = (f32::from(area.width) - self.scaled(GUTTER_WIDTH)).max(0.);
         if (width - self.viewport_width).abs() < 0.5 {
             return;
         }
@@ -525,8 +531,9 @@ impl<S: GridSource> GridView<S> {
         if height <= 0. {
             return true;
         }
-        let top = row as f32 * ROW_HEIGHT + f32::from(self.base_handle().offset().y);
-        top + ROW_HEIGHT > 0. && top < height
+        let row_height = self.scaled(ROW_HEIGHT);
+        let top = row as f32 * row_height + f32::from(self.base_handle().offset().y);
+        top + row_height > 0. && top < height
     }
 
     /// `row` and `column` as a cell, or `None` when there is no such cell.
@@ -553,6 +560,24 @@ impl<S: GridSource> GridView<S> {
             self.h_offset = right - self.viewport_width;
         }
         self.clamp_h_offset();
+    }
+
+    /// Takes up a new UI scale, from the draw that noticed it.
+    ///
+    /// Every height and the text size follow on their own, since they are all
+    /// read through [`GridView::scaled`]. The widths the grid fitted do not:
+    /// they were measured at the old text size, and a column fitted to 13 px
+    /// text is an ellipsis at 19.5. So the fitted ones are measured again —
+    /// allowed to narrow as well as widen, since the whole table is changing
+    /// size at once rather than one page sliding under the pointer. A width
+    /// the user dragged, or one never fitted, is left where it is.
+    pub(super) fn rescale(&mut self, scale: f32) {
+        self.scale = scale;
+        for state in &mut self.columns {
+            if state.sizing == Sizing::Fitted {
+                state.fit = true;
+            }
+        }
     }
 
     /// How many rows a page key moves by.
