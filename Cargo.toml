@@ -97,6 +97,19 @@ exclude = [
 #     half itself: the provider has to be registered on `NSApplication` before
 #     the run loop starts, which is inside `Platform::run`. The core carries a
 #     defaulted trait method so the other three backends stay untouched.
+#   * `gpui/src/platform.rs`, `gpui/src/app.rs`, `gpui_linux/src/linux/platform.rs`,
+#     `gpui_macos/src/platform.rs` and `gpui_windows/src/platform.rs` —
+#     `App::prompt_for_paths_in`, an open-file prompt that starts in a folder
+#     the application names. Upstream gives a save prompt a starting folder and
+#     an open prompt none, so "add a template" opened wherever the platform
+#     last was rather than in the folder the templates live in. A method beside
+#     `prompt_for_paths` rather than a field of `PathPromptOptions`, because a
+#     field would break every struct literal of it in the applications; it is a
+#     defaulted `Platform` method, which the test platforms leave alone, and
+#     each backend's `prompt_for_paths` becomes that method with no folder.
+#     The folder is set exactly the way each backend's own save prompt sets
+#     one: the portal's `current_folder`, the panel's `directoryURL`, the
+#     dialog's `SetFolder`.
 #   * `gpui_macos/src/window.rs` — on macOS 26 (Tahoe) Liquid Glass rebuilt the
 #     private layer tree underneath `NSVisualEffectView`, and the sublayers
 #     gpui strips the material's tint from are no longer the ones drawing it, so

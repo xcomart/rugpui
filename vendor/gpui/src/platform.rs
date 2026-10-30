@@ -494,6 +494,20 @@ pub trait Platform: 'static {
         &self,
         options: PathPromptOptions,
     ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>>;
+    /// RULOGMAN PATCH: an open-file prompt that starts in `directory`, the
+    /// way [`Platform::prompt_for_new_path`] already starts a save prompt in
+    /// one. A method beside `prompt_for_paths` rather than a field of
+    /// [`PathPromptOptions`], so that no struct literal of it has to change.
+    /// Defaulted to the prompt without a folder, so a backend that cannot
+    /// say where to start — the test platforms — needs nothing.
+    fn prompt_for_paths_in(
+        &self,
+        options: PathPromptOptions,
+        directory: Option<&Path>,
+    ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+        let _ = directory;
+        self.prompt_for_paths(options)
+    }
     fn prompt_for_new_path(
         &self,
         directory: &Path,
