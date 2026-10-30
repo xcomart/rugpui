@@ -467,6 +467,10 @@ impl TextInput {
     }
 
     /// Sets the callback invoked when the user presses `Enter`.
+    ///
+    /// A one-line field without one passes `Enter` on to whatever is around
+    /// it — a [`crate::modal`] with an `on_confirm` takes it as its default
+    /// action. A multi-line field takes the key as a line break either way.
     pub fn on_submit(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
         self.on_submit = Some(Rc::new(handler));
         self
@@ -655,10 +659,14 @@ impl TextInput {
             self.replace_text_in_range(None, "\n", window, cx);
             return;
         }
-        if let Some(handler) = self.on_submit.clone() {
-            let content = self.content.clone();
-            handler(&content, window, cx);
-        }
+        // A field nobody listens to passes `Enter` on, so that the dialog
+        // around it can take the key as its default action.
+        let Some(handler) = self.on_submit.clone() else {
+            cx.propagate();
+            return;
+        };
+        let content = self.content.clone();
+        handler(&content, window, cx);
     }
 
     fn show_character_palette(

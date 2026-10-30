@@ -94,7 +94,7 @@ pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
 pub use icons::{CARET_DOWN, CARET_RIGHT, EXPAND, ICONS};
 pub use list::{ListEvent, ListRowInfo, ListSource, ListView};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
-pub use modal::{form_row, modal};
+pub use modal::{DismissReason, FocusReturn, FormRow, Modal, fit_label_width, form_row, modal};
 pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
 pub use resize_handle::ResizeHandle;
@@ -134,6 +134,7 @@ use gpui::App;
 /// the window looks like still has an answer, and it is the one that paints.
 pub fn init(cx: &mut App) {
     select_keyboard::init(cx);
+    modal::init(cx);
     ThemeRegistry::init(cx);
     EditorThemeRegistry::init(cx);
     set_theme(Theme::dark(), cx);

@@ -1,8 +1,16 @@
 //! A stateless push button.
 
-use gpui::{App, ClickEvent, ElementId, Hsla, SharedString, Window, div, prelude::*, px};
+use std::cell::Cell;
+use std::rc::Rc;
 
+use gpui::{
+    App, ClickEvent, ElementId, FocusHandle, Hsla, SharedString, TextRun, Window, div, prelude::*,
+    px,
+};
+
+use crate::scale::{TextSize, scaled};
 use crate::theme::{shift_lightness, theme};
+use crate::tooltip::tooltip_label;
 
 /// Visual weight of a [`Button`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -48,6 +56,8 @@ pub struct Button {
     full_width: bool,
     compact: bool,
     tab_index: Option<isize>,
+    focus_handle: Option<FocusHandle>,
+    truncate: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -64,6 +74,8 @@ impl Button {
             full_width: false,
             compact: false,
             tab_index: Some(0),
+            focus_handle: None,
+            truncate: false,
             on_click: None,
         }
     }
@@ -99,6 +111,30 @@ impl Button {
     /// skipped, mirroring how the platform treats a disabled control.
     pub fn tab_index(mut self, index: isize) -> Self {
         self.tab_index = Some(index);
+        self
+    }
+
+    /// Tracks the button's focus with `handle`, the owner's.
+    ///
+    /// What lets a dialog focus one particular button as it opens —
+    /// [`crate::Modal::initial_focus`] with the same handle — and lets the
+    /// owner ask whether it has the focus. The button stays in the tab order at
+    /// its [`Button::tab_index`]; a disabled one is still skipped.
+    pub fn focus_handle(mut self, handle: &FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+
+    /// Lets the button shrink below its label, cutting the label off with an
+    /// ellipsis and showing the whole of it as a tooltip while it is cut.
+    ///
+    /// Off by default, when the button is as wide as its label and never
+    /// narrower. For a button in a column of fixed width whose label is data —
+    /// a profile name and its host — rather than a command: the alternative is
+    /// a label that runs out of the button. The tooltip only appears while the
+    /// label is actually cut, so a label that fits says nothing twice.
+    pub fn truncate(mut self, truncate: bool) -> Self {
+        self.truncate = truncate;
         self
     }
 
@@ -147,8 +183,14 @@ fn colors_for(variant: ButtonVariant, cx: &App) -> ButtonColors {
     }
 }
 
+/// Whether a [`Button::truncate`] button's label was cut off when it was last
+/// laid out. Element state, measured at prepaint and read by the next render,
+/// which is the first that can decide whether there is a tooltip.
+#[derive(Default)]
+struct Truncation(Rc<Cell<bool>>);
+
 impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let accent = theme(cx).accent;
         let colors = colors_for(self.variant, cx);
         let disabled = self.disabled;
@@ -166,21 +208,39 @@ impl RenderOnce for Button {
         };
 
         let (height, pad_x, text) = if self.compact {
-            (20., 8., 11.)
+            (20., 8., TextSize::Xs)
         } else {
-            (30., 12., 13.)
+            (30., 12., TextSize::Body)
         };
+        let text = text.size(cx);
+
+        // Only a truncating button keeps anything between frames; every other
+        // button stays the stateless element it always was.
+        let truncation = self.truncate.then(|| {
+            window
+                .use_keyed_state((self.id.clone(), "truncation"), cx, |_, _| {
+                    Truncation::default()
+                })
+                .read(cx)
+                .0
+                .clone()
+        });
+        let truncated = truncation.as_ref().is_some_and(|cut| cut.get());
+        let label = self.label.clone();
 
         div()
             .id(self.id)
             .flex()
-            .flex_none()
+            .when(!self.truncate, |this| this.flex_none())
+            .when(self.truncate, |this| {
+                this.flex_shrink(1.).min_w_0().overflow_hidden()
+            })
             .items_center()
             .justify_center()
-            .h(px(height))
+            .h(scaled(height, cx))
             .px(px(pad_x))
             .rounded_md()
-            .text_size(px(text))
+            .text_size(text)
             .whitespace_nowrap()
             .bg(if disabled {
                 colors.background.opacity(0.5)
@@ -190,6 +250,9 @@ impl RenderOnce for Button {
             .text_color(label_color)
             .border_1()
             .border_color(border)
+            .when_some(self.focus_handle.filter(|_| !disabled), |this, handle| {
+                this.track_focus(&handle)
+            })
             .when_some(self.tab_index.filter(|_| !disabled), |this, index| {
                 this.tab_index(index)
                     .focus(move |style| style.border_color(accent))
@@ -203,6 +266,115 @@ impl RenderOnce for Button {
             .when_some(self.on_click.filter(|_| !disabled), |this, handler| {
                 this.on_click(move |event, window, cx| handler(event, window, cx))
             })
-            .child(self.label)
+            .when(truncated, |this| this.tooltip(tooltip_label(label.clone())))
+            .map(|this| match truncation {
+                None => this.child(self.label),
+                Some(cut) => this.child(
+                    div()
+                        .flex()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .child(div().min_w_0().text_ellipsis().child(self.label))
+                        // Measured where the inherited font is known: the
+                        // label's own width against the box it was given.
+                        .on_children_prepainted(move |bounds, window, _cx| {
+                            let Some(given) = bounds.first() else {
+                                return;
+                            };
+                            let font = window.text_style().font();
+                            let run = TextRun {
+                                len: label.len(),
+                                font,
+                                color: Hsla::default(),
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            };
+                            let wanted = window
+                                .text_system()
+                                .shape_line(label.clone(), text, &[run], None)
+                                .width;
+                            let now = wanted > given.size.width + px(0.5);
+                            if now != cut.get() {
+                                cut.set(now);
+                                window.refresh();
+                            }
+                        }),
+                ),
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use gpui::{Context, Render, ScrollHandle, TestAppContext, VisualTestContext, div, px};
+
+    use super::*;
+
+    const LONG: &str = "production-reporting · reporting@db-replica-3.internal:5432";
+
+    /// Two buttons with the same long label in a column too narrow for it.
+    struct Column {
+        cut: ScrollHandle,
+        whole: ScrollHandle,
+        clicks: Rc<Cell<usize>>,
+    }
+
+    impl Render for Column {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let clicks = self.clicks.clone();
+            div()
+                .flex()
+                .flex_col()
+                .w(px(120.))
+                .child(
+                    div().id("cut").track_scroll(&self.cut).flex().child(
+                        Button::new("truncating", LONG)
+                            .truncate(true)
+                            .on_click(move |_, _, _| clicks.set(clicks.get() + 1)),
+                    ),
+                )
+                .child(
+                    div()
+                        .id("whole")
+                        .track_scroll(&self.whole)
+                        .flex()
+                        .child(Button::new("plain", LONG)),
+                )
+        }
+    }
+
+    /// A truncating button stays inside its column and still clicks; a plain
+    /// one keeps the width of its label, as it always did.
+    #[gpui::test]
+    fn a_truncating_button_fits_its_column(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let clicks = Rc::new(Cell::new(0));
+        let window = cx.add_window({
+            let clicks = clicks.clone();
+            move |_, _| Column {
+                cut: ScrollHandle::new(),
+                whole: ScrollHandle::new(),
+                clicks,
+            }
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        let (cut, whole) = window
+            .update(&mut cx, |column, _, _| {
+                (column.cut.bounds(), column.whole.bounds())
+            })
+            .unwrap();
+        assert!(cut.size.width <= px(120.), "{:?}", cut.size.width);
+        let inside = cut.center();
+        cx.simulate_click(inside, gpui::Modifiers::none());
+        assert_eq!(clicks.get(), 1);
+        // The plain button's row is the column's width, but the button in it
+        // overflows to the width of its label; the tooltip-less layout is the
+        // old one.
+        assert_eq!(whole.size.width, px(120.));
     }
 }
