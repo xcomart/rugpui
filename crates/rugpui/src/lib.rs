@@ -62,6 +62,7 @@ mod overlay;
 pub mod progress;
 pub mod range_slider;
 pub mod resize_handle;
+pub mod scale;
 pub mod scheme_select;
 pub mod scroll;
 pub mod scrollbar;
@@ -97,6 +98,7 @@ pub use modal::{form_row, modal};
 pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
 pub use resize_handle::ResizeHandle;
+pub use scale::{TextSize, scaled, set_ui_scale, ui_scale};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scroll::SmoothScrollExt;
 pub use scrollbar::{
