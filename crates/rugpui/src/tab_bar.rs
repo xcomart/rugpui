@@ -603,9 +603,11 @@ impl TabBar {
         self
     }
 
-    /// Called with the index of the tab whose close button was clicked.
+    /// Called with the index of the tab whose close button was clicked, or
+    /// that was clicked with the middle button.
     ///
-    /// Setting this handler is what makes the close buttons appear.
+    /// Setting this handler is what makes the close buttons appear. A tab that
+    /// is not [`TabItem::closable`] answers neither gesture.
     pub fn on_close(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
@@ -1025,6 +1027,19 @@ impl RenderOnce for TabBar {
                     })
                     .when_some(on_select.clone(), |this, handler| {
                         this.on_click(move |_, window, cx| handler(index, window, cx))
+                    })
+                    // The middle button closes, as it does a browser's tab. On
+                    // the press the button is the strip's, so that Linux does
+                    // not also paste the primary selection into whatever is
+                    // underneath; the close itself waits for the click.
+                    .when_some(on_close.clone(), |this, handler| {
+                        this.on_mouse_down(MouseButton::Middle, |_, _, cx| cx.stop_propagation())
+                            .on_aux_click(move |event, window, cx| {
+                                if event.is_middle_click() {
+                                    cx.stop_propagation();
+                                    handler(index, window, cx);
+                                }
+                            })
                     })
                     .when_some(on_context_menu.clone(), |this, handler| {
                         this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1793,6 +1808,22 @@ mod tests {
             0,
             "the permanent tab has no close target"
         );
+    }
+
+    /// The middle button closes a closable tab, without selecting it, and
+    /// does nothing to a permanent one.
+    #[gpui::test]
+    fn the_middle_button_closes_a_closable_tab(cx: &mut TestAppContext) {
+        for (closable, closes) in [(true, 1), (false, 0)] {
+            let (handles, mut cx) = open(cx, vec![TabItem::new("only", "tab").closable(closable)]);
+            let position = point(px(INSIDE_FIRST_TAB), px(ROW_MIDDLE));
+            cx.simulate_mouse_move(position, None, Modifiers::none());
+            cx.simulate_mouse_down(position, MouseButton::Middle, Modifiers::none());
+            cx.simulate_mouse_up(position, MouseButton::Middle, Modifiers::none());
+            cx.run_until_parked();
+            assert_eq!(handles.tally.closed.get(), closes, "closable: {closable}");
+            assert_eq!(handles.tally.selected.get(), 0, "and it selected nothing");
+        }
     }
 
     /// A wheel puts the overlay bar up, and it comes up over the tabs rather
