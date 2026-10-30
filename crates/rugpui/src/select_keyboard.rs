@@ -23,13 +23,13 @@ pub(crate) fn init(cx: &mut App) {
 const TYPEAHEAD_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
-struct Typeahead {
+pub(crate) struct Typeahead {
     query: String,
     last_input: Option<Instant>,
 }
 
 impl Typeahead {
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.query.clear();
         self.last_input = None;
     }
@@ -43,7 +43,7 @@ impl Typeahead {
         }
     }
 
-    fn find<'a>(
+    pub(crate) fn find<'a>(
         &mut self,
         text: &str,
         current: Option<usize>,

@@ -12,21 +12,64 @@
 //! it in on every render, and closes the menu from
 //! [`MenuButton::on_open_change`] or [`ContextMenu::on_dismiss`].
 //!
-//! An open menu also closes on `Escape`, wherever the focus is: neither menu
-//! takes the focus from the surface it was opened over, so the key is caught
-//! ahead of that surface's own bindings rather than at the menu.
+//! An open menu holds the keyboard, wherever the focus is: `Up`, `Down`,
+//! `Home` and `End` move a highlight over the rows that can be run, `Enter` and
+//! `Space` run it, a typed letter jumps to the next row starting with it, and
+//! `Escape` or `Tab` closes the menu. Neither menu takes the focus from the
+//! surface it was opened over — a field's edit is not committed by a blur, and
+//! a command acts on the surface it was opened for — so the keys are caught
+//! ahead of that surface's own bindings rather than at the menu, and closing
+//! the menu leaves the focus exactly where it was.
+//!
+//! [`OpenContextMenu`] (Shift+F10, the Menu key) and [`OpenAppMenu`] (F10) are
+//! the two keys that open a menu in the first place; the surface or the view
+//! that owns the menu handles them.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Div, ElementId, Hsla, Keystroke, Pixels, Point, SharedString, Size,
-    Subscription, Window, anchored, deferred, div, point, prelude::*, px, svg,
+    AnyElement, App, Div, ElementId, Hsla, KeyBinding, Keystroke, Pixels, Point, ScrollHandle,
+    SharedString, Size, Subscription, Window, actions, anchored, deferred, div, point, prelude::*,
+    px, svg,
 };
 
 use crate::overlay;
+use crate::scale::{TextSize, scaled};
+use crate::select_keyboard::Typeahead;
 use crate::theme::{Theme, theme};
 use crate::tooltip::tooltip_label;
+
+actions!(
+    rugpui_menu,
+    [
+        /// Open the context menu of whatever has the focus, from the keyboard.
+        ///
+        /// Bound to `Shift+F10` and the Menu key by [`init`], with no key
+        /// context, and handled by nobody here: a surface that has a context
+        /// menu handles it with `.on_action(..)` and opens the menu where its
+        /// selection is, with [`ContextMenu::highlight_first`]. Unhandled, the
+        /// key goes on as if the binding were not there.
+        OpenContextMenu,
+        /// Open the application menu, from the keyboard.
+        ///
+        /// Bound to `F10` by [`init`], with no key context. The view that draws
+        /// the application's [`MenuButton`] handles it by opening the menu with
+        /// [`MenuButton::highlight_first`].
+        OpenAppMenu,
+    ]
+);
+
+/// Registers the keys that open a menu from the keyboard; see
+/// [`OpenContextMenu`] and [`OpenAppMenu`]. Called by [`crate::init`].
+pub(crate) fn init(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("shift-f10", OpenContextMenu, None),
+        KeyBinding::new("menu", OpenContextMenu, None),
+        KeyBinding::new("f10", OpenAppMenu, None),
+    ]);
+}
 
 /// Which corner of a floating panel is pinned to the point it was opened at,
 /// and so which way the panel grows from there.
@@ -81,6 +124,9 @@ const PANEL_MIN_WIDTH: f32 = 180.;
 /// of the object it acts on, and a panel wide enough for a fully qualified name
 /// would cover the surface the menu was opened over.
 const PANEL_MAX_WIDTH: f32 = 360.;
+
+/// Height of one command row, at the default UI scale.
+const ROW_HEIGHT: f32 = 28.;
 
 /// Width of the column a check mark sits in.
 const CHECK_WIDTH: f32 = 16.;
@@ -277,69 +323,250 @@ fn panel_max_height(window: &Window) -> Pixels {
     overlay::max_height(window, px(WINDOW_MARGIN))
 }
 
-/// What keeps `Escape` closing one open menu.
+/// One row as the keyboard sees it: what it is called, whether it can be run,
+/// and what running it does.
+struct KeyRow {
+    /// The label, matched against what is typed. Empty for a separator.
+    label: SharedString,
+    /// Whether the row is a command that is not disabled — the only kind the
+    /// highlight lands on.
+    enabled: bool,
+    /// The row's callback.
+    on_activate: Option<ActivateHandler>,
+}
+
+impl KeyRow {
+    /// The keyboard's view of `entry`.
+    fn of(entry: &MenuEntry) -> Self {
+        Self {
+            label: entry.label.clone(),
+            enabled: !entry.separator && !entry.disabled,
+            on_activate: entry.on_activate.clone(),
+        }
+    }
+}
+
+/// What the interceptor of one open menu acts on, as of the last frame.
+struct KeyTarget {
+    /// The rows, rebuilt with the menu on every frame.
+    rows: Vec<KeyRow>,
+    /// The handler that closes the menu; taken when a key closes it, so that a
+    /// second key before the host has redrawn reaches the surface underneath.
+    on_dismiss: Option<DismissHandler>,
+}
+
+/// The keyboard of one open menu.
 ///
 /// Held in the menu's element state, so it lives exactly as long as the menu is
 /// drawn in consecutive frames: a menu the host stops rendering drops the
-/// interceptor with it, and nothing has to be unregistered by hand.
-struct EscapeDismiss {
-    /// The handler of the menu as last drawn; taken when it fires, so a second
-    /// `Escape` before the host has redrawn reaches the surface underneath.
-    handler: Rc<RefCell<Option<DismissHandler>>>,
+/// interceptor with it, and nothing has to be unregistered by hand. Opening the
+/// menu again starts from a fresh one, with nothing highlighted and nothing
+/// typed.
+struct MenuKeys {
+    /// The rows and the dismiss handler of the menu as last drawn, the
+    /// highlighted row — an index into the entries, drawn by the panel and
+    /// moved by the keys and by the pointer — and the panel's scroll, so that
+    /// a row the keys move to is brought into view.
+    handles: KeyHandles,
     _interceptor: Subscription,
 }
 
-/// Whether `keystroke` is a bare `Escape`. Shift is allowed, the way a menu
-/// row's click allows it; a chord with a command modifier is somebody else's.
-fn is_escape(keystroke: &Keystroke) -> bool {
-    let modifiers = &keystroke.modifiers;
-    keystroke.key == "escape"
-        && !modifiers.control
-        && !modifiers.alt
-        && !modifiers.platform
-        && !modifiers.function
+/// What a drawn panel needs of its keyboard.
+#[derive(Clone)]
+struct PanelKeys {
+    highlight: Rc<Cell<Option<usize>>>,
+    scroll: ScrollHandle,
 }
 
-/// Has `Escape` call `on_dismiss` for as long as the menu `id` is drawn.
+/// Whether `keystroke` carries a command modifier. Shift is allowed, the way a
+/// menu row's click allows it; a chord with any other modifier is somebody
+/// else's shortcut and passes through the open menu untouched.
+fn has_command_modifier(keystroke: &Keystroke) -> bool {
+    let modifiers = &keystroke.modifiers;
+    modifiers.control || modifiers.alt || modifiers.platform || modifiers.function
+}
+
+/// The first enabled row at or after `from` going `forward`, wrapping round.
+fn next_enabled(rows: &[KeyRow], from: Option<usize>, forward: bool) -> Option<usize> {
+    let count = rows.len();
+    if count == 0 {
+        return None;
+    }
+    (1..=count)
+        .map(|step| match (from, forward) {
+            (Some(at), true) => (at + step) % count,
+            (Some(at), false) => (at + count - step) % count,
+            (None, true) => step - 1,
+            (None, false) => count - step,
+        })
+        .find(|&index| rows[index].enabled)
+}
+
+/// The parts of [`MenuKeys`] the interceptor answers a key with.
+#[derive(Clone)]
+struct KeyHandles {
+    target: Rc<RefCell<KeyTarget>>,
+    highlight: Rc<Cell<Option<usize>>>,
+    scroll: ScrollHandle,
+}
+
+impl KeyHandles {
+    /// Answers one keystroke, or returns `false` to let it through.
+    fn answer(
+        &self,
+        keystroke: &Keystroke,
+        search: &mut Typeahead,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        if has_command_modifier(keystroke) {
+            return false;
+        }
+        let key = keystroke.key.as_str();
+        match key {
+            "escape" | "tab" => {
+                // Out of the cell before the call: the handler may well redraw.
+                let Some(dismiss) = self.target.borrow_mut().on_dismiss.take() else {
+                    return false;
+                };
+                dismiss(window, cx);
+            }
+            "up" | "down" | "home" | "end" => {
+                search.clear();
+                let next = {
+                    let target = self.target.borrow();
+                    let rows = &target.rows;
+                    match key {
+                        "up" => next_enabled(rows, self.highlight.get(), false),
+                        "down" => next_enabled(rows, self.highlight.get(), true),
+                        "home" => next_enabled(rows, None, true),
+                        _ => next_enabled(rows, None, false),
+                    }
+                };
+                if next.is_some() {
+                    self.move_to(next, window);
+                }
+            }
+            "enter" | "space" => {
+                search.clear();
+                let row = self.highlight.get().and_then(|index| {
+                    let target = self.target.borrow();
+                    let row = target.rows.get(index)?;
+                    row.enabled.then(|| row.on_activate.clone())
+                });
+                // Nothing highlighted is still the menu's key: an `Enter`
+                // that reached the terminal under an open menu would run
+                // something the user cannot see.
+                if let Some(activate) = row {
+                    let dismiss = self.target.borrow_mut().on_dismiss.take();
+                    if let Some(activate) = activate {
+                        activate(window, cx);
+                    }
+                    if let Some(dismiss) = dismiss {
+                        dismiss(window, cx);
+                    }
+                }
+            }
+            _ => {
+                let Some(text) = keystroke
+                    .key_char
+                    .as_deref()
+                    .filter(|text| !text.is_empty() && !text.chars().any(char::is_control))
+                else {
+                    return false;
+                };
+                let found = {
+                    let target = self.target.borrow();
+                    let rows = &target.rows;
+                    search.find(
+                        text,
+                        self.highlight.get(),
+                        rows.len(),
+                        |index| {
+                            let row = &rows[index];
+                            if row.enabled { row.label.as_ref() } else { "" }
+                        },
+                        Instant::now(),
+                    )
+                };
+                if found.is_some() {
+                    self.move_to(found, window);
+                }
+            }
+        }
+        true
+    }
+
+    /// Highlights `index`, scrolled into view.
+    fn move_to(&self, index: Option<usize>, window: &mut Window) {
+        self.highlight.set(index);
+        if let Some(index) = index {
+            self.scroll.scroll_to_item(index);
+        }
+        window.refresh();
+    }
+}
+
+/// Gives the open menu `id` its keyboard for as long as it is drawn.
 ///
-/// A keystroke interceptor rather than a key binding: the focus stays on the
-/// editor, grid or terminal the menu was opened over, so a binding would have
-/// to be made by every one of them, and theirs would run first — the editor's
-/// own `Escape` closes its find bar. An interceptor runs before any binding,
-/// and stopping propagation there keeps the key from also closing whatever is
-/// under the menu. Only `Escape` pressed in the menu's own window counts.
-fn dismiss_on_escape(
+/// A keystroke interceptor rather than key bindings, and the focus is left
+/// where it was: the editor, grid or terminal the menu was opened over keeps it
+/// — so a field's edit is not committed by a blur, and a command the menu runs
+/// acts on the surface it was opened for — and the menu takes the keys ahead of
+/// that surface's own bindings instead. `Up`, `Down`, `Home` and `End` move the
+/// highlight over the rows that can be run, `Enter` and `Space` run the
+/// highlighted one, a typed letter moves to the next row starting with it, and
+/// `Escape` and `Tab` close the menu. Any chord with a command modifier passes
+/// through, so the application's shortcuts still work with a menu open. Only
+/// keys pressed in the menu's own window count.
+///
+/// `highlight_first` starts the menu on its first row that can be run, which is
+/// what a menu opened from the keyboard wants; one opened by the pointer starts
+/// with nothing highlighted until a key or the pointer moves.
+fn menu_keys(
     id: ElementId,
+    entries: &[MenuEntry],
     on_dismiss: Option<DismissHandler>,
+    highlight_first: bool,
     window: &mut Window,
     cx: &mut App,
-) {
-    // A menu with nobody to tell cannot close itself, and taking no state here
-    // also drops an interceptor left from a frame that had a handler.
-    let Some(on_dismiss) = on_dismiss else {
-        return;
-    };
-    let state = window.use_keyed_state((id, "escape"), cx, |window, cx| {
-        let handler: Rc<RefCell<Option<DismissHandler>>> = Rc::default();
+) -> PanelKeys {
+    let rows: Vec<KeyRow> = entries.iter().map(KeyRow::of).collect();
+    let first = highlight_first
+        .then(|| next_enabled(&rows, None, true))
+        .flatten();
+    let state = window.use_keyed_state((id, "keys"), cx, |window, cx| {
+        let handles = KeyHandles {
+            target: Rc::new(RefCell::new(KeyTarget {
+                rows: Vec::new(),
+                on_dismiss: None,
+            })),
+            highlight: Rc::new(Cell::new(first)),
+            scroll: ScrollHandle::new(),
+        };
         let owner = window.window_handle();
-        let current = handler.clone();
-        let interceptor = cx.intercept_keystrokes(move |event, window, cx| {
-            if window.window_handle() != owner || !is_escape(&event.keystroke) {
-                return;
-            }
-            // Out of the cell before the call: the handler may well redraw.
-            let Some(dismiss) = current.borrow_mut().take() else {
-                return;
-            };
-            dismiss(window, cx);
-            cx.stop_propagation();
-        });
-        EscapeDismiss {
-            handler,
+        let mut search = Typeahead::default();
+        let interceptor = {
+            let handles = handles.clone();
+            cx.intercept_keystrokes(move |event, window, cx| {
+                if window.window_handle() == owner
+                    && handles.answer(&event.keystroke, &mut search, window, cx)
+                {
+                    cx.stop_propagation();
+                }
+            })
+        };
+        MenuKeys {
+            handles,
             _interceptor: interceptor,
         }
     });
-    *state.read(cx).handler.borrow_mut() = Some(on_dismiss);
+    let handles = &state.read(cx).handles;
+    *handles.target.borrow_mut() = KeyTarget { rows, on_dismiss };
+    PanelKeys {
+        highlight: handles.highlight.clone(),
+        scroll: handles.scroll.clone(),
+    }
 }
 
 /// Builds the full-window sheet that sits under an open menu.
@@ -382,8 +609,10 @@ fn menu_panel(
     width: PanelWidth,
     max_height: Pixels,
     on_dismiss: Option<DismissHandler>,
-    theme: &Theme,
+    keys: PanelKeys,
+    cx: &App,
 ) -> AnyElement {
+    let theme = &theme(cx);
     // The check column is decided for the menu, not for the row: a mark that
     // only indented its own row would leave the labels stepping sideways down
     // the list.
@@ -396,6 +625,11 @@ fn menu_panel(
     let truncates = matches!(width, PanelWidth::Content { .. });
 
     let row_theme = theme.clone();
+    let highlighted = keys.highlight.get();
+    let row_height = scaled(ROW_HEIGHT, cx);
+    let row_text = TextSize::Body.size(cx);
+    let shortcut_text = TextSize::Xs.size(cx);
+    let highlight = keys.highlight.clone();
     let rows = entries.into_iter().enumerate().map(move |(index, entry)| {
         let theme = &row_theme;
         if entry.separator {
@@ -419,6 +653,7 @@ fn menu_panel(
             ..
         } = entry;
 
+        let highlight = highlight.clone();
         div()
             .id(ElementId::from(("menu-entry", index)))
             .flex()
@@ -426,15 +661,20 @@ fn menu_panel(
             .flex_none()
             .items_center()
             .gap(px(16.))
-            .h(px(28.))
+            .h(row_height)
             .px(px(10.))
             .mx(px(4.))
             .rounded_sm()
-            .text_size(px(13.))
+            .text_size(row_text)
             .text_color(if disabled {
                 theme.text_muted
             } else {
                 theme.text
+            })
+            // The keyboard's row wears the pointer's hover, so the two never
+            // disagree about which row `Enter` would run.
+            .when(!disabled && highlighted == Some(index), |this| {
+                this.bg(theme.surface_hover)
             })
             // Everything that makes a row look and behave like a control hangs
             // off this one condition, so a disabled row is inert by having no
@@ -442,6 +682,14 @@ fn menu_panel(
             .when(!disabled, |this| {
                 this.cursor_pointer()
                     .hover(|style| style.bg(theme.surface_hover))
+                    // The pointer moves the highlight too, so the keys carry on
+                    // from the row it rests on.
+                    .on_mouse_move(move |_, window, _| {
+                        if highlight.get() != Some(index) {
+                            highlight.set(Some(index));
+                            window.refresh();
+                        }
+                    })
                     .on_click(move |_, window, cx| {
                         if let Some(activate) = on_activate.clone() {
                             activate(window, cx);
@@ -492,7 +740,7 @@ fn menu_panel(
             .children(shortcut.map(|shortcut| {
                 div()
                     .flex_none()
-                    .text_size(px(11.))
+                    .text_size(shortcut_text)
                     .text_color(theme.text_muted)
                     .whitespace_nowrap()
                     .child(shortcut)
@@ -513,6 +761,7 @@ fn menu_panel(
         // keeps a horizontal wheel — or a trackpad's stray sideways component —
         // from sliding a panel that has nothing to show sideways.
         .overflow_y_scroll()
+        .track_scroll(&keys.scroll)
         .restrict_scroll_to_axis()
         .bg(theme.background)
         .border_1()
@@ -561,6 +810,7 @@ pub struct ContextMenu {
     width: Option<Pixels>,
     entries: Vec<MenuEntry>,
     on_dismiss: Option<DismissHandler>,
+    highlight_first: bool,
 }
 
 impl ContextMenu {
@@ -575,7 +825,19 @@ impl ContextMenu {
             width: None,
             entries: Vec::new(),
             on_dismiss: None,
+            highlight_first: false,
         }
+    }
+
+    /// Opens with the first row that can be run already highlighted.
+    ///
+    /// For a menu opened from the keyboard — [`OpenContextMenu`], which
+    /// Shift+F10 and the Menu key send — where the next key is `Down` or
+    /// `Enter` and a menu with nothing highlighted would make the first of
+    /// them do nothing visible. A menu opened by the pointer leaves it off.
+    pub fn highlight_first(mut self, highlight_first: bool) -> Self {
+        self.highlight_first = highlight_first;
+        self
     }
 
     /// Puts the panel's [`ContextMenu::anchor`] corner at `position`, in window
@@ -631,9 +893,15 @@ impl ContextMenu {
 
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = theme(cx);
         let viewport = window.viewport_size();
-        dismiss_on_escape(self.id.clone(), self.on_dismiss.clone(), window, cx);
+        let keys = menu_keys(
+            self.id.clone(),
+            &self.entries,
+            self.on_dismiss.clone(),
+            self.highlight_first,
+            window,
+            cx,
+        );
         let backdrop = menu_backdrop(
             ElementId::from((self.id.clone(), "backdrop")),
             viewport,
@@ -652,7 +920,8 @@ impl RenderOnce for ContextMenu {
             width,
             panel_max_height(window),
             self.on_dismiss,
-            &theme,
+            keys,
+            cx,
         );
 
         // Absolutely positioned and zero-sized: both children are `anchored` in
@@ -697,6 +966,8 @@ pub struct MenuButton {
     open: bool,
     entries: Vec<MenuEntry>,
     on_open_change: Option<OpenChangeHandler>,
+    highlight_first: bool,
+    tab_index: Option<isize>,
 }
 
 impl MenuButton {
@@ -712,7 +983,28 @@ impl MenuButton {
             open: false,
             entries: Vec::new(),
             on_open_change: None,
+            highlight_first: false,
+            tab_index: None,
         }
+    }
+
+    /// Opens with the first row that can be run already highlighted, for a
+    /// menu the host opened from the keyboard — [`OpenAppMenu`], which F10
+    /// sends. A trigger opened with `Enter`, `Space` or `Down` does this by
+    /// itself.
+    pub fn highlight_first(mut self, highlight_first: bool) -> Self {
+        self.highlight_first = highlight_first;
+        self
+    }
+
+    /// Places the trigger at `index` in the window's tab order.
+    ///
+    /// Off by default, which keeps a toolbar's tab order what it was. A focused
+    /// trigger draws an accent outline and opens its menu with `Enter`, `Space`
+    /// or `Down`, on the first row.
+    pub fn tab_index(mut self, index: isize) -> Self {
+        self.tab_index = Some(index);
+        self
     }
 
     /// Draws `glyph` as text on the trigger instead of the default hamburger.
@@ -788,10 +1080,29 @@ impl RenderOnce for MenuButton {
             Rc::new(move |window: &mut Window, cx: &mut App| handler(false, window, cx))
                 as DismissHandler
         });
-        // Only while the dropdown is out: a closed button leaves `Escape` alone.
-        if open {
-            dismiss_on_escape(self.id.clone(), on_dismiss.clone(), window, cx);
+        // Whether the trigger opened the menu from the keyboard, which starts
+        // it on its first row. Kept for as long as the trigger is drawn, and
+        // forgotten as the menu closes.
+        let by_keyboard = window
+            .use_keyed_state((self.id.clone(), "trigger"), cx, |_, _| {
+                Rc::new(Cell::new(false))
+            })
+            .read(cx)
+            .clone();
+        if !open {
+            by_keyboard.set(false);
         }
+        // Only while the dropdown is out: a closed button leaves the keys alone.
+        let keys = open.then(|| {
+            menu_keys(
+                self.id.clone(),
+                &self.entries,
+                on_dismiss.clone(),
+                self.highlight_first || by_keyboard.get(),
+                window,
+                cx,
+            )
+        });
 
         // A trigger only ever wears a mark — an icon, or a glyph standing in
         // for one — never a word, so its resting color is the theme's icon
@@ -833,8 +1144,15 @@ impl RenderOnce for MenuButton {
             .justify_center()
             .size(px(TRIGGER_SIZE))
             .rounded_md()
-            .text_size(px(14.))
+            .text_size(TextSize::Title.size(cx))
             .text_color(tint)
+            .when_some(self.tab_index, |this, index| {
+                let accent = theme.accent;
+                this.tab_index(index)
+                    .border_1()
+                    .border_color(gpui::transparent_black())
+                    .focus(move |style| style.border_color(accent))
+            })
             .bg(if open {
                 theme.surface_active
             } else {
@@ -846,7 +1164,23 @@ impl RenderOnce for MenuButton {
                 this.tooltip(tooltip_label(tooltip))
             })
             .when_some(on_open_change.clone(), |this, handler| {
-                this.on_click(move |_, window, cx| handler(!open, window, cx))
+                let by_click = by_keyboard.clone();
+                let down = handler.clone();
+                let by_down = by_keyboard.clone();
+                this.on_click(move |event, window, cx| {
+                    by_click.set(!open && event.is_keyboard());
+                    handler(!open, window, cx)
+                })
+                // `Down` on a focused, closed trigger opens it too, as it
+                // does a native menu button; `Enter` and `Space` are the click.
+                .on_key_down(move |event, window, cx| {
+                    let stroke = &event.keystroke;
+                    if !open && stroke.key == "down" && !stroke.modifiers.modified() {
+                        by_down.set(true);
+                        down(true, window, cx);
+                        cx.stop_propagation();
+                    }
+                })
             })
             .child(face);
 
@@ -864,7 +1198,11 @@ impl RenderOnce for MenuButton {
             PanelWidth::Fixed(px(PANEL_WIDTH)),
             panel_max_height(window),
             on_dismiss,
-            &theme,
+            keys.unwrap_or_else(|| PanelKeys {
+                highlight: Rc::default(),
+                scroll: ScrollHandle::new(),
+            }),
+            cx,
         );
 
         // The dropdown hangs off a zero-width box laid out *before* the
@@ -1600,5 +1938,221 @@ mod tests {
             panel_bottom(&mut cx) <= viewport - INSET - WINDOW_MARGIN,
             "and its foot clears the band"
         );
+    }
+
+    /// Presses and releases `keys` one after another.
+    fn press(cx: &mut VisualTestContext, keys: &str) {
+        for key in keys.split_whitespace() {
+            cx.simulate_keystrokes(key);
+            cx.simulate_event(gpui::KeyUpEvent {
+                keystroke: Keystroke::parse(key).unwrap(),
+            });
+            cx.run_until_parked();
+        }
+    }
+
+    /// The arrows walk the rows that can be run — past a separator and a
+    /// disabled row, round from the last to the first — and `Enter` runs the
+    /// highlighted one and closes the menu, in both menus.
+    #[gpui::test]
+    fn the_arrows_walk_the_runnable_rows_and_enter_runs_one(cx: &mut TestAppContext) {
+        for surface in [Surface::Context, Surface::Button] {
+            let rows = vec![
+                Row::new("Cut"),
+                Row::new("Copy").disabled(),
+                Row::new("Paste"),
+                Row::new("Select all"),
+            ];
+            let (menu, mut cx) = open(surface, rows, cx);
+            // Nothing is highlighted yet, and `Enter` runs nothing — but it is
+            // still the menu's key.
+            press(&mut cx, "enter");
+            assert_eq!(menu.drain(), Vec::<usize>::new());
+            assert_eq!(menu.dismissals(), 0);
+
+            press(&mut cx, "down down");
+            press(&mut cx, "enter");
+            assert_eq!(menu.drain(), vec![2], "the disabled row was skipped");
+            assert_eq!(menu.dismissals(), 1);
+        }
+    }
+
+    #[gpui::test]
+    fn home_end_wrap_and_letters_move_the_highlight(cx: &mut TestAppContext) {
+        let rows = vec![
+            Row::new("Cut"),
+            Row::new("Copy"),
+            Row::new("Paste"),
+            Row::new("Close").disabled(),
+        ];
+        for (keys, expected, why) in [
+            ("end enter", 2, "End lands on the last runnable row"),
+            ("end down enter", 0, "Down from the last wraps to the first"),
+            ("up enter", 2, "Up from nothing is the last"),
+            ("p space", 2, "a letter jumps, Space runs"),
+        ] {
+            let (menu, mut window) = open(Surface::Context, rows.clone(), cx);
+            press(&mut window, keys);
+            assert_eq!(menu.drain(), vec![expected], "{why}");
+        }
+    }
+
+    actions!(menu_keys_test, [HostDown, HostSave]);
+
+    /// A focused surface with keys of its own under an open menu: the menu
+    /// takes the arrows and `Enter`, a chord with a command modifier still
+    /// reaches the surface, and the focus never moves.
+    struct Surface2 {
+        focus: FocusHandle,
+        open: bool,
+        downs: usize,
+        saves: usize,
+        ran: usize,
+    }
+
+    impl Render for Surface2 {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            let ran = cx.entity();
+            div()
+                .size_full()
+                .key_context("MenuKeysHost")
+                .track_focus(&self.focus)
+                .on_action(cx.listener(|host, _: &HostDown, _, _| host.downs += 1))
+                .on_action(cx.listener(|host, _: &HostSave, _, _| host.saves += 1))
+                .when(self.open, |this_div| {
+                    this_div.child(
+                        ContextMenu::new("menu")
+                            .position(point(px(MENU_X), px(MENU_Y)))
+                            .highlight_first(true)
+                            .entries(vec![MenuEntry::new(SHORT).on_activate(move |_, cx| {
+                                ran.update(cx, |host, _| host.ran += 1)
+                            })])
+                            .on_dismiss(move |_, cx| {
+                                this.update(cx, |host, cx| {
+                                    host.open = false;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                })
+        }
+    }
+
+    #[gpui::test]
+    fn an_open_menu_holds_the_keys_but_not_the_focus(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.bind_keys([
+                KeyBinding::new("down", HostDown, Some("MenuKeysHost")),
+                KeyBinding::new("ctrl-s", HostSave, Some("MenuKeysHost")),
+            ]);
+        });
+        let window = cx.add_window(|_, cx| Surface2 {
+            focus: cx.focus_handle(),
+            open: true,
+            downs: 0,
+            saves: 0,
+            ran: 0,
+        });
+        let host = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.update(|window, cx| {
+            let focus = host.read(cx).focus.clone();
+            focus.focus(window, cx);
+        });
+        cx.run_until_parked();
+
+        press(&mut cx, "down ctrl-s");
+        cx.update(|window, cx| {
+            let host = host.read(cx);
+            assert_eq!(host.downs, 0, "the menu kept Down");
+            assert_eq!(host.saves, 1, "a shortcut went through");
+            assert!(host.focus.is_focused(window), "the focus never moved");
+        });
+        // Highlighted from the start, so `Enter` runs the one row.
+        press(&mut cx, "enter");
+        cx.update(|window, cx| {
+            let host = host.read(cx);
+            assert_eq!(host.ran, 1);
+            assert!(!host.open);
+            assert!(host.focus.is_focused(window));
+        });
+        // Closed, the surface has its keys back.
+        press(&mut cx, "down");
+        cx.update(|_, cx| assert_eq!(host.read(cx).downs, 1));
+    }
+
+    /// A trigger that is a tab stop opens from the keyboard, on its first
+    /// row.
+    struct Trigger {
+        open: bool,
+        ran: Rc<RefCell<Vec<usize>>>,
+        opened_by_action: usize,
+    }
+
+    impl Render for Trigger {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            let entries = (0..2)
+                .map(|index| {
+                    let ran = self.ran.clone();
+                    MenuEntry::new(MEDIUM).on_activate(move |_, _| ran.borrow_mut().push(index))
+                })
+                .collect();
+            div()
+                .size_full()
+                .on_action(cx.listener(|this, _: &OpenAppMenu, _, cx| {
+                    this.opened_by_action += 1;
+                    this.open = true;
+                    cx.notify();
+                }))
+                .child(
+                    MenuButton::new("app-menu")
+                        .tab_index(0)
+                        .open(self.open)
+                        .entries(entries)
+                        .on_open_change(move |open, _, cx| {
+                            this.update(cx, |this, cx| {
+                                this.open = open;
+                                cx.notify();
+                            })
+                        }),
+                )
+        }
+    }
+
+    #[gpui::test]
+    fn a_focused_trigger_opens_from_the_keyboard_on_its_first_row(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let ran = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window({
+            let ran = ran.clone();
+            move |_, _| Trigger {
+                open: false,
+                ran,
+                opened_by_action: 0,
+            }
+        });
+        let trigger = window.update(cx, |_, _, cx| cx.entity()).unwrap();
+        let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
+        cx.update(|window, cx| window.focus_next(cx));
+        cx.run_until_parked();
+
+        for opener in ["enter", "space", "down"] {
+            press(&mut cx, opener);
+            assert!(
+                cx.update(|_, cx| trigger.read(cx).open),
+                "{opener} opens it"
+            );
+            press(&mut cx, "enter");
+            assert_eq!(ran.borrow_mut().drain(..).collect::<Vec<_>>(), vec![0]);
+            assert!(!cx.update(|_, cx| trigger.read(cx).open));
+        }
+
+        // F10 is the application's to answer, and here it opens this menu.
+        press(&mut cx, "f10");
+        assert_eq!(cx.update(|_, cx| trigger.read(cx).opened_by_action), 1);
     }
 }
