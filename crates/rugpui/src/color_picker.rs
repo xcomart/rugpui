@@ -47,6 +47,7 @@ use gpui::{
 };
 
 use crate::menu::color_swatch;
+use crate::scale::scaled;
 use crate::text_input::TextInput;
 use crate::theme::{parse_hex, theme};
 
@@ -424,7 +425,8 @@ pub struct ColorPicker {
     id: ElementId,
     value: Hsv,
     presets: Vec<Hsla>,
-    field_height: Pixels,
+    /// `None` until a host sets one: [`FIELD_HEIGHT`] at the UI scale.
+    field_height: Option<Pixels>,
     hex_field: bool,
     tab_index: Option<isize>,
     on_change: Option<ChangeHandler>,
@@ -437,18 +439,19 @@ impl ColorPicker {
             id: id.into(),
             value: Hsv::default(),
             presets: Vec::new(),
-            field_height: px(FIELD_HEIGHT),
+            field_height: None,
             hex_field: true,
             tab_index: None,
             on_change: None,
         }
     }
 
-    /// Sets the height of the saturation/value field, 150 px unless set. The
+    /// Sets the height of the saturation/value field, 150 px at the default UI
+    /// scale unless set (a height set here is taken as it is). The
     /// strip and the presets keep their own heights, so this is the one knob a
     /// host short of room turns.
     pub fn field_height(mut self, height: Pixels) -> Self {
-        self.field_height = height;
+        self.field_height = Some(height);
         self
     }
 
@@ -546,10 +549,10 @@ fn hue_segments() -> impl IntoElement {
 
 /// A ring the knobs are drawn as: white with a dark edge, so it reads on every
 /// color the field can show.
-fn knob(size: f32) -> gpui::Div {
+fn knob(size: Pixels) -> gpui::Div {
     div()
         .flex_none()
-        .size(px(size))
+        .size(size)
         .rounded_full()
         .border_2()
         .border_color(gpui::white())
@@ -562,6 +565,14 @@ impl RenderOnce for ColorPicker {
         let id = self.id;
         let value = self.value;
         let on_change = self.on_change;
+        // The knobs, the swatches, the hue strip and the hex field grow with
+        // the interface; the gaps between them do not.
+        let field_height = self
+            .field_height
+            .unwrap_or_else(|| scaled(FIELD_HEIGHT, cx));
+        let field_knob = scaled(FIELD_KNOB, cx);
+        let hue_knob = scaled(HUE_KNOB, cx);
+        let preset = scaled(PRESET, cx);
 
         let hex = self.hex_field.then(|| {
             let tab_index = self.tab_index.map(|index| index + 1);
@@ -577,11 +588,11 @@ impl RenderOnce for ColorPicker {
                 .flex_row()
                 .items_center()
                 .gap(px(8.))
-                .child(color_swatch(value.to_hsla(), &theme).size(px(PREVIEW)))
+                .child(color_swatch(value.to_hsla(), &theme, scaled(PREVIEW, cx)))
                 .child(
                     div()
                         .flex_none()
-                        .w(px(HEX_WIDTH))
+                        .w(scaled(HEX_WIDTH, cx))
                         .debug_selector(|| HEX_SELECTOR.to_string())
                         .child(input),
                 )
@@ -596,7 +607,7 @@ impl RenderOnce for ColorPicker {
             .id(ElementId::from((id.clone(), "field")))
             .relative()
             .w_full()
-            .h(self.field_height)
+            .h(field_height)
             .rounded_md()
             .border_1()
             .border_color(theme.border)
@@ -624,9 +635,9 @@ impl RenderOnce for ColorPicker {
                     .child(
                         div()
                             .absolute()
-                            .left(px(-FIELD_KNOB / 2.))
-                            .top(px(-FIELD_KNOB / 2.))
-                            .child(knob(FIELD_KNOB).bg(value.to_hsla())),
+                            .left(-field_knob / 2.)
+                            .top(-field_knob / 2.)
+                            .child(knob(field_knob).bg(value.to_hsla())),
                     ),
             )
             .on_mouse_down(
@@ -646,7 +657,7 @@ impl RenderOnce for ColorPicker {
             .id(ElementId::from((id.clone(), "hue")))
             .relative()
             .w_full()
-            .h(px(HUE_HEIGHT))
+            .h(scaled(HUE_HEIGHT, cx))
             .rounded_sm()
             .overflow_hidden()
             .cursor_pointer()
@@ -662,10 +673,10 @@ impl RenderOnce for ColorPicker {
                     .child(
                         div()
                             .absolute()
-                            .left(px(-HUE_KNOB / 2.))
+                            .left(-hue_knob / 2.)
                             .top_0()
                             .bottom_0()
-                            .w(px(HUE_KNOB))
+                            .w(hue_knob)
                             .rounded_sm()
                             .border_2()
                             .border_color(gpui::white())
@@ -703,7 +714,7 @@ impl RenderOnce for ColorPicker {
                             transparent_black()
                         })
                         .cursor_pointer()
-                        .child(color_swatch(color, &theme).size(px(PRESET)))
+                        .child(color_swatch(color, &theme, preset))
                         .on_click(move |_, window, cx| {
                             if let Some(handler) = on_change.as_ref() {
                                 // A gray preset keeps the hue the field was

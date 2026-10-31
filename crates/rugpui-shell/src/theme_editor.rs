@@ -70,6 +70,9 @@ const LABEL_WIDTH: f32 = 118.;
 /// Side of the swatch drawn beside a color field.
 const SWATCH_SIZE: f32 = 26.;
 
+/// Width of the resolved hex an automatic slot shows, at the default UI scale.
+const HEX_WIDTH: f32 = 64.;
+
 /// Tab order inside the editor, spaced so slots can be inserted later.
 ///
 /// A ring of its own rather than a continuation of the settings form's: while
@@ -393,7 +396,7 @@ impl ThemeEditor {
 
         let swatch = div()
             .flex_none()
-            .size(px(SWATCH_SIZE))
+            .size(scaled(SWATCH_SIZE, cx))
             .rounded_md()
             .border_1()
             .border_color(match color {
@@ -410,7 +413,7 @@ impl ThemeEditor {
             if automatic {
                 div()
                     .flex_none()
-                    .w(px(64.))
+                    .w(scaled(HEX_WIDTH, cx))
                     .truncate()
                     .text_size(TextSize::Xs.size(cx))
                     .text_color(chrome.text_muted)
@@ -450,7 +453,7 @@ impl ThemeEditor {
             .child(
                 div()
                     .flex_none()
-                    .w(px(LABEL_WIDTH))
+                    .w(scaled(LABEL_WIDTH, cx))
                     .truncate()
                     .text_size(TextSize::Sm.size(cx))
                     .text_color(if automatic {
@@ -782,7 +785,8 @@ pub(crate) fn render_ui_preview(
 ) -> AnyElement {
     let palette = ThemeFile::new("", dark, ui_colors(values)).to_theme();
 
-    let chip = |color: Hsla| div().flex_none().size(px(12.)).rounded_full().bg(color);
+    let chip_size = scaled(12., cx);
+    let chip = |color: Hsla| div().flex_none().size(chip_size).rounded_full().bg(color);
     let cell = |color: Hsla, words: &'static str| {
         div()
             .flex_1()
@@ -836,7 +840,7 @@ pub(crate) fn render_ui_preview(
                 .child(
                     div()
                         .flex_none()
-                        .size(px(14.))
+                        .size(scaled(14., cx))
                         .rounded_sm()
                         .bg(palette.surface_active),
                 ),

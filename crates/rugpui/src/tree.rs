@@ -808,7 +808,10 @@ impl<S: TreeSource> TreeView<S> {
         let theme = theme(cx);
         let row = self.rows[ix].clone();
         let depth = row.depth();
-        let indent = px(ROW_PADDING + depth as f32 * INDENT);
+        // A level is as wide as the arrow column it lines up under, so both
+        // grow with the interface; the padding at the row's ends does not.
+        let indent = px(ROW_PADDING) + scaled(depth as f32 * INDENT, cx);
+        let arrow_width = scaled(ARROW_WIDTH, cx);
 
         let TreeRow::Node {
             id, has_children, ..
@@ -822,7 +825,7 @@ impl<S: TreeSource> TreeView<S> {
                 .w_full()
                 .pl(indent)
                 .pr(px(ROW_PADDING))
-                .child(div().flex_none().w(px(ARROW_WIDTH)))
+                .child(div().flex_none().w(arrow_width))
                 .child(self.source.render_loading(window, cx))
                 .into_any_element();
         };
@@ -846,7 +849,7 @@ impl<S: TreeSource> TreeView<S> {
             None => (CARET_RIGHT.into(), CARET_DOWN.into()),
         };
         let mark = svg()
-            .size(px(ARROW_ICON_SIZE))
+            .size(scaled(ARROW_ICON_SIZE, cx))
             .flex_none()
             .path(if expanded { open } else { closed })
             // An SVG takes its tint from the element itself; unlike text it
@@ -859,7 +862,7 @@ impl<S: TreeSource> TreeView<S> {
             .flex_none()
             .items_center()
             .justify_center()
-            .w(px(ARROW_WIDTH))
+            .w(arrow_width)
             .h(scaled(ROW_HEIGHT, cx))
             .when(has_children, |this| {
                 let id = id.clone();

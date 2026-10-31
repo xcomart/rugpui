@@ -59,6 +59,9 @@ const TOAST_WIDTH: f32 = 360.;
 /// Distance from the window's right edge, and the default from its bottom.
 const TOAST_MARGIN: f32 = 16.;
 
+/// Width of a toast's close button, at the default UI scale.
+const CLOSE_WIDTH: f32 = 28.;
+
 /// One notice.
 #[derive(Debug, Clone)]
 pub struct Toast {
@@ -291,7 +294,7 @@ impl RenderOnce for ToastStack {
                         .flex_none()
                         .items_center()
                         .justify_center()
-                        .w(px(28.))
+                        .w(scaled(CLOSE_WIDTH, cx))
                         .text_size(TextSize::Body.size(cx))
                         .text_color(palette.icon)
                         .cursor_pointer()

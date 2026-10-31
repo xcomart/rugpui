@@ -48,6 +48,10 @@ pub fn hint(words: SharedString, cx: &App) -> impl IntoElement + use<> {
         .child(words)
 }
 
+/// Width of the narrow control [`suffixed`] puts a unit hint beside, at the
+/// default UI scale: room for a number of a few digits.
+const SUFFIXED_CONTROL_WIDTH: f32 = 96.;
+
 /// Lays a short unit hint out to the right of a narrow control.
 pub fn suffixed<E: IntoElement>(
     control: E,
@@ -61,7 +65,12 @@ pub fn suffixed<E: IntoElement>(
         .items_center()
         .gap(px(8.))
         .w_full()
-        .child(div().flex_none().w(px(96.)).child(control))
+        .child(
+            div()
+                .flex_none()
+                .w(rugpui::scaled(SUFFIXED_CONTROL_WIDTH, cx))
+                .child(control),
+        )
         .child(
             div()
                 .flex_1()

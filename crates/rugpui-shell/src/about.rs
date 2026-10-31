@@ -205,7 +205,7 @@ impl Render for AboutDialog {
             .child(modal(
                 "about-modal",
                 title,
-                px(DIALOG_WIDTH),
+                scaled(DIALOG_WIDTH, cx),
                 body,
                 on_dismiss,
             ))

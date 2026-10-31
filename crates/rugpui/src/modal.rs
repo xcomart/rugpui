@@ -97,6 +97,9 @@ const VIEWPORT_MARGIN: f32 = 64.;
 /// zero — or a negative value — and hide it entirely.
 const MIN_PANEL_HEIGHT: f32 = 160.;
 
+/// Floor for the panel's width cap, in pixels — [`MIN_PANEL_HEIGHT`] across.
+const MIN_PANEL_WIDTH: f32 = 240.;
+
 /// Height of the band the title sits in, at the default UI scale — the least
 /// it is: a title that wraps makes it taller.
 const TITLE_HEIGHT: f32 = 44.;
@@ -324,6 +327,11 @@ impl RenderOnce for Modal {
         let theme = theme(cx);
         let max_height =
             overlay::max_height(window, px(VIEWPORT_MARGIN / 2.)).max(px(MIN_PANEL_HEIGHT));
+        // The width the caller asked for — which an application at a large UI
+        // scale may have scaled past what the window holds — never wider than
+        // the window less the same margin kept above and below.
+        let max_width =
+            overlay::max_width(window, px(VIEWPORT_MARGIN / 2.)).max(px(MIN_PANEL_WIDTH));
 
         let focus = window.use_keyed_state((self.id.clone(), "focus"), cx, |window, cx| {
             ModalFocus::new(window, cx)
@@ -417,6 +425,7 @@ impl RenderOnce for Modal {
                     .flex()
                     .flex_col()
                     .w(self.width)
+                    .max_w(max_width)
                     .max_h(max_height)
                     .bg(theme.background)
                     .border_1()
@@ -791,6 +800,39 @@ mod tests {
                     );
                 })
                 .unwrap();
+        }
+    }
+
+    /// A dialog as wide as it was asked to be.
+    struct Wide(f32);
+
+    impl Render for Wide {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .relative()
+                .size_full()
+                .child(modal("wide", "Title", px(self.0), div(), |_, _| {}))
+        }
+    }
+
+    /// A width that fits is drawn as asked; one wider than the window — what
+    /// a dialog scaled for a large interface asks for — stops at the window
+    /// less the margin, so the panel never runs off either side.
+    #[gpui::test]
+    fn a_dialog_is_never_wider_than_its_window(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for (asked, drawn) in [(420., 420.), (1700., 1200. - VIEWPORT_MARGIN)] {
+            let window = cx.add_window(move |_, _| Wide(asked));
+            let mut cx = VisualTestContext::from_window(window.into(), cx);
+            cx.simulate_resize(gpui::size(px(1200.), px(800.)));
+            cx.run_until_parked();
+            let title = cx.debug_bounds("modal-title").expect("the title band");
+            // The title band fills the panel inside its one-pixel border.
+            assert_eq!(
+                title.size.width,
+                px(drawn - 2.),
+                "asked for {asked} px in a 1200 px window"
+            );
         }
     }
 

@@ -669,7 +669,7 @@ impl<S: GridSource> GridView<S> {
                             }))
                             .child(
                                 gpui::svg()
-                                    .size(px(EXPAND_ICON_SIZE))
+                                    .size(px(self.scaled(EXPAND_ICON_SIZE)))
                                     .flex_none()
                                     .path(rugpui::EXPAND)
                                     .text_color(theme.icon),

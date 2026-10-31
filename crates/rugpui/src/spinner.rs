@@ -17,6 +17,7 @@ use gpui::{
     point, prelude::*, px,
 };
 
+use crate::scale::scaled;
 use crate::theme::theme;
 
 /// How long the arc takes to come back around to where it started.
@@ -33,6 +34,9 @@ const STROKE: f32 = 2.;
 /// Three quarters leaves a gap wide enough that the rotation is legible — a
 /// closed ring would look identical in every frame.
 const SWEEP: f32 = 0.75;
+
+/// Edge length of a spinner nobody sized, at the default UI scale.
+const DEFAULT_SIZE: f32 = 16.;
 
 /// How many elliptical arcs the sweep is built from.
 ///
@@ -57,12 +61,14 @@ const SEGMENTS: usize = 3;
 #[derive(IntoElement)]
 pub struct Spinner {
     id: ElementId,
-    size: Pixels,
+    /// `None` until a host sets one: [`DEFAULT_SIZE`] at the UI scale.
+    size: Option<Pixels>,
     color: Option<Hsla>,
 }
 
 impl Spinner {
-    /// Creates a spinner sixteen pixels across, drawn in the theme's accent.
+    /// Creates a spinner sixteen pixels across at the default UI scale, drawn
+    /// in the theme's accent.
     ///
     /// `id` must be unique among the siblings of the spinner: it is what the
     /// animation keeps its phase under, so two spinners sharing one id would
@@ -70,7 +76,7 @@ impl Spinner {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            size: px(16.),
+            size: None,
             color: None,
         }
     }
@@ -79,9 +85,11 @@ impl Spinner {
     ///
     /// The stroke keeps its width as the box grows, so a large spinner is a
     /// thin ring and a small one is a thick comma. A box narrower than the
-    /// stroke draws nothing at all.
+    /// stroke draws nothing at all. A size set here is taken as it is; a host
+    /// that wants it to follow the interface passes it through
+    /// [`scaled`](crate::scaled).
     pub fn size(mut self, size: Pixels) -> Self {
-        self.size = size;
+        self.size = Some(size);
         self
     }
 
@@ -104,7 +112,7 @@ impl RenderOnce for Spinner {
         // is never asked to re-render. `delta` runs 0..1 over each period,
         // which is exactly the phase in turns.
         SpinnerArc {
-            size: self.size,
+            size: self.size.unwrap_or_else(|| scaled(DEFAULT_SIZE, cx)),
             color,
             phase: 0.,
         }

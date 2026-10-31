@@ -4,11 +4,15 @@ use gpui::{
     App, ClickEvent, ElementId, SharedString, TextStyleRefinement, Window, div, prelude::*, px,
 };
 
-use crate::scale::TextSize;
+use crate::scale::{TextSize, scaled};
 use crate::theme::theme;
 
 /// Glyph painted inside the box while it is checked.
 const CHECK_GLYPH: &str = "\u{2713}";
+
+/// Edge length of the box, at the default UI scale. The check inside is text
+/// at [`TextSize::Xs`], so the two grow together.
+const BOX_SIZE: f32 = 16.;
 
 /// Callback fired with the value the checkbox is about to take.
 type ToggleHandler = Box<dyn Fn(bool, &mut Window, &mut App)>;
@@ -91,7 +95,8 @@ impl RenderOnce for Checkbox {
             .flex_none()
             .items_center()
             .justify_center()
-            .size(px(16.))
+            .size(scaled(BOX_SIZE, cx))
+            .debug_selector(|| "checkbox-box".to_string())
             .rounded_sm()
             .border_1()
             .border_color(box_border)

@@ -18,10 +18,25 @@
 //! same way: `.text_size(TextSize::Body.size(cx))` for one of the four steps,
 //! `.text_size(scaled(10.5, cx))` for a size of its own.
 //!
-//! What is deliberately *not* scaled: borders, gaps, paddings, corner radii and
-//! icon boxes. They are the frame around the text rather than the text, and
-//! scaling them too would only make a larger interface look like a zoomed
-//! screenshot of the small one.
+//! Scaled along with the text is everything that stands beside it as a symbol
+//! or holds it: icons and the fixed boxes that hold nothing but an icon (a tab's
+//! close button, a menu trigger), the box and check of a checkbox, a switch's
+//! track and knob, a slider's knob and track, the disclosure arrows of a tree
+//! and a collapsible section and the indent of a tree level, color swatches and
+//! status dots, a progress bar, a spinner's default size, and the fixed widths
+//! that hold text — a dropdown's default width, a menu's panel, a label column.
+//! An icon drawn 16 px beside 26 px text reads as a speck, and a checkbox that
+//! stays put while its label doubles stops looking like the label's checkbox.
+//!
+//! What is deliberately *not* scaled: borders, gaps, paddings, corner radii,
+//! scroll bar thickness, dividers and the hit areas of resize handles. They are
+//! the frame around the content rather than the content, and scaling them too
+//! would only make a larger interface look like a zoomed screenshot of the small
+//! one. Neither are the caps an overlay or a dialog takes from the window:
+//! a dialog whose width an application scaled still stops at the window's edge.
+//!
+//! An application holds to the same rule for its own sizes: an icon it draws is
+//! `rugpui_shell::icons::icon(path, scaled(16., cx), color)`, not `px(16.)`.
 
 use gpui::{App, Global, Pixels, px};
 
@@ -149,5 +164,62 @@ mod tests {
             set_ui_scale(f32::NAN, cx);
             assert_eq!(ui_scale(cx), 1.0);
         });
+    }
+
+    /// A checkbox, a switch and a menu trigger with its icon, side by side.
+    struct Symbols;
+
+    impl gpui::Render for Symbols {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            use gpui::{ParentElement, Styled};
+            gpui::div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .child(crate::Checkbox::new("check", "Check"))
+                .child(crate::Switch::new("switch", "Switch"))
+                .child(crate::MenuButton::new("menu"))
+        }
+    }
+
+    /// The symbols beside the text grow with it, and at the default factor
+    /// they are the pixels they always were.
+    #[gpui::test]
+    fn icons_and_toggles_grow_with_the_interface(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|_, _| Symbols);
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(400.), px(300.)));
+        let measure = |cx: &mut gpui::VisualTestContext, scale: f32| {
+            cx.update(|_, cx| set_ui_scale(scale, cx));
+            cx.run_until_parked();
+            [
+                "checkbox-box",
+                "switch-track",
+                "menu-trigger",
+                "menu-trigger-icon",
+            ]
+            .map(|name| {
+                cx.debug_bounds(name)
+                    .unwrap_or_else(|| panic!("{name} is not drawn"))
+                    .size
+            })
+        };
+
+        let [check, switch, trigger, icon] = measure(&mut cx, 1.0);
+        assert_eq!(check, gpui::size(px(16.), px(16.)));
+        assert_eq!(switch, gpui::size(px(30.), px(16.)));
+        assert_eq!(trigger, gpui::size(px(28.), px(28.)));
+        assert_eq!(icon, gpui::size(px(16.), px(16.)));
+
+        let [check, switch, trigger, icon] = measure(&mut cx, 1.5);
+        assert_eq!(check, gpui::size(px(24.), px(24.)));
+        assert_eq!(switch, gpui::size(px(45.), px(24.)));
+        assert_eq!(trigger, gpui::size(px(42.), px(42.)));
+        assert_eq!(icon, gpui::size(px(24.), px(24.)));
     }
 }

@@ -529,7 +529,11 @@ impl UpdateDialog {
             .overflow_y_scroll()
             .smooth_scroll(&self.notes_scroll)
             .restrict_scroll_to_axis()
-            .children(blocks.iter().map(|block| note_block(block, &theme, &mono)));
+            .children(
+                blocks
+                    .iter()
+                    .map(|block| note_block(block, &theme, &mono, cx)),
+            );
 
         let bar =
             self.notes_scrollbar()
@@ -669,7 +673,7 @@ impl UpdateDialog {
                         div()
                             .flex_none()
                             .w_full()
-                            .h(px(PROGRESS_BAR))
+                            .h(rugpui::scaled(PROGRESS_BAR, cx))
                             .rounded_sm()
                             .bg(theme.border)
                             .child(
@@ -807,18 +811,22 @@ fn percent(done: u64, total: u64) -> u8 {
 }
 
 /// One block of release notes, drawn in the dialog's small type.
-fn note_block(block: &Block, theme: &Theme, mono: &SharedString) -> AnyElement {
+///
+/// `cx` is only asked for the UI scale the text is drawn at.
+fn note_block(block: &Block, theme: &Theme, mono: &SharedString, cx: &App) -> AnyElement {
+    let heading = rugpui::scaled(12.5, cx);
+    let body = TextSize::Sm.size(cx);
     let words = |inline: &Inline| styled(inline, theme, mono);
     match block {
         Block::Heading(inline) => div()
             .pt(px(4.))
-            .text_size(px(12.5))
+            .text_size(heading)
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(theme.text)
             .child(words(inline))
             .into_any_element(),
         Block::Paragraph(inline) => div()
-            .text_size(px(12.))
+            .text_size(body)
             .text_color(theme.text)
             .child(words(inline))
             .into_any_element(),
@@ -826,7 +834,7 @@ fn note_block(block: &Block, theme: &Theme, mono: &SharedString) -> AnyElement {
             .flex()
             .flex_row()
             .gap(px(6.))
-            .text_size(px(12.))
+            .text_size(body)
             .text_color(theme.text)
             .child(div().flex_none().text_color(theme.text_muted).child("•"))
             .child(div().flex_1().min_w_0().child(words(inline)))
@@ -931,7 +939,13 @@ impl Render for UpdateDialog {
                     dialog.release_scrollbar(cx);
                 }),
             )
-            .child(modal("update-modal", title, px(width), body, on_dismiss))
+            .child(modal(
+                "update-modal",
+                title,
+                rugpui::scaled(width, cx),
+                body,
+                on_dismiss,
+            ))
     }
 }
 

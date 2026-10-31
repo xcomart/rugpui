@@ -96,9 +96,10 @@ const TRIGGER_ICON: f32 = 16.;
 /// two triggers side by side each answer to their own.
 const TRIGGER_GROUP: &str = "menu-trigger";
 
-/// Vertical distance from the top of the trigger to the top of the dropdown, so
-/// that the panel clears the button it hangs from.
-const DROP_OFFSET: f32 = TRIGGER_SIZE + 4.;
+/// Gap between the bottom of the trigger and the top of the dropdown, so
+/// that the panel clears the button it hangs from. Not scaled: the trigger's
+/// own height is, and the gap is the frame around it.
+const DROP_GAP: f32 = 4.;
 
 /// Width of a [`MenuButton`] dropdown panel.
 ///
@@ -141,10 +142,13 @@ const SWATCH_GAP: f32 = 8.;
 /// A square of `color`, framed so that a color close to the panel's own still
 /// reads as a square: what [`MenuEntry::swatch`] and
 /// [`SelectOption::swatch`](crate::select::SelectOption::swatch) draw.
-pub(crate) fn color_swatch(color: Hsla, theme: &Theme) -> Div {
+///
+/// `size` is the square's edge; a menu row and a dropdown option pass
+/// [`SWATCH_SIZE`] at the UI scale.
+pub(crate) fn color_swatch(color: Hsla, theme: &Theme, size: Pixels) -> Div {
     div()
         .flex_none()
-        .size(px(SWATCH_SIZE))
+        .size(size)
         .rounded_sm()
         .border_1()
         .border_color(theme.border)
@@ -627,6 +631,8 @@ fn menu_panel(
     let row_theme = theme.clone();
     let highlighted = keys.highlight.get();
     let row_height = scaled(ROW_HEIGHT, cx);
+    let check_width = scaled(CHECK_WIDTH, cx);
+    let swatch_size = scaled(SWATCH_SIZE, cx);
     let row_text = TextSize::Body.size(cx);
     let shortcut_text = TextSize::Xs.size(cx);
     let highlight = keys.highlight.clone();
@@ -652,6 +658,7 @@ fn menu_panel(
             swatch,
             ..
         } = entry;
+        let swatch = swatch.map(|color| color_swatch(color, theme, swatch_size));
 
         let highlight = highlight.clone();
         div()
@@ -703,7 +710,7 @@ fn menu_panel(
                 this.child(
                     div()
                         .flex_none()
-                        .w(px(CHECK_WIDTH))
+                        .w(check_width)
                         .whitespace_nowrap()
                         .child(if checked { CHECK_MARK } else { "" }),
                 )
@@ -721,12 +728,7 @@ fn menu_panel(
                     // and a square that far from its name would read as
                     // belonging to neither.
                     .when(swatched, |this| {
-                        this.child(
-                            div()
-                                .flex_none()
-                                .w(px(SWATCH_SIZE))
-                                .children(swatch.map(|color| color_swatch(color, theme))),
-                        )
+                        this.child(div().flex_none().w(swatch_size).children(swatch))
                     })
                     .child(
                         div()
@@ -773,7 +775,8 @@ fn menu_panel(
 
     match width {
         PanelWidth::Fixed(width) => panel.w(width),
-        PanelWidth::Content { min, max } => panel.min_w(px(min)).max_w(px(max)),
+        // Wide enough for the same words at any UI scale.
+        PanelWidth::Content { min, max } => panel.min_w(scaled(min, cx)).max_w(scaled(max, cx)),
     }
     .children(rows)
     .into_any_element()
@@ -1118,7 +1121,8 @@ impl RenderOnce for MenuButton {
         // asset and not the `☰` character it used to be.
         let svg_face = |path: SharedString| {
             svg()
-                .size(px(TRIGGER_ICON))
+                .size(scaled(TRIGGER_ICON, cx))
+                .debug_selector(|| "menu-trigger-icon".to_string())
                 .flex_none()
                 .path(path)
                 .text_color(tint)
@@ -1142,7 +1146,8 @@ impl RenderOnce for MenuButton {
             .flex_none()
             .items_center()
             .justify_center()
-            .size(px(TRIGGER_SIZE))
+            .size(scaled(TRIGGER_SIZE, cx))
+            .debug_selector(|| "menu-trigger".to_string())
             .rounded_md()
             .text_size(TextSize::Title.size(cx))
             .text_color(tint)
@@ -1195,7 +1200,7 @@ impl RenderOnce for MenuButton {
         let panel = menu_panel(
             ElementId::from((self.id.clone(), "panel")),
             self.entries,
-            PanelWidth::Fixed(px(PANEL_WIDTH)),
+            PanelWidth::Fixed(scaled(PANEL_WIDTH, cx)),
             panel_max_height(window),
             on_dismiss,
             keys.unwrap_or_else(|| PanelKeys {
@@ -1212,13 +1217,13 @@ impl RenderOnce for MenuButton {
         // row would center the whole panel on the 28px button instead of
         // starting it at the button's top-left corner. This box neither centers
         // its children nor takes up space, so the panel starts exactly one
-        // [`DROP_OFFSET`] below the top-left of the trigger.
+        // trigger's height and a [`DROP_GAP`] below its top-left corner.
         let overlays = div()
             .flex()
             .flex_col()
             .flex_none()
             .w(px(0.))
-            .h(px(TRIGGER_SIZE))
+            .h(scaled(TRIGGER_SIZE, cx))
             .child(
                 deferred(anchored().position(point(px(0.), px(0.))).child(backdrop))
                     .with_priority(BACKDROP_PRIORITY),
@@ -1227,7 +1232,7 @@ impl RenderOnce for MenuButton {
                 deferred(
                     anchored()
                         .anchor(Anchor::TopLeft)
-                        .offset(point(px(0.), px(DROP_OFFSET)))
+                        .offset(point(px(0.), scaled(TRIGGER_SIZE, cx) + px(DROP_GAP)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(panel),
                 )

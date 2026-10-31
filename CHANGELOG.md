@@ -93,9 +93,36 @@ revision past it.
 - A `GridView` subscription closure that ignores its event entirely now has
   to name its type (`event: &GridEvent`), since the grid emits two event
   types; closures that match on `GridEvent` variants infer it as before.
+- The UI scale reaches the symbols and boxes beside the text, not only the
+  text and the rows holding it: icons and the fixed boxes that hold only an
+  icon (a tab's close and "+" buttons, a `MenuButton` trigger), a
+  `Checkbox`'s box, a `Switch`'s track and knob, a `Slider`'s and a
+  `RangeSlider`'s knob and track, the tree and `Collapsible` arrows and a tree
+  level's indent, the `Select` and `SchemeSelect` chevrons, option icons,
+  swatches and preview pills, tab status dots and marks, the grid's expand
+  icon, `ProgressBar`, a `Spinner` that was not given a size, the
+  `ColorPicker` knobs, swatches, hue strip, field and hex field, and the fixed
+  widths that hold text (a `Select`'s default width and list height, a menu's
+  panel width, the theme editor's label and hex columns, the shell's
+  dialogs). Borders, gaps, paddings, radii, scroll bar thickness and resize
+  hit areas stay as they were. At the default scale every pixel is the same.
+  `tooltip_frame` now takes `cx` as well as the theme, for its text size.
+  A consumer should draw its own icons and fixed boxes the same way —
+  `icons::icon(path, scaled(16., cx), color)` rather than `px(16.)`;
+  `Spinner::size` and `ColorPicker::field_height` take a size as given, so a
+  host that sets one scales it.
 
 ### Fixed
 
+- A dropdown opened from a `Select` or a `SchemeSelect` at a UI scale above
+  1 overlapped its own trigger: the trigger's height followed the scale and
+  the offset the list hung at did not.
+- A `modal` is never wider than its window less the margin it keeps above
+  and below, so a width an application scaled for a large interface stops at
+  the window's edge instead of running off both sides. A width that fits is
+  drawn as asked.
+- Tooltip text and the release notes in the update dialog follow the UI
+  scale.
 - A `Checkbox` or `Switch` label longer than the room it has wraps onto more
   lines instead of running past its container on one: the label, and the
   row itself, may now be narrower than the label's one-line width. The box or

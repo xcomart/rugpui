@@ -380,9 +380,15 @@ impl RenderOnce for UnsavedWorkDialog {
             .child(list)
             .child(buttons);
 
-        let dialog = modal("unsaved-work", label(cx, title), px(440.), body, dismiss)
-            .escape_dismisses(!self.busy)
-            .backdrop_dismisses(!self.busy);
+        let dialog = modal(
+            "unsaved-work",
+            label(cx, title),
+            rugpui::scaled(440., cx),
+            body,
+            dismiss,
+        )
+        .escape_dismisses(!self.busy)
+        .backdrop_dismisses(!self.busy);
         match &self.cancel_focus {
             Some(handle) => dialog.initial_focus(handle),
             None => dialog.autofocus(true),

@@ -117,12 +117,25 @@ impl TabStatus {
     }
 }
 
-/// Size of the mark drawn after a tab's title, in pixels.
+/// Size of the mark drawn after a tab's title, at the default UI scale.
 ///
 /// Level with the 13 px title beside it rather than with the 16 px of a
 /// toolbar button: the mark is read as part of the tab's line, and one drawn
 /// larger than the words would announce itself as a control to press.
 const MARK_SIZE: f32 = 13.;
+
+/// Diameter of the status dot in front of a tab's title, at the default UI
+/// scale.
+const DOT_SIZE: f32 = 6.;
+
+/// Edge length of a tab's close button, at the default UI scale.
+const CLOSE_SIZE: f32 = 16.;
+
+/// Edge length of the "+" button after the last tab, at the default UI scale.
+const NEW_BUTTON_SIZE: f32 = 28.;
+
+/// Edge length of the icon on the "+" button, at the default UI scale.
+const NEW_ICON_SIZE: f32 = 16.;
 
 /// An icon drawn after a tab's title, saying something the dot cannot.
 #[derive(Debug, Clone)]
@@ -967,6 +980,10 @@ impl RenderOnce for TabBar {
         let tab_theme = theme.clone();
         let tab_text = TextSize::Body.size(cx);
         let close_text = TextSize::Sm.size(cx);
+        // The marks a tab carries grow with the text beside them.
+        let dot_size = scaled(DOT_SIZE, cx);
+        let mark_size = scaled(MARK_SIZE, cx);
+        let close_size = scaled(CLOSE_SIZE, cx);
         let on_reorder_tabs = on_reorder.clone();
         let drop_gap_tabs = drop_gap.clone();
         let wheel_handle = scroll_handle.clone();
@@ -1137,7 +1154,7 @@ impl RenderOnce for TabBar {
                         tab.dot
                             .or_else(|| tab.status.map(|status| status.color(theme))),
                         |this, color| {
-                            this.child(div().flex_none().size(px(6.)).rounded_full().bg(color))
+                            this.child(div().flex_none().size(dot_size).rounded_full().bg(color))
                         },
                     )
                     .child(div().whitespace_nowrap().child(tab.title))
@@ -1167,7 +1184,7 @@ impl RenderOnce for TabBar {
                                 .tooltip(tooltip_label(mark.tooltip))
                                 .child(
                                     svg()
-                                        .size(px(MARK_SIZE))
+                                        .size(mark_size)
                                         .flex_none()
                                         .path(mark.icon)
                                         .text_color(theme.icon),
@@ -1194,7 +1211,7 @@ impl RenderOnce for TabBar {
                                 .flex_none()
                                 .items_center()
                                 .justify_center()
-                                .size(px(16.))
+                                .size(close_size)
                                 .rounded_sm()
                                 .text_size(close_text)
                                 // The mark on a button, not a word in the title
@@ -1368,7 +1385,7 @@ impl RenderOnce for TabBar {
                 let hover_text = theme.text;
                 let face = match self.new_icon.clone() {
                     Some(path) => svg()
-                        .size(px(16.))
+                        .size(scaled(NEW_ICON_SIZE, cx))
                         .flex_none()
                         .path(path)
                         .text_color(theme.icon)
@@ -1387,7 +1404,7 @@ impl RenderOnce for TabBar {
                         .flex_none()
                         .items_center()
                         .justify_center()
-                        .size(px(28.))
+                        .size(scaled(NEW_BUTTON_SIZE, cx))
                         .mx(px(4.))
                         .rounded_md()
                         .text_size(scaled(16., cx))

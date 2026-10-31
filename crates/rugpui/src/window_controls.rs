@@ -23,10 +23,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, ElementId, Hsla, SharedString, Svg, Window, WindowButton, WindowButtonLayout,
-    WindowControlArea, div, prelude::*, px, rgb, svg,
+    App, ElementId, Hsla, Pixels, SharedString, Svg, Window, WindowButton, WindowButtonLayout,
+    WindowControlArea, div, prelude::*, rgb, svg,
 };
 
+use crate::scale::scaled;
 use crate::theme::theme;
 
 /// Width of one button, matching the caption buttons Windows draws.
@@ -189,12 +190,8 @@ impl WindowControls {
 }
 
 /// A caption glyph, sized and tinted.
-fn glyph(path: SharedString, color: Hsla) -> Svg {
-    svg()
-        .size(px(GLYPH_SIZE))
-        .flex_none()
-        .path(path)
-        .text_color(color)
+fn glyph(path: SharedString, color: Hsla, size: Pixels) -> Svg {
+    svg().size(size).flex_none().path(path).text_color(color)
 }
 
 impl RenderOnce for WindowControls {
@@ -208,6 +205,10 @@ impl RenderOnce for WindowControls {
             active,
             on_close,
         } = self;
+        // The strip these sit in grows with the interface, so the buttons
+        // and their glyphs do too.
+        let glyph_size = scaled(GLYPH_SIZE, cx);
+        let button_width = scaled(BUTTON_WIDTH, cx);
         let glyph_color = match active {
             Some(true) => theme.text,
             Some(false) => theme.text_muted,
@@ -226,7 +227,7 @@ impl RenderOnce for WindowControls {
                 .flex_none()
                 .items_center()
                 .justify_center()
-                .w(px(BUTTON_WIDTH))
+                .w(button_width)
                 .h_full()
                 .cursor_pointer()
         };
@@ -239,7 +240,7 @@ impl RenderOnce for WindowControls {
                     // press to the window procedure before the app sees a click.
                     .on_click(|_, window, _cx| window.minimize_window())
                     .child(
-                        glyph(icons.minimize.clone(), glyph_color)
+                        glyph(icons.minimize.clone(), glyph_color, glyph_size)
                             .group_hover(MINIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
@@ -253,7 +254,7 @@ impl RenderOnce for WindowControls {
                     .hover(|style| style.bg(theme.surface_hover))
                     .on_click(|_, window, _cx| window.zoom_window())
                     .child(
-                        glyph(path, glyph_color)
+                        glyph(path, glyph_color, glyph_size)
                             .group_hover(MAXIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
@@ -266,9 +267,10 @@ impl RenderOnce for WindowControls {
                         None => window.remove_window(),
                     })
                     .child(
-                        glyph(icons.close.clone(), glyph_color).group_hover(CLOSE_GROUP, |style| {
-                            style.text_color(rgb(CLOSE_HOVER_GLYPH))
-                        }),
+                        glyph(icons.close.clone(), glyph_color, glyph_size)
+                            .group_hover(CLOSE_GROUP, |style| {
+                                style.text_color(rgb(CLOSE_HOVER_GLYPH))
+                            }),
                     )
             }
         });

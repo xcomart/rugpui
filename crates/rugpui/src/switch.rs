@@ -20,28 +20,82 @@ type ToggleHandler = Box<dyn Fn(bool, &mut Window, &mut App)>;
 /// than being shown two pictures.
 const SLIDE: Duration = Duration::from_millis(150);
 
-/// Width of the track, in pixels.
+/// Width of the track, in pixels at the default UI scale.
 const TRACK_WIDTH: f32 = 30.;
 
-/// Height of the track, in pixels.
+/// Height of the track, in pixels at the default UI scale.
 const TRACK_HEIGHT: f32 = 16.;
 
 /// Thickness of the track's outline, which `border_1` draws *inside* the
-/// track's own box.
+/// track's own box. One pixel at every UI scale, as every other border is.
 const TRACK_BORDER: f32 = 1.;
 
-/// Gap between the outline and the knob at the end the knob is resting at.
+/// Gap between the outline and the knob at the end the knob is resting at, at
+/// the default UI scale.
+///
+/// Scaled with the track although it is a gap: it is part of the switch's
+/// picture, and a knob that grew while the gap did not would sit ever tighter
+/// against the ends.
 const TRACK_INSET: f32 = 2.;
 
-/// Diameter of the knob, in pixels.
+/// Diameter of the knob, in pixels at the default UI scale.
 const KNOB: f32 = 12.;
 
-/// Where the knob sits on the vertical, measured from inside the outline.
-///
-/// The knob is taller than the room the insets leave, so it is centered on the
-/// track rather than fitted between them — which is what the flex layout this
-/// replaced did, and why the two draw the same picture.
-const KNOB_TOP: f32 = (TRACK_HEIGHT - 2. * TRACK_BORDER - KNOB) / 2.;
+/// The track and the knob at one UI scale: everything but the outline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Geometry {
+    /// Width of the track.
+    width: f32,
+    /// Height of the track.
+    height: f32,
+    /// Gap between the outline and a resting knob.
+    inset: f32,
+    /// Diameter of the knob.
+    knob: f32,
+}
+
+impl Geometry {
+    /// The switch at UI scale `scale`; `1.0` is the pixels above.
+    fn at(scale: f32) -> Self {
+        Self {
+            width: TRACK_WIDTH * scale,
+            height: TRACK_HEIGHT * scale,
+            inset: TRACK_INSET * scale,
+            knob: KNOB * scale,
+        }
+    }
+
+    /// Where the knob sits on the vertical, measured from inside the outline.
+    ///
+    /// The knob is taller than the room the insets leave, so it is centered on
+    /// the track rather than fitted between them — which is what the flex
+    /// layout this replaced did, and why the two draw the same picture.
+    fn knob_top(self) -> f32 {
+        (self.height - 2. * TRACK_BORDER - self.knob) / 2.
+    }
+
+    /// Where the knob rests when the switch is settled at `checked`, measured
+    /// from inside the track's outline.
+    fn knob_rest(self, checked: bool) -> f32 {
+        if checked {
+            self.width - 2. * TRACK_BORDER - self.inset - self.knob
+        } else {
+            self.inset
+        }
+    }
+
+    /// Where the knob is drawn on the frame at `delta` of the `generation`th
+    /// slide towards `checked`.
+    ///
+    /// The switch has two positions, so the end the knob is leaving is always
+    /// the one the other value rests at and there is no start position to
+    /// remember.
+    fn knob_left(self, checked: bool, delta: f32, generation: u32) -> f32 {
+        let from = self.knob_rest(!checked);
+        let to = self.knob_rest(checked);
+        from + (to - from) * phase(delta, generation)
+    }
+}
 
 /// Everything the switch remembers between frames.
 ///
@@ -93,27 +147,6 @@ fn slide_id(id: &ElementId, generation: u32) -> ElementId {
 /// knob sliding in from the wrong end.
 fn phase(delta: f32, generation: u32) -> f32 {
     if generation == 0 { 1.0 } else { delta }
-}
-
-/// Where the knob rests when the switch is settled at `checked`, measured from
-/// inside the track's outline.
-fn knob_rest(checked: bool) -> f32 {
-    if checked {
-        TRACK_WIDTH - 2. * TRACK_BORDER - TRACK_INSET - KNOB
-    } else {
-        TRACK_INSET
-    }
-}
-
-/// Where the knob is drawn on the frame at `delta` of the `generation`th slide
-/// towards `checked`.
-///
-/// The switch has two positions, so the end the knob is leaving is always the
-/// one the other value rests at and there is no start position to remember.
-fn knob_left(checked: bool, delta: f32, generation: u32) -> f32 {
-    let from = knob_rest(!checked);
-    let to = knob_rest(checked);
-    from + (to - from) * phase(delta, generation)
 }
 
 /// The track fill, the track outline and the knob, in the position `checked`
@@ -218,6 +251,7 @@ impl RenderOnce for Switch {
             state.generation
         });
 
+        let geometry = Geometry::at(crate::scale::ui_scale(cx));
         let (from_track, from_border, from_knob) = colors(&theme, !checked);
         let (to_track, to_border, to_knob) = colors(&theme, checked);
 
@@ -228,8 +262,9 @@ impl RenderOnce for Switch {
             .flex()
             .flex_none()
             .relative()
-            .w(px(TRACK_WIDTH))
-            .h(px(TRACK_HEIGHT))
+            .w(px(geometry.width))
+            .h(px(geometry.height))
+            .debug_selector(|| "switch-track".to_string())
             .rounded_full()
             .border_1()
             .with_animation(
@@ -246,9 +281,9 @@ impl RenderOnce for Switch {
                             // alignment has only the two ends to offer.
                             div()
                                 .absolute()
-                                .top(px(KNOB_TOP))
-                                .left(px(knob_left(checked, delta, generation)))
-                                .size(px(KNOB))
+                                .top(px(geometry.knob_top()))
+                                .left(px(geometry.knob_left(checked, delta, generation)))
+                                .size(px(geometry.knob))
                                 .rounded_full()
                                 .bg(lerp(from_knob, to_knob, phase)),
                         )
@@ -311,32 +346,49 @@ mod tests {
     /// it: hard against the inset at either end of the track.
     #[test]
     fn the_knob_rests_against_either_inset() {
-        assert_eq!(knob_rest(false), TRACK_INSET);
-        assert_eq!(knob_rest(true), 14.);
+        let at = Geometry::at(1.0);
+        assert_eq!(at.knob_rest(false), TRACK_INSET);
+        assert_eq!(at.knob_rest(true), 14.);
         // Symmetric: the gap left at the far end is the gap at the near one.
         assert_eq!(
-            knob_rest(true) + KNOB + TRACK_INSET,
+            at.knob_rest(true) + KNOB + TRACK_INSET,
             TRACK_WIDTH - 2. * TRACK_BORDER
         );
         // And the knob is centered on the track rather than fitted inside the
         // insets, which it is too tall for.
-        assert_eq!(KNOB_TOP, 1.);
+        assert_eq!(at.knob_top(), 1.);
+    }
+
+    /// A larger interface draws a larger switch with the same picture: the
+    /// knob still rests against the inset at either end, and only the
+    /// outline stays one pixel.
+    #[test]
+    fn the_switch_grows_with_the_interface() {
+        let at = Geometry::at(1.5);
+        assert_eq!((at.width, at.height, at.knob), (45., 24., 18.));
+        assert_eq!(at.knob_rest(false), at.inset);
+        assert_eq!(
+            at.knob_rest(true) + at.knob + at.inset,
+            at.width - 2. * TRACK_BORDER
+        );
+        assert_eq!(at.knob_top(), (24. - 2. - 18.) / 2.);
     }
 
     /// A slide runs from the end the other value rests at to the end this one
     /// does, and the frames in between are in between.
     #[test]
     fn the_knob_crosses_from_one_end_to_the_other() {
-        assert_eq!(knob_left(true, 0.0, 1), knob_rest(false));
-        assert_eq!(knob_left(true, 1.0, 1), knob_rest(true));
+        let at = Geometry::at(1.0);
+        assert_eq!(at.knob_left(true, 0.0, 1), at.knob_rest(false));
+        assert_eq!(at.knob_left(true, 1.0, 1), at.knob_rest(true));
         assert_eq!(
-            knob_left(true, 0.5, 1),
-            (knob_rest(false) + knob_rest(true)) / 2.
+            at.knob_left(true, 0.5, 1),
+            (at.knob_rest(false) + at.knob_rest(true)) / 2.
         );
 
         // And the same journey the other way.
-        assert_eq!(knob_left(false, 0.0, 3), knob_rest(true));
-        assert_eq!(knob_left(false, 1.0, 3), knob_rest(false));
+        assert_eq!(at.knob_left(false, 0.0, 3), at.knob_rest(true));
+        assert_eq!(at.knob_left(false, 1.0, 3), at.knob_rest(false));
     }
 
     /// A switch that has never changed value is drawn settled, whatever the
@@ -344,10 +396,11 @@ mod tests {
     /// open with its knob sliding in from the wrong end.
     #[test]
     fn a_switch_that_never_changed_does_not_slide() {
+        let at = Geometry::at(1.0);
         for delta in [0.0, 0.25, 0.5, 1.0] {
             assert_eq!(phase(delta, 0), 1.0);
-            assert_eq!(knob_left(true, delta, 0), knob_rest(true));
-            assert_eq!(knob_left(false, delta, 0), knob_rest(false));
+            assert_eq!(at.knob_left(true, delta, 0), at.knob_rest(true));
+            assert_eq!(at.knob_left(false, delta, 0), at.knob_rest(false));
         }
 
         // Once it has changed, the clock is what says where the knob is.

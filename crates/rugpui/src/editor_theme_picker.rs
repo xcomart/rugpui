@@ -39,6 +39,9 @@ const PREVIEW_LINE_HEIGHT: f32 = 13.;
 /// Width of the previewed gutter, in pixels.
 const PREVIEW_GUTTER_WIDTH: f32 = 13.;
 
+/// Height of the caret drawn on the sample's current line.
+const PREVIEW_CARET_HEIGHT: f32 = 10.;
+
 /// Text drawn on a card that has no colors of its own.
 ///
 /// English, because the widget layer has no locale of its own; every caller in
@@ -324,7 +327,14 @@ impl EditorThemePicker {
 /// Every color comes from `preview` and none from the surrounding chrome, which
 /// is the whole point: the card has to look like the editor will look, not like
 /// the dialog it is sitting in.
-fn snippet(preview: &EditorTheme, font_family: Option<SharedString>) -> impl IntoElement {
+///
+/// `scale` is the UI scale: the sample is text, so it grows with the interface
+/// like any other; the padding around it does not.
+fn snippet(
+    preview: &EditorTheme,
+    font_family: Option<SharedString>,
+    scale: f32,
+) -> impl IntoElement {
     let lines = PREVIEW_LINES.iter().enumerate().map(|(index, spans)| {
         let current = index == PREVIEW_CARET_LINE;
 
@@ -333,14 +343,14 @@ fn snippet(preview: &EditorTheme, font_family: Option<SharedString>) -> impl Int
             .flex_row()
             .items_center()
             .w_full()
-            .h(px(PREVIEW_LINE_HEIGHT))
+            .h(px(PREVIEW_LINE_HEIGHT * scale))
             // The current-line band spans the gutter too, as it does in the
             // editor: a band that stops at the text reads as a selection.
             .when(current, |this| this.bg(preview.line_highlight))
             .child(
                 div()
                     .flex_none()
-                    .w(px(PREVIEW_GUTTER_WIDTH))
+                    .w(px(PREVIEW_GUTTER_WIDTH * scale))
                     .pr(px(3.))
                     .text_right()
                     .text_color(if current {
@@ -362,7 +372,13 @@ fn snippet(preview: &EditorTheme, font_family: Option<SharedString>) -> impl Int
             // a block: a block caret would hide the character under it and take
             // the selection's color with it.
             .when(current, |this| {
-                this.child(div().flex_none().w(px(1.)).h(px(10.)).bg(preview.cursor))
+                this.child(
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h(px(PREVIEW_CARET_HEIGHT * scale))
+                        .bg(preview.cursor),
+                )
             })
     });
 
@@ -374,20 +390,22 @@ fn snippet(preview: &EditorTheme, font_family: Option<SharedString>) -> impl Int
         .py(px(3.))
         .rounded_sm()
         .bg(preview.background)
-        .text_size(px(PREVIEW_TEXT_SIZE))
+        .text_size(px(PREVIEW_TEXT_SIZE * scale))
         .text_color(preview.foreground)
         .when_some(font_family, |this, family| this.font_family(family))
         .children(lines)
 }
 
 /// Height of a card body, so that a placeholder card is the size of a preview.
-fn body_height() -> f32 {
-    PREVIEW_LINE_HEIGHT * PREVIEW_LINES.len() as f32 + 6.
+fn body_height(scale: f32) -> f32 {
+    PREVIEW_LINE_HEIGHT * scale * PREVIEW_LINES.len() as f32 + 6.
 }
 
 impl RenderOnce for EditorThemePicker {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = theme(cx);
+        let scale = crate::scale::ui_scale(cx);
+        let small = crate::scale::TextSize::Xs.size(cx);
         let columns = self.columns;
         let selected = self.selected;
         let on_select = self.on_select;
@@ -414,19 +432,19 @@ impl RenderOnce for EditorThemePicker {
 
                         let body = match &entry.preview {
                             Some(preview) => {
-                                snippet(preview, font_family.clone()).into_any_element()
+                                snippet(preview, font_family.clone(), scale).into_any_element()
                             }
                             None => div()
                                 .flex()
                                 .flex_row()
                                 .items_center()
                                 .justify_center()
-                                .h(px(body_height()))
+                                .h(px(body_height(scale)))
                                 .px(px(6.))
                                 .rounded_sm()
                                 .border_1()
                                 .border_color(theme.border)
-                                .text_size(px(11.))
+                                .text_size(small)
                                 .text_color(theme.text_muted)
                                 .child(entry.placeholder_label.clone())
                                 .into_any_element(),
@@ -463,7 +481,7 @@ impl RenderOnce for EditorThemePicker {
                             .child(
                                 div()
                                     .truncate()
-                                    .text_size(px(11.))
+                                    .text_size(small)
                                     .text_color(if is_selected {
                                         theme.text
                                     } else {

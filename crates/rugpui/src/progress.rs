@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt, App, ElementId, Window, div, ease_in_out, prelude::*, px, relative,
+    Animation, AnimationExt, App, ElementId, Window, div, ease_in_out, prelude::*, relative,
 };
 
 use crate::theme::theme;
@@ -11,6 +11,9 @@ use crate::theme::theme;
 /// Fraction of the track's width the sweeping segment covers while
 /// [`ProgressBar`] is indeterminate.
 const SWEEP_FRACTION: f32 = 0.3;
+
+/// Height of the bar, in pixels at the default UI scale.
+const BAR_HEIGHT: f32 = 6.;
 
 /// How long one pass of the indeterminate sweep takes.
 const SWEEP_DURATION: Duration = Duration::from_millis(1200);
@@ -109,7 +112,8 @@ impl RenderOnce for ProgressBar {
             .id(self.id)
             .relative()
             .w_full()
-            .h(px(6.))
+            // Grows with the interface, as the rows around it do.
+            .h(crate::scale::scaled(BAR_HEIGHT, cx))
             .rounded_full()
             .overflow_hidden()
             .border_1()

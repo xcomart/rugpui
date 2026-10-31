@@ -63,7 +63,7 @@ const PART_GAP: f32 = 4.;
 /// rather than restating any of that:
 ///
 /// ```ignore
-/// tooltip_frame(&theme(cx)).child(my_own_element)
+/// tooltip_frame(&theme(cx), cx).child(my_own_element)
 /// ```
 ///
 /// The text size and color are set on the frame rather than on its children,
@@ -74,7 +74,10 @@ const PART_GAP: f32 = 4.;
 ///
 /// [`tooltip_with`] and [`Tooltip`] are this function with the contents filled
 /// in; use them unless the content is unusual enough to want the frame bare.
-pub fn tooltip_frame(theme: &Theme) -> Div {
+///
+/// The text is [`TextSize::Xs`](crate::TextSize::Xs) at the UI scale, which is
+/// what `cx` is for.
+pub fn tooltip_frame(theme: &Theme, cx: &App) -> Div {
     div()
         .flex_none()
         .px(px(PADDING_X))
@@ -84,7 +87,7 @@ pub fn tooltip_frame(theme: &Theme) -> Div {
         .border_1()
         .border_color(theme.border)
         .shadow_md()
-        .text_size(px(11.))
+        .text_size(crate::scale::TextSize::Xs.size(cx))
         .text_color(theme.text)
 }
 
@@ -115,7 +118,7 @@ struct TooltipLabel {
 
 impl Render for TooltipLabel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        tooltip_frame(&theme(cx))
+        tooltip_frame(&theme(cx), cx)
             .text_size(TextSize::Xs.size(cx))
             .whitespace_nowrap()
             .child(self.label.clone())
@@ -181,7 +184,7 @@ struct TooltipContent {
 impl Render for TooltipContent {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = (self.build)(window, cx);
-        tooltip_frame(&theme(cx))
+        tooltip_frame(&theme(cx), cx)
             .text_size(TextSize::Xs.size(cx))
             .child(content)
     }
@@ -515,7 +518,7 @@ mod tests {
     impl Render for Probe {
         fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let seen = self.seen.clone();
-            tooltip_frame(&theme(cx))
+            tooltip_frame(&theme(cx), cx)
                 .text_size(TextSize::Xs.size(cx))
                 .relative()
                 .w(self.size.width)
