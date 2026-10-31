@@ -97,7 +97,8 @@ const VIEWPORT_MARGIN: f32 = 64.;
 /// zero — or a negative value — and hide it entirely.
 const MIN_PANEL_HEIGHT: f32 = 160.;
 
-/// Height of the band the title sits in, at the default UI scale.
+/// Height of the band the title sits in, at the default UI scale — the least
+/// it is: a title that wraps makes it taller.
 const TITLE_HEIGHT: f32 = 44.;
 
 /// Builds a modal dialog.
@@ -424,16 +425,21 @@ impl RenderOnce for Modal {
                     .shadow_lg()
                     .text_color(theme.text)
                     .child(
+                        // At least the band's height, and taller when a long
+                        // title wraps: a title that cannot wrap runs out of
+                        // the panel, past its border.
                         div()
                             .flex()
                             .flex_none()
                             .items_center()
                             .px(px(16.))
-                            .h(scaled(TITLE_HEIGHT, cx))
+                            .py(px(8.))
+                            .min_h(scaled(TITLE_HEIGHT, cx))
                             .border_b_1()
                             .border_color(theme.border)
                             .text_size(TextSize::Title.size(cx))
-                            .child(self.title),
+                            .debug_selector(|| "modal-title".to_string())
+                            .child(div().min_w_0().child(self.title)),
                     )
                     .child(
                         // `min_h_0` is what lets the body shrink once the panel
@@ -1420,5 +1426,41 @@ mod tests {
                 assert!(control.top() > body.top());
             })
             .unwrap();
+    }
+
+    /// A title too long for the panel wraps inside the band, which grows to
+    /// hold it, instead of running past the panel's border.
+    #[gpui::test]
+    fn a_long_title_wraps_inside_the_panel(cx: &mut TestAppContext) {
+        struct Titled(&'static str);
+        impl Render for Titled {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .child(modal("titled", self.0, px(240.), div(), |_, _| {}))
+            }
+        }
+        cx.update(crate::init);
+        let band = |title: &'static str, cx: &mut TestAppContext| {
+            let window = cx.add_window(|_, _| Titled(title));
+            let mut cx = VisualTestContext::from_window(window.into(), cx);
+            cx.simulate_resize(gpui::size(px(800.), px(600.)));
+            cx.run_until_parked();
+            cx.debug_bounds("modal-title")
+                .expect("the title band is drawn")
+        };
+        let short = band("Export set", cx);
+        let long = band(
+            "Benutzerdefinierte Variablen dieser Verbindung in die exportierte Datei aufnehmen",
+            cx,
+        );
+        assert_eq!(
+            long.size.width, short.size.width,
+            "the band keeps the panel's width"
+        );
+        assert!(
+            long.size.height > short.size.height + px(10.),
+            "the long title did not wrap: {short:?} vs {long:?}"
+        );
     }
 }

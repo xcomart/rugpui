@@ -255,11 +255,19 @@ impl RenderOnce for Switch {
                 },
             );
 
+        // As a checkbox's box does: beside the first line of a label that
+        // wraps.
+        let text_size = TextSize::Body.size(cx);
+        let track = crate::checkbox::first_line(track, text_size, window);
+
         div()
             .id(self.id)
             .flex()
             .flex_row()
-            .items_center()
+            .items_start()
+            // Lets the row be narrower than its label on one line, which is
+            // what makes the label wrap rather than run past its container.
+            .min_w_0()
             .gap(px(8.))
             .py(px(1.))
             .rounded_sm()
@@ -267,7 +275,7 @@ impl RenderOnce for Switch {
             .border_1()
             .border_color(gpui::transparent_black())
             .cursor_pointer()
-            .text_size(TextSize::Body.size(cx))
+            .text_size(text_size)
             .text_color(theme.text)
             .when_some(self.tab_index, |this, index| {
                 let accent = theme.accent;
@@ -278,7 +286,7 @@ impl RenderOnce for Switch {
                 this.on_click(move |_: &ClickEvent, window, cx| handler(next, window, cx))
             })
             .child(track)
-            .child(div().child(self.label))
+            .child(div().min_w_0().child(self.label))
     }
 }
 
@@ -480,6 +488,43 @@ mod tests {
                 generation: 2
             },
             "the way back was not counted as a slide of its own"
+        );
+    }
+
+    /// A label longer than the room it has wraps onto more lines rather than
+    /// running past its container.
+    #[gpui::test]
+    fn a_long_label_wraps_in_a_narrow_box(cx: &mut TestAppContext) {
+        struct Narrow(&'static str);
+        impl Render for Narrow {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w(px(160.))
+                        .debug_selector(|| "box".to_string())
+                        .child(Switch::new("narrow", self.0)),
+                )
+            }
+        }
+        cx.update(crate::init);
+        let laid_out = |label: &'static str, cx: &mut TestAppContext| {
+            let window = cx.add_window(|_, _| Narrow(label));
+            let mut cx = VisualTestContext::from_window(*window.deref(), cx);
+            cx.simulate_resize(size(px(600.), px(400.)));
+            cx.run_until_parked();
+            cx.debug_bounds("box").expect("the box is drawn")
+        };
+        let short = laid_out("Blur", cx);
+        let long = laid_out(
+            "Blur what is behind the window where the desktop supports it, which costs a little battery",
+            cx,
+        );
+        assert_eq!(long.size.width, px(160.));
+        assert!(
+            long.size.height > short.size.height * 2.,
+            "the label did not wrap: {short:?} vs {long:?}"
         );
     }
 }

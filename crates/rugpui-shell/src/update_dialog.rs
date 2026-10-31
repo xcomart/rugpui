@@ -658,8 +658,8 @@ impl UpdateDialog {
                             .flex_row()
                             .justify_between()
                             .gap(px(8.))
-                            .child(line(heading))
-                            .children(share.map(note)),
+                            .child(line(heading).min_w_0())
+                            .children(share.map(|share| note(share).flex_none())),
                     )
                     .child(note(available(release)))
                     // A hairline track in the border color, so an idle-looking

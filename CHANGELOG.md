@@ -94,6 +94,21 @@ revision past it.
   to name its type (`event: &GridEvent`), since the grid emits two event
   types; closures that match on `GridEvent` variants infer it as before.
 
+### Fixed
+
+- A `Checkbox` or `Switch` label longer than the room it has wraps onto more
+  lines instead of running past its container on one: the label, and the
+  row itself, may now be narrower than the label's one-line width. The box or
+  the track stays beside the first line of a wrapped label rather than moving
+  to the middle of it; a label that fits draws exactly as before. A host that
+  puts one in a row of its own still gives the item between them `min_w_0()`
+  for the label to have a width to wrap at.
+- A `modal` title too long for the panel wraps inside the title band, which
+  grows to hold it, instead of running out past the panel's border. A title
+  that fits keeps the band's 44 px.
+- The update dialog's download heading gives way to the percentage beside
+  it rather than pushing it out of the dialog.
+
 ## [0.1.13] - 2026-10-29
 
 ### Added
