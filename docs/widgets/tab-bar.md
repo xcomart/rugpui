@@ -151,6 +151,7 @@ The insertion bar is laid *over* the tabs (absolutely positioned on the tab it b
 
 - Left click on a tab → `on_select(index)`.
 - Left click on the close button → `on_close(index)`; the press is swallowed so the tab is not also selected. The button is invisible until the tab is hovered (`group_hover`).
+- Middle click on a closable tab → `on_close(index)`, as in a browser; the tab is not selected. The press stops at the strip, so Linux does not also paste the primary selection into whatever is underneath. A tab that is not `closable` ignores it.
 - Right press anywhere on a tab → `on_context_menu(index, position)`, on the *press* rather than the release. It deliberately does **not** also select the tab: the commands a tab menu offers differ for the active tab and any other, so the selection must survive the click that opens the menu. Render your own [`ContextMenu`](./menu.md) at `position`.
 - The tab, the "+" and the dropdown trigger all occlude, so a click on them is not read as "drag the window" when the strip doubles as the title bar.
 
@@ -166,6 +167,17 @@ Hand the bar a `FocusHandle` you keep beside its scroll handle, and the strip tr
 | Ctrl+Shift+PageUp / PageDown (Cmd on macOS) | `MoveTabLeft` / `MoveTabRight` | `on_reorder(DraggedTab { source: drag_source, index: active }, active - 1 / active + 2)` |
 
 Nothing happens at either end of the strip. The reorder needs both `drag_source` and `on_reorder`, and its index is a gap like a drop's, so the same move code serves both. While focused, the active tab wears a 1 px accent ring.
+
+None of this works until the owner passes `.focus_handle(&handle)` — a strip without one has no key context and no keys. The handle is the owner's, created once (`cx.focus_handle()`) and kept beside the rest of the strip's state:
+
+```rust
+TabBar::new("work-tabs")
+    .focus_handle(&self.tabs_focus)
+    .tabs(tabs)
+    .active(self.active)
+    .on_select(..)
+    .on_close(..)
+```
 
 Clicking a tab does **not** focus the strip — a click usually means "show me this", and the owner moves focus into what it shows. How the keyboard reaches the strip (a command, a tab stop) is the owner's choice: `handle.focus(window, cx)`.
 

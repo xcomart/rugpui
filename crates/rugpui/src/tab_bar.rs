@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::menu::{MenuButton, MenuEntry};
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::{
     Scrollbar, ScrollbarAxis, ScrollbarState, answer_own_scrollbar, own_scrollbar,
 };
@@ -116,12 +117,25 @@ impl TabStatus {
     }
 }
 
-/// Size of the mark drawn after a tab's title, in pixels.
+/// Size of the mark drawn after a tab's title, at the default UI scale.
 ///
 /// Level with the 13 px title beside it rather than with the 16 px of a
 /// toolbar button: the mark is read as part of the tab's line, and one drawn
 /// larger than the words would announce itself as a control to press.
 const MARK_SIZE: f32 = 13.;
+
+/// Diameter of the status dot in front of a tab's title, at the default UI
+/// scale.
+const DOT_SIZE: f32 = 6.;
+
+/// Edge length of a tab's close button, at the default UI scale.
+const CLOSE_SIZE: f32 = 16.;
+
+/// Edge length of the "+" button after the last tab, at the default UI scale.
+const NEW_BUTTON_SIZE: f32 = 28.;
+
+/// Edge length of the icon on the "+" button, at the default UI scale.
+const NEW_ICON_SIZE: f32 = 16.;
 
 /// An icon drawn after a tab's title, saying something the dot cannot.
 #[derive(Debug, Clone)]
@@ -387,7 +401,7 @@ struct DragGhost {
 }
 
 impl Render for DragGhost {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .px(px(10.))
             .py(px(4.))
@@ -395,7 +409,7 @@ impl Render for DragGhost {
             .border_1()
             .border_color(self.theme.accent)
             .rounded_md()
-            .text_size(px(13.))
+            .text_size(TextSize::Body.size(cx))
             .text_color(self.theme.text)
             .child(self.title.clone())
     }
@@ -603,9 +617,11 @@ impl TabBar {
         self
     }
 
-    /// Called with the index of the tab whose close button was clicked.
+    /// Called with the index of the tab whose close button was clicked, or
+    /// that was clicked with the middle button.
     ///
-    /// Setting this handler is what makes the close buttons appear.
+    /// Setting this handler is what makes the close buttons appear. A tab that
+    /// is not [`TabItem::closable`] answers neither gesture.
     pub fn on_close(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
@@ -962,6 +978,12 @@ impl RenderOnce for TabBar {
         });
 
         let tab_theme = theme.clone();
+        let tab_text = TextSize::Body.size(cx);
+        let close_text = TextSize::Sm.size(cx);
+        // The marks a tab carries grow with the text beside them.
+        let dot_size = scaled(DOT_SIZE, cx);
+        let mark_size = scaled(MARK_SIZE, cx);
+        let close_size = scaled(CLOSE_SIZE, cx);
         let on_reorder_tabs = on_reorder.clone();
         let drop_gap_tabs = drop_gap.clone();
         let wheel_handle = scroll_handle.clone();
@@ -1009,7 +1031,7 @@ impl RenderOnce for TabBar {
                     } else {
                         transparent_black()
                     })
-                    .text_size(px(13.))
+                    .text_size(tab_text)
                     .text_color(if is_active {
                         theme.text
                     } else {
@@ -1025,6 +1047,19 @@ impl RenderOnce for TabBar {
                     })
                     .when_some(on_select.clone(), |this, handler| {
                         this.on_click(move |_, window, cx| handler(index, window, cx))
+                    })
+                    // The middle button closes, as it does a browser's tab. On
+                    // the press the button is the strip's, so that Linux does
+                    // not also paste the primary selection into whatever is
+                    // underneath; the close itself waits for the click.
+                    .when_some(on_close.clone(), |this, handler| {
+                        this.on_mouse_down(MouseButton::Middle, |_, _, cx| cx.stop_propagation())
+                            .on_aux_click(move |event, window, cx| {
+                                if event.is_middle_click() {
+                                    cx.stop_propagation();
+                                    handler(index, window, cx);
+                                }
+                            })
                     })
                     .when_some(on_context_menu.clone(), |this, handler| {
                         this.on_mouse_down(MouseButton::Right, move |event, window, cx| {
@@ -1119,7 +1154,7 @@ impl RenderOnce for TabBar {
                         tab.dot
                             .or_else(|| tab.status.map(|status| status.color(theme))),
                         |this, color| {
-                            this.child(div().flex_none().size(px(6.)).rounded_full().bg(color))
+                            this.child(div().flex_none().size(dot_size).rounded_full().bg(color))
                         },
                     )
                     .child(div().whitespace_nowrap().child(tab.title))
@@ -1149,7 +1184,7 @@ impl RenderOnce for TabBar {
                                 .tooltip(tooltip_label(mark.tooltip))
                                 .child(
                                     svg()
-                                        .size(px(MARK_SIZE))
+                                        .size(mark_size)
                                         .flex_none()
                                         .path(mark.icon)
                                         .text_color(theme.icon),
@@ -1176,9 +1211,9 @@ impl RenderOnce for TabBar {
                                 .flex_none()
                                 .items_center()
                                 .justify_center()
-                                .size(px(16.))
+                                .size(close_size)
                                 .rounded_sm()
-                                .text_size(px(12.))
+                                .text_size(close_text)
                                 // The mark on a button, not a word in the title
                                 // beside it, so it takes the icon tint.
                                 .text_color(theme.icon)
@@ -1228,7 +1263,7 @@ impl RenderOnce for TabBar {
             .flex_row()
             .items_center()
             .w_full()
-            .h(px(36.))
+            .h(scaled(36., cx))
             .bg(theme.surface)
             .border_b_1()
             .border_color(theme.border)
@@ -1350,7 +1385,7 @@ impl RenderOnce for TabBar {
                 let hover_text = theme.text;
                 let face = match self.new_icon.clone() {
                     Some(path) => svg()
-                        .size(px(16.))
+                        .size(scaled(NEW_ICON_SIZE, cx))
                         .flex_none()
                         .path(path)
                         .text_color(theme.icon)
@@ -1369,10 +1404,10 @@ impl RenderOnce for TabBar {
                         .flex_none()
                         .items_center()
                         .justify_center()
-                        .size(px(28.))
+                        .size(scaled(NEW_BUTTON_SIZE, cx))
                         .mx(px(4.))
                         .rounded_md()
-                        .text_size(px(16.))
+                        .text_size(scaled(16., cx))
                         // Reaches the bare "+" this button falls back to when
                         // no icon was handed in; the icon carries its own tint
                         // above, and the two have to agree.
@@ -1793,6 +1828,22 @@ mod tests {
             0,
             "the permanent tab has no close target"
         );
+    }
+
+    /// The middle button closes a closable tab, without selecting it, and
+    /// does nothing to a permanent one.
+    #[gpui::test]
+    fn the_middle_button_closes_a_closable_tab(cx: &mut TestAppContext) {
+        for (closable, closes) in [(true, 1), (false, 0)] {
+            let (handles, mut cx) = open(cx, vec![TabItem::new("only", "tab").closable(closable)]);
+            let position = point(px(INSIDE_FIRST_TAB), px(ROW_MIDDLE));
+            cx.simulate_mouse_move(position, None, Modifiers::none());
+            cx.simulate_mouse_down(position, MouseButton::Middle, Modifiers::none());
+            cx.simulate_mouse_up(position, MouseButton::Middle, Modifiers::none());
+            cx.run_until_parked();
+            assert_eq!(handles.tally.closed.get(), closes, "closable: {closable}");
+            assert_eq!(handles.tally.selected.get(), 0, "and it selected nothing");
+        }
     }
 
     /// A wheel puts the overlay bar up, and it comes up over the tabs rather

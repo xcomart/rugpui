@@ -766,13 +766,29 @@ impl Platform for LinuxPlatform {
         &self,
         options: PathPromptOptions,
     ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+        // RULOGMAN PATCH: the body is upstream's, moved into
+        // `prompt_for_paths_in`; this is that prompt with no folder.
+        self.prompt_for_paths_in(options, None)
+    }
+
+    // RULOGMAN PATCH: `Platform::prompt_for_paths_in`. Upstream's open-file
+    // portal request, plus the `current_folder` its save request already sends.
+    fn prompt_for_paths_in(
+        &self,
+        options: PathPromptOptions,
+        directory: Option<&Path>,
+    ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
         let (done_tx, done_rx) = oneshot::channel();
 
+        // RULOGMAN PATCH: `directory` too.
         #[cfg(not(any(feature = "wayland", feature = "x11")))]
-        let _ = (done_tx.send(Ok(None)), options);
+        let _ = (done_tx.send(Ok(None)), options, directory);
 
         #[cfg(any(feature = "wayland", feature = "x11"))]
         let identifier = self.connection.borrow().window_identifier();
+        // RULOGMAN PATCH: owned, for the task below.
+        #[cfg(any(feature = "wayland", feature = "x11"))]
+        let directory = directory.map(Path::to_path_buf);
 
         #[cfg(any(feature = "wayland", feature = "x11"))]
         self.foreground_executor()
@@ -790,6 +806,9 @@ impl Platform for LinuxPlatform {
                     .accept_label(options.prompt.as_ref().map(gpui::SharedString::as_str))
                     .multiple(options.multiple)
                     .directory(options.directories)
+                    // RULOGMAN PATCH: start where the application asked.
+                    .current_folder::<PathBuf>(directory)
+                    .expect("pathbuf should not be nul terminated")
                     .send()
                     .await
                 {

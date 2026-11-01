@@ -14,6 +14,12 @@ pub(crate) fn max_height(window: &Window, margin: Pixels) -> Pixels {
     (window.client_content_bounds().size.height - margin * 2.).max(px(0.))
 }
 
+/// The widest an overlay may draw in `window` with `margin` kept clear to its
+/// left and right — [`max_height`] across instead of down.
+pub(crate) fn max_width(window: &Window, margin: Pixels) -> Pixels {
+    (window.client_content_bounds().size.width - margin * 2.).max(px(0.))
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Deref;
@@ -45,6 +51,8 @@ mod tests {
             );
             assert_eq!(max_height(window, px(6.)), px(116.));
             assert_eq!(max_height(window, px(80.)), px(0.));
+            assert_eq!(max_width(window, px(6.)), px(236.));
+            assert_eq!(max_width(window, px(200.)), px(0.));
         });
     }
 }

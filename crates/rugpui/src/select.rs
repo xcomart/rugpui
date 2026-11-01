@@ -20,6 +20,7 @@ use gpui::{
 use crate::icons::CARET_DOWN;
 use crate::menu::color_swatch;
 use crate::overlay;
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
@@ -28,9 +29,10 @@ use crate::theme::theme;
 /// line up when a form mixes them.
 const TRIGGER_HEIGHT: f32 = 32.;
 
-/// Vertical distance from the top of the trigger to the top of the list, so the
-/// list clears the button it hangs from.
-const DROP_OFFSET: f32 = TRIGGER_HEIGHT + 4.;
+/// Gap between the bottom of the trigger and the top of the dropdown, so
+/// that the panel clears the button it hangs from. Not scaled: the trigger's
+/// own height is, and the gap is the frame around it.
+const DROP_GAP: f32 = 4.;
 
 /// Width of the list when the caller sets no width of its own.
 ///
@@ -371,8 +373,10 @@ impl RenderOnce for Select {
         let scroll_handle = self
             .scroll_handle
             .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
-        let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
+        let list_width = self.width.unwrap_or_else(|| scaled(DEFAULT_WIDTH, cx));
         let chevron_icon = self.chevron_icon;
+        let icon_size = scaled(OPTION_ICON_SIZE, cx);
+        let swatch_size = scaled(crate::menu::SWATCH_SIZE, cx);
 
         // With nothing selected the row that repeats the placeholder counts as
         // the current one, so a list whose first entry means "no choice" still
@@ -407,15 +411,15 @@ impl RenderOnce for Select {
             .items_center()
             .gap(px(8.))
             .w_full()
-            .h(px(TRIGGER_HEIGHT))
+            .h(scaled(TRIGGER_HEIGHT, cx))
             .px(px(8.))
             .rounded_md()
             .overflow_hidden()
             .border_1()
             .border_color(theme.border)
             .bg(theme.surface)
-            .text_size(px(14.))
-            .line_height(px(20.))
+            .text_size(TextSize::Title.size(cx))
+            .line_height(scaled(20., cx))
             .cursor_pointer()
             .hover(|style| style.bg(theme.surface_hover))
             .when_some(self.tab_index, |this, index| {
@@ -461,10 +465,10 @@ impl RenderOnce for Select {
                     }
                 }
             })
-            .children(trigger_swatch.map(|color| color_swatch(color, &theme)))
+            .children(trigger_swatch.map(|color| color_swatch(color, &theme, swatch_size)))
             .children(trigger_leading.map(|path| {
                 svg()
-                    .size(px(OPTION_ICON_SIZE))
+                    .size(icon_size)
                     .flex_none()
                     .path(path)
                     .text_color(theme.icon)
@@ -483,14 +487,14 @@ impl RenderOnce for Select {
             )
             .children(trigger_trailing.map(|path| {
                 svg()
-                    .size(px(OPTION_ICON_SIZE))
+                    .size(icon_size)
                     .flex_none()
                     .path(path)
                     .text_color(theme.icon)
             }))
             .child(
                 svg()
-                    .size(px(CHEVRON_SIZE))
+                    .size(scaled(CHEVRON_SIZE, cx))
                     .flex_none()
                     .path(chevron_icon.clone().unwrap_or_else(|| CARET_DOWN.into()))
                     // An SVG takes its color from its own `text_color`, which
@@ -525,6 +529,8 @@ impl RenderOnce for Select {
             });
 
         let row_theme = theme.clone();
+        let row_height = scaled(ROW_HEIGHT, cx);
+        let row_text = TextSize::Body.size(cx);
         let rows = options
             .iter()
             .cloned()
@@ -555,11 +561,11 @@ impl RenderOnce for Select {
                     .flex_none()
                     .items_center()
                     .gap(px(OPTION_ICON_GAP))
-                    .h(px(ROW_HEIGHT))
+                    .h(row_height)
                     .px(px(10.))
                     .mx(px(4.))
                     .rounded_sm()
-                    .text_size(px(13.))
+                    .text_size(row_text)
                     .text_color(if is_current { theme.accent } else { theme.text })
                     .bg(if is_current {
                         theme.surface_active
@@ -576,10 +582,10 @@ impl RenderOnce for Select {
                             handler(false, window, cx);
                         }
                     })
-                    .children(swatch.map(|color| color_swatch(color, theme)))
+                    .children(swatch.map(|color| color_swatch(color, theme, swatch_size)))
                     .children(leading.map(|path| {
                         svg()
-                            .size(px(OPTION_ICON_SIZE))
+                            .size(icon_size)
                             .flex_none()
                             .path(path)
                             .text_color(icon_color)
@@ -587,7 +593,7 @@ impl RenderOnce for Select {
                     .child(div().flex_1().min_w_0().truncate().child(label))
                     .children(trailing.map(|path| {
                         svg()
-                            .size(px(OPTION_ICON_SIZE))
+                            .size(icon_size)
                             .flex_none()
                             .path(path)
                             .text_color(icon_color)
@@ -597,7 +603,7 @@ impl RenderOnce for Select {
         // Never taller than the window shows, less the margins `anchored` snaps
         // back to: a longer list scrolls instead of running past the content.
         let list_max_height =
-            px(LIST_MAX_HEIGHT).min(overlay::max_height(window, px(WINDOW_MARGIN)));
+            scaled(LIST_MAX_HEIGHT, cx).min(overlay::max_height(window, px(WINDOW_MARGIN)));
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
             .occlude()
@@ -663,7 +669,7 @@ impl RenderOnce for Select {
                 deferred(
                     anchored()
                         .anchor(Anchor::TopLeft)
-                        .offset(point(px(0.), px(DROP_OFFSET)))
+                        .offset(point(px(0.), scaled(TRIGGER_HEIGHT, cx) + px(DROP_GAP)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(list),
                 )

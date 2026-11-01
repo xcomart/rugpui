@@ -94,6 +94,46 @@ impl<S: GridSource> GridView<S> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.open_edit(row, column, None, window, cx)
+    }
+
+    /// Opens the inline editor over a cell the way [`GridView::begin_edit`]
+    /// does, with `text` already typed into it.
+    ///
+    /// The answer to [`GridRequest::Edit`] when it carries the character that
+    /// started the edit: the field opens holding `text` in place of the cell's
+    /// value, with the caret after it, so the next keystroke carries on where
+    /// the first left off. What the edit is compared against when it closes is
+    /// still the cell's own value, so `text` stages like anything else typed —
+    /// and a field emptied again over a null cell still stages nothing.
+    ///
+    /// A field is the only editor that has somewhere to put typing. A dropdown
+    /// opens on the first of its rows that starts with `text`, ignoring case,
+    /// or where [`GridView::begin_edit`] would have opened it when none does;
+    /// a host's own editor and an external one open exactly as `begin_edit`
+    /// opens them, and the host that answered the request can hand `text` on
+    /// itself. Refuses where `begin_edit` refuses.
+    pub fn begin_edit_with(
+        &mut self,
+        row: usize,
+        column: usize,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.open_edit(row, column, Some(text), window, cx)
+    }
+
+    /// What [`GridView::begin_edit`] and [`GridView::begin_edit_with`] share:
+    /// everything, `typed` aside.
+    fn open_edit(
+        &mut self,
+        row: usize,
+        column: usize,
+        typed: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         self.ensure_layout();
         if row >= self.source.row_count() || column >= self.source.column_count() {
             return false;
@@ -137,7 +177,10 @@ impl<S: GridSource> GridView<S> {
             CellEditor::External => unreachable!("external editor handled before seeding"),
             CellEditor::Text => {
                 let grid = cx.entity().downgrade();
-                let content = seeded.clone();
+                // What was typed to start the edit stands in for the value,
+                // in the field only: `seeded` below is still the cell's, so
+                // the close compares the typing against what was there.
+                let content = typed.map_or_else(|| seeded.clone(), str::to_owned);
                 let input = cx.new(|cx| {
                     // `Enter` is the field's own action, bound in the field's
                     // own deeper key context, so the grid's `Activate` never
@@ -169,11 +212,25 @@ impl<S: GridSource> GridView<S> {
                 // The list opens on what the cell holds, so that the first
                 // arrow steps away from the current value rather than from the
                 // top of the list.
-                let highlight = if was_null {
+                let held = if was_null {
                     0
                 } else {
                     rows.iter().position(|row| *row == seeded).unwrap_or(0)
                 };
+                // A character that started the edit jumps to the first row
+                // it begins, the way typing into a closed list does anywhere
+                // else; the `NULL` row is a gesture, not a value, so it is
+                // never what a letter means.
+                let first = usize::from(nullable);
+                let highlight = typed
+                    .map(str::to_lowercase)
+                    .and_then(|typed| {
+                        rows.iter()
+                            .skip(first)
+                            .position(|row| row.to_lowercase().starts_with(&typed))
+                            .map(|index| index + first)
+                    })
+                    .unwrap_or(held);
                 let focus = cx.focus_handle();
                 (
                     OpenEditor::Choice {

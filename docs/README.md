@@ -35,7 +35,8 @@ widget.
 - [Getting started](./getting-started.md) — from an empty crate to a window
   with a rugpui widget in it.
 - [Theming](./theming.md) — the two palettes, `Theme` and `EditorTheme`, and
-  how a host picks and stores them.
+  how a host picks and stores them; and the UI scale every widget's text sizes
+  follow.
 
 ## The widget kit (`rugpui`)
 
@@ -78,7 +79,8 @@ widget.
   typed into.
 - [Shell](./shell.md) — `rugpui-shell` is the layer above the widget kit: the
   parts of an application that turned out not to be about the application at
-  all.
+  all, including the close guard every way of closing a window goes through,
+  and toasts.
 
 ## Reading order
 

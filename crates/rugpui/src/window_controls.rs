@@ -20,11 +20,14 @@
 //! and without occlusion the drag hitbox would answer the hit test first and
 //! the buttons would read as "move the window".
 
+use std::rc::Rc;
+
 use gpui::{
-    App, ElementId, Hsla, SharedString, Svg, Window, WindowButton, WindowButtonLayout,
-    WindowControlArea, div, prelude::*, px, rgb, svg,
+    App, ElementId, Hsla, Pixels, SharedString, Svg, Window, WindowButton, WindowButtonLayout,
+    WindowControlArea, div, prelude::*, rgb, svg,
 };
 
+use crate::scale::scaled;
 use crate::theme::theme;
 
 /// Width of one button, matching the caption buttons Windows draws.
@@ -123,6 +126,9 @@ pub fn split(
     }
 }
 
+/// Callback fired by the close button in place of removing the window.
+type CloseHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
 /// The caption buttons of a self-drawn title bar.
 ///
 /// Stateless like every other widget here: it reads the window's own maximized
@@ -135,6 +141,7 @@ pub struct WindowControls {
     icons: WindowControlIcons,
     buttons: Vec<WindowButton>,
     active: Option<bool>,
+    on_close: Option<CloseHandler>,
 }
 
 impl WindowControls {
@@ -152,7 +159,24 @@ impl WindowControls {
             icons,
             buttons,
             active: None,
+            on_close: None,
         }
+    }
+
+    /// Runs `handler` when the close button is clicked, instead of closing the
+    /// window.
+    ///
+    /// The hook a close guard hangs off: without one the button removes the
+    /// window at once, which throws away whatever it holds. The handler
+    /// decides, and removes the window itself when the answer is yes —
+    /// `rugpui_shell::request_close` is that handler, and the strips
+    /// `rugpui_shell::window_control_strips` builds carry it. On Windows the
+    /// button's press goes to the window procedure rather than here, which
+    /// sends it through the platform's own close and so through the same
+    /// guard, by way of `on_window_should_close`.
+    pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_close = Some(Rc::new(handler));
+        self
     }
 
     /// Uses the window's active state to tint the caption glyphs.
@@ -166,12 +190,8 @@ impl WindowControls {
 }
 
 /// A caption glyph, sized and tinted.
-fn glyph(path: SharedString, color: Hsla) -> Svg {
-    svg()
-        .size(px(GLYPH_SIZE))
-        .flex_none()
-        .path(path)
-        .text_color(color)
+fn glyph(path: SharedString, color: Hsla, size: Pixels) -> Svg {
+    svg().size(size).flex_none().path(path).text_color(color)
 }
 
 impl RenderOnce for WindowControls {
@@ -183,7 +203,12 @@ impl RenderOnce for WindowControls {
             icons,
             buttons,
             active,
+            on_close,
         } = self;
+        // The strip these sit in grows with the interface, so the buttons
+        // and their glyphs do too.
+        let glyph_size = scaled(GLYPH_SIZE, cx);
+        let button_width = scaled(BUTTON_WIDTH, cx);
         let glyph_color = match active {
             Some(true) => theme.text,
             Some(false) => theme.text_muted,
@@ -202,7 +227,7 @@ impl RenderOnce for WindowControls {
                 .flex_none()
                 .items_center()
                 .justify_center()
-                .w(px(BUTTON_WIDTH))
+                .w(button_width)
                 .h_full()
                 .cursor_pointer()
         };
@@ -215,7 +240,7 @@ impl RenderOnce for WindowControls {
                     // press to the window procedure before the app sees a click.
                     .on_click(|_, window, _cx| window.minimize_window())
                     .child(
-                        glyph(icons.minimize.clone(), glyph_color)
+                        glyph(icons.minimize.clone(), glyph_color, glyph_size)
                             .group_hover(MINIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
@@ -229,18 +254,25 @@ impl RenderOnce for WindowControls {
                     .hover(|style| style.bg(theme.surface_hover))
                     .on_click(|_, window, _cx| window.zoom_window())
                     .child(
-                        glyph(path, glyph_color)
+                        glyph(path, glyph_color, glyph_size)
                             .group_hover(MAXIMIZE_GROUP, move |style| style.text_color(theme.text)),
                     )
             }
-            WindowButton::Close => frame(button.id(), CLOSE_GROUP, WindowControlArea::Close)
-                .hover(|style| style.bg(rgb(CLOSE_HOVER)))
-                .on_click(|_, window, _cx| window.remove_window())
-                .child(
-                    glyph(icons.close.clone(), glyph_color).group_hover(CLOSE_GROUP, |style| {
-                        style.text_color(rgb(CLOSE_HOVER_GLYPH))
-                    }),
-                ),
+            WindowButton::Close => {
+                let on_close = on_close.clone();
+                frame(button.id(), CLOSE_GROUP, WindowControlArea::Close)
+                    .hover(|style| style.bg(rgb(CLOSE_HOVER)))
+                    .on_click(move |_, window, cx| match &on_close {
+                        Some(handler) => handler(window, cx),
+                        None => window.remove_window(),
+                    })
+                    .child(
+                        glyph(icons.close.clone(), glyph_color, glyph_size)
+                            .group_hover(CLOSE_GROUP, |style| {
+                                style.text_color(rgb(CLOSE_HOVER_GLYPH))
+                            }),
+                    )
+            }
         });
 
         div()

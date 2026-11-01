@@ -50,6 +50,8 @@ Button::new("connect", "Connect")
 | `full_width` | `bool` | `false` | Stretches the button across its parent's width (`w_full`). |
 | `compact` | — (no argument) | off | Shrinks the button from 30 px tall / 12 px padding / 13 px text to 20 / 8 / 11, for a dense toolbar or status bar. |
 | `tab_index` | `isize` | `0` | Places the button in the window's tab order. |
+| `focus_handle` | `&FocusHandle` | none | Tracks the button's focus with the owner's handle, which is what lets a dialog focus it as it opens (`Modal::initial_focus`) and the owner ask whether it has the focus. |
+| `truncate` | `bool` | `false` | Lets the button shrink below its label, cutting it off with an ellipsis and showing the whole label as a tooltip while — and only while — it is cut. For a label that is data in a column of fixed width. |
 | `on_click` | `impl Fn(&ClickEvent, &mut Window, &mut App) + 'static` | none | Click callback. Ignored while the button is disabled. |
 
 Note that `compact()` takes no argument — it is a switch, not a setter, unlike
@@ -88,6 +90,11 @@ mutates and whatever decides `disabled(..)`, and both live in the host view.
   and `Ghost` uses `surface_hover` and `surface_active` as they are.
 - A focused button draws an accent outline and is
   activated by `Enter` or `Space`, which gpui delivers as an ordinary click.
+- With `truncate(true)` the button may be narrower than its label. Whether the
+  label is cut is measured as the button is laid out, so the tooltip appears
+  from the frame after a resize that cuts it.
+- Its text and height follow the UI scale (`rugpui::set_ui_scale`): 13 px text
+  in a 30 px button, or 11 in 20 when compact, at the default scale.
 - A disabled button is skipped by the tab order entirely, mirroring how the
   platform treats a disabled control: the `tab_index` call is filtered out
   rather than merely ignored.

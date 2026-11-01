@@ -26,6 +26,7 @@
 //!
 //! | Module | What it holds |
 //! |---|---|
+//! | [`close_guard`] | [`CloseGuard`] and the one path the caption's close, the platform's close, Quit and the update restart all go through, so an application can ask before work is lost. |
 //! | [`chrome`] | [`TitlebarStyle`] and everything a window has to put back when the platform stops drawing its caption: the drag, the resize grips, the caption buttons, the background appearance. |
 //! | [`caption`] | Keeping the *platform's* caption in step with the application's theme, where there still is one. |
 //! | [`pane`] | [`PaneTree`], the split layout, and [`Pane`], one pane's tab strip. |
@@ -35,6 +36,7 @@
 //! | [`update`] | The release check and the self-update: download, verify, unpack, swap, roll back, and stage when a rename cannot happen yet. |
 //! | [`update_dialog`] | [`UpdateDialog`], the state machine around all of that. |
 //! | [`catalog`] | [`ThemeCatalog`], and the two implementations over `rugpui`'s own palette formats. |
+//! | [`toast`] | [`Toast`], the queue [`show_toast`] adds to from anywhere with an `App`, and [`toast_stack`], the element that draws it. |
 //! | [`theme_editor`] | [`ThemeEditor`], one entry of a catalog edited color by color. |
 //! | [`catalog_ui`] | [`CatalogActions`], the duplicate / edit / delete / import / export row under a picker. |
 //! | [`form`] | The pieces a settings form is built out of, minus the form. |
@@ -80,6 +82,7 @@ pub mod caption;
 pub mod catalog;
 pub mod catalog_ui;
 pub mod chrome;
+pub mod close_guard;
 pub mod form;
 pub mod icons;
 mod inject;
@@ -89,6 +92,7 @@ pub mod pane;
 pub mod release_notes;
 pub mod settings;
 pub mod theme_editor;
+pub mod toast;
 pub mod update;
 pub mod update_dialog;
 
@@ -102,6 +106,10 @@ pub use catalog_ui::{CatalogActionEvent, CatalogActions, export_directory};
 pub use chrome::{
     TitlebarStyle, apply_client_inset, client_tiling, draws_own_titlebar, opening_client_inset,
     render_resize_edges, titlebar_gestures, window_appearance, window_control_strips,
+};
+pub use close_guard::{
+    CloseChoice, CloseGuard, CloseIntent, UnsavedWorkDialog, clear_close_guard, proceed,
+    request_close, request_quit, request_restart, set_close_guard,
 };
 pub use icons::{
     IconSet, WINDOW_CLOSE, WINDOW_CONTROL_ICONS, WINDOW_MAXIMIZE, WINDOW_MINIMIZE, WINDOW_RESTORE,
@@ -118,6 +126,10 @@ pub use settings::{
     window_tint,
 };
 pub use theme_editor::{ThemeEditor, ThemeEditorEvent};
+pub use toast::{
+    Toast, ToastId, ToastLevel, ToastStack, clear_toasts, dismiss_toast, show_toast, shown_toasts,
+    toast_stack,
+};
 pub use update::{
     Asset, Check, Installed, Progress, Release, SignedChecksums, require_signed_checksums,
     restart_path,

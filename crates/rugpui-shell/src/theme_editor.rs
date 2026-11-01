@@ -32,6 +32,7 @@
 //! back to automatic. A required slot has neither.
 
 use rugpui::SmoothScrollExt;
+use rugpui::{TextSize, scaled};
 use std::sync::Arc;
 
 use gpui::{
@@ -68,6 +69,9 @@ const LABEL_WIDTH: f32 = 118.;
 
 /// Side of the swatch drawn beside a color field.
 const SWATCH_SIZE: f32 = 26.;
+
+/// Width of the resolved hex an automatic slot shows, at the default UI scale.
+const HEX_WIDTH: f32 = 64.;
 
 /// Tab order inside the editor, spaced so slots can be inserted later.
 ///
@@ -392,7 +396,7 @@ impl ThemeEditor {
 
         let swatch = div()
             .flex_none()
-            .size(px(SWATCH_SIZE))
+            .size(scaled(SWATCH_SIZE, cx))
             .rounded_md()
             .border_1()
             .border_color(match color {
@@ -409,9 +413,9 @@ impl ThemeEditor {
             if automatic {
                 div()
                     .flex_none()
-                    .w(px(64.))
+                    .w(scaled(HEX_WIDTH, cx))
                     .truncate()
-                    .text_size(px(11.))
+                    .text_size(TextSize::Xs.size(cx))
                     .text_color(chrome.text_muted)
                     .child(SharedString::from(color.map(to_hex).unwrap_or_default()))
                     .into_any_element()
@@ -449,9 +453,9 @@ impl ThemeEditor {
             .child(
                 div()
                     .flex_none()
-                    .w(px(LABEL_WIDTH))
+                    .w(scaled(LABEL_WIDTH, cx))
                     .truncate()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(if automatic {
                         chrome.text_muted
                     } else {
@@ -497,7 +501,7 @@ impl ThemeEditor {
         let chrome = theme(cx);
         div()
             .pt(px(4.))
-            .text_size(px(11.))
+            .text_size(TextSize::Xs.size(cx))
             .text_color(chrome.text_muted)
             .child(label(cx, key))
     }
@@ -568,7 +572,7 @@ impl ThemeEditor {
             .or_else(|| (!valid).then(|| label(cx, "settings.editor.invalid")))
             .map(|message| {
                 div()
-                    .text_size(px(12.))
+                    .text_size(TextSize::Sm.size(cx))
                     .text_color(chrome.danger)
                     .child(message)
             });
@@ -715,7 +719,7 @@ impl Render for ThemeEditor {
                     .pt(px(4.))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(TextSize::Xs.size(cx))
                             .text_color(chrome.text_muted)
                             .child(group_label),
                     )
@@ -777,11 +781,12 @@ pub(crate) fn render_ui_preview(
     name: SharedString,
     values: &[String],
     dark: bool,
-    _cx: &mut App,
+    cx: &mut App,
 ) -> AnyElement {
     let palette = ThemeFile::new("", dark, ui_colors(values)).to_theme();
 
-    let chip = |color: Hsla| div().flex_none().size(px(12.)).rounded_full().bg(color);
+    let chip_size = scaled(12., cx);
+    let chip = |color: Hsla| div().flex_none().size(chip_size).rounded_full().bg(color);
     let cell = |color: Hsla, words: &'static str| {
         div()
             .flex_1()
@@ -828,14 +833,14 @@ pub(crate) fn render_ui_preview(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(TextSize::Sm.size(cx))
                         .text_color(palette.text)
                         .child(name),
                 )
                 .child(
                     div()
                         .flex_none()
-                        .size(px(14.))
+                        .size(scaled(14., cx))
                         .rounded_sm()
                         .bg(palette.surface_active),
                 ),
@@ -854,7 +859,7 @@ pub(crate) fn render_ui_preview(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(11.))
+                        .text_size(TextSize::Xs.size(cx))
                         .text_color(palette.text_muted)
                         .child("Aa Bb Cc 0123"),
                 ),
@@ -868,7 +873,7 @@ pub(crate) fn render_ui_preview(
                 .rounded_sm()
                 .border_1()
                 .border_color(palette.border)
-                .text_size(px(10.))
+                .text_size(scaled(10., cx))
                 .child(
                     div()
                         .flex()

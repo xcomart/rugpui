@@ -3,8 +3,10 @@
 A centered dialog panel over a translucent backdrop, plus the labeled row its
 body is usually built out of. Reach for `modal` when a decision has to be made
 before anything else can happen — a connection to configure, a change to
-confirm. Both are free functions rather than types: they take everything they
-need in one call and have no builder.
+confirm. `modal` takes the five things every dialog has and returns a `Modal`;
+everything beyond them is an opt-in builder method, so a call that sets none
+draws and behaves exactly as it always did. `form_row` returns a `FormRow` the
+same way.
 
 Source: [modal.rs](../../crates/rugpui/src/modal.rs).
 
@@ -17,12 +19,18 @@ pub fn modal<E: IntoElement>(
     width: Pixels,
     body: E,
     on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
-) -> impl IntoElement
+) -> Modal
 
 pub fn form_row<E: IntoElement>(
     label: impl Into<SharedString>,
     control: E,
-) -> impl IntoElement
+) -> FormRow
+
+pub fn fit_label_width<L: AsRef<str>>(
+    labels: impl IntoIterator<Item = L>,
+    window: &Window,
+    cx: &App,
+) -> Pixels
 ```
 
 | parameter | effect |
@@ -31,10 +39,42 @@ pub fn form_row<E: IntoElement>(
 | `title` | Text of the 44 px header band. |
 | `width` | Fixed panel width. The height is the content's, capped by the window. |
 | `body` | Anything that is an element; converted with `into_any_element()`. |
-| `on_dismiss` | Called when the **backdrop** is clicked. Clicks on the panel itself are swallowed. |
+| `on_dismiss` | Called when the **backdrop** is clicked — and, with `escape_dismisses`, on `Escape`. Clicks on the panel itself are swallowed. |
 
-`form_row` puts a fixed 96 px label column beside a control that takes the rest
-of the row, so a stack of them lines up without the caller measuring anything.
+### `Modal` options
+
+| method | default | effect |
+| --- | --- | --- |
+| `initial_focus(&FocusHandle)` | none | Focuses that control as the dialog first appears — the default button, or Cancel when the default would destroy something. The control tracks the handle: `Button::focus_handle(&h)` or a field's own. |
+| `autofocus(bool)` | `false` | Focuses the panel itself as it appears, so `Enter`, `Escape` and `Tab` reach the dialog rather than what was focused behind it. Ignored when `initial_focus` is set. |
+| `on_confirm(handler)` | none | `Enter` runs it — on the panel, or in a one-line `TextInput` with no `on_submit`. A focused button, checkbox or open dropdown keeps `Enter` for itself. |
+| `escape_dismisses(bool)` | `false` | `Escape` with the focus inside the dialog calls `on_dismiss` (through the guard). Off, the key goes on to the host's own bindings, as before. |
+| `backdrop_dismisses(bool)` | `true` | Off, a backdrop click does nothing; the backdrop still dims and occludes. |
+| `dismiss_guard(Fn(DismissReason, &mut Window, &mut App) -> bool)` | none | Asked before the backdrop or `Escape` dismisses; `false` keeps the dialog. `DismissReason` is `Backdrop` or `Escape`, so a dirty dialog can ignore a stray click and ask before `Escape` discards. |
+
+When the dialog took the focus (`initial_focus` or `autofocus`), it gives the
+focus back to whatever had it before once it goes — at once for a dismissal it
+performs itself, and when its state is released for one the host performs —
+unless the host has focused something else by then. `FocusReturn::capture` /
+`restore` is the same for an overlay that is not a `modal`.
+
+### `FormRow` options
+
+| method | effect |
+| --- | --- |
+| `label_width(Pixels)` | The label column at that width instead of 96 px. Give every row of a form the same one. |
+| `stacked(bool)` | The label on its own line above the control, which then takes the full width. |
+
+`fit_label_width(labels, window, cx)` measures a form's labels with the text
+system and answers the widest, held between `FORM_LABEL_WIDTH` (96 px) and
+`FORM_LABEL_MAX_WIDTH` (200 px) at the UI scale. A form whose labels are all
+short keeps the 96 px column it always had.
+
+```rust
+let labels = [ts!("host"), ts!("port"), ts!("timeout")];
+let width = rugpui::fit_label_width(&labels, window, cx);
+form_row(labels[0].clone(), host).label_width(width)
+```
 
 ## Keyboard navigation
 
@@ -147,9 +187,10 @@ flowchart LR
 - Clicking the backdrop calls `on_dismiss`. Clicking the panel does not: the
   panel is marked `occlude()`, so presses that land on it never reach the
   backdrop's click handler.
-- **There is no `Escape` handling in the widget.** A dialog that should close on
-  `Escape` tracks focus itself and wires its own `on_key_down`, the way the
-  shell's about and update dialogs do.
+- `Escape` is the dialog's only with `escape_dismisses(true)`, and `Enter` only
+  with `on_confirm`. Without them a dialog that should close on `Escape` tracks
+  focus itself and wires its own `on_key_down`, the way the shell's about and
+  update dialogs do, and the key binding further out keeps working.
 - `occlude()` stops mouse events, not `Tab`; the keyboard is confined
   separately — the panel is a tab group with a focus trap, so Tab and
   Shift+Tab wrap among its controls (see [Keyboard navigation](#keyboard-navigation)).
@@ -183,10 +224,14 @@ area inside it — the modal will not add one.
 ## Pitfalls
 
 - Render it last, inside a full-window positioned ancestor. See above.
-- `on_dismiss` fires on backdrop clicks only. Every other way out — a Close
-  button, `Escape`, a successful submit — is the host's to wire, usually to the
-  same method.
+- `on_dismiss` fires on backdrop clicks, and on `Escape` with
+  `escape_dismisses`. A Close button or a successful submit is the host's to
+  wire, usually to the same method; neither is asked about by the guard.
 - The panel's id is derived as `(id, "panel")`, so passing a duplicate `id`
   collides twice over.
-- `form_row`'s label column is a fixed 96 px. A longer label will overflow it
-  rather than widening the row; shorten the label or lay the row out by hand.
+- `form_row`'s label column is 96 px unless told otherwise. A longer label
+  wraps — mid-word when one word is longer than the column — so a form with
+  translated labels measures them with `fit_label_width`, or stacks them.
+- A one-line `TextInput` without `on_submit` passes `Enter` on to the dialog;
+  give a field its own `on_submit` when `Enter` there should mean something
+  else.

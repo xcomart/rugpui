@@ -45,6 +45,13 @@ impl<S: GridSource> Render for GridView<S> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_layout();
 
+        // First, because everything below — the fit, the rows, the field — is
+        // measured at it. See `GridView::rescale` for what a change costs.
+        let scale = rugpui::ui_scale(cx);
+        if scale != self.scale {
+            self.rescale(scale);
+        }
+
         // Before anything is built, so that the header and the rows below are
         // laid out at the widths this frame decided rather than the last one's.
         // See `fit_columns` for why measuring can only happen here.
@@ -152,7 +159,7 @@ impl<S: GridSource> Render for GridView<S> {
                 // `Scrollbar::render` places the thumb against its parent.
                 div()
                     .absolute()
-                    .left(px(GUTTER_WIDTH))
+                    .left(px(self.scaled(GUTTER_WIDTH)))
                     .right_0()
                     .top_0()
                     .bottom_0()
@@ -179,7 +186,7 @@ impl<S: GridSource> Render for GridView<S> {
             // selection go on painting — they are accents over the background,
             // not the background.
             .when(!window_translucent(cx), |grid| grid.bg(palette.background))
-            .text_size(px(TEXT_SIZE))
+            .text_size(px(self.scaled(TEXT_SIZE)))
             .text_color(palette.text)
             .on_action(cx.listener(Self::move_up))
             .on_action(cx.listener(Self::move_down))
@@ -203,6 +210,10 @@ impl<S: GridSource> Render for GridView<S> {
             .on_action(cx.listener(Self::cancel_editing))
             .on_action(cx.listener(Self::edit_next))
             .on_action(cx.listener(Self::edit_previous))
+            .on_action(cx.listener(Self::request_delete))
+            .on_action(cx.listener(Self::request_edit))
+            .on_action(cx.listener(Self::request_paste))
+            .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -307,7 +318,7 @@ impl<S: GridSource> GridView<S> {
             .children(marker.map(|marker| {
                 div()
                     .flex_none()
-                    .text_size(px(SORT_MARKER_SIZE))
+                    .text_size(px(self.scaled(SORT_MARKER_SIZE)))
                     .text_color(theme.accent)
                     .child(marker)
             }))
@@ -384,7 +395,7 @@ impl<S: GridSource> GridView<S> {
             .flex()
             .flex_row()
             .items_center()
-            .h(px(ROW_HEIGHT))
+            .h(px(self.scaled(ROW_HEIGHT)))
             .w_full()
             // Zebra striping is a hint and nothing more; see the token's docs.
             .when(row % 2 == 1, |stripe| stripe.bg(theme.grid_row_alt))
@@ -403,7 +414,7 @@ impl<S: GridSource> GridView<S> {
                 div()
                     .relative()
                     .flex_none()
-                    .w(px(GUTTER_WIDTH))
+                    .w(px(self.scaled(GUTTER_WIDTH)))
                     .h_full()
                     .flex()
                     .items_center()
@@ -490,7 +501,7 @@ impl<S: GridSource> GridView<S> {
                 .as_ref()
                 .is_some_and(|editing| editing.row == row && editing.column == placed.column),
             width: px(width),
-            height: px(ROW_HEIGHT),
+            height: px(self.scaled(ROW_HEIGHT)),
             theme,
         };
         let custom = self
@@ -575,7 +586,7 @@ impl<S: GridSource> GridView<S> {
     /// The only place in the crate that turns a cell address back into a
     /// rectangle, and it does it from the four numbers the grid already keeps:
     /// `laid_out` for the column's left edge, `h_offset` for how far the strip
-    /// has slid, `ROW_HEIGHT` for the row's top and the list's own scroll offset
+    /// has slid, the row height for the row's top and the list's own scroll offset
     /// for where that row has been carried to. The same arithmetic
     /// [`GridView::hit`] runs backwards, which is what makes a field land on
     /// exactly the cell a click would have found.
@@ -593,6 +604,8 @@ impl<S: GridSource> GridView<S> {
         let placed = self.laid_out[display];
         let scrolled_by = f32::from(self.base_handle().offset().y);
         let width = px(self.column_width(editing.column));
+        let row_height = self.scaled(ROW_HEIGHT);
+        let editor_height = self.scaled(EDITOR_HEIGHT);
 
         let field = div()
             .key_context(EDITOR_KEY_CONTEXT)
@@ -601,7 +614,7 @@ impl<S: GridSource> GridView<S> {
             // Centered on the row rather than fitted into it: the field is
             // taller than a row and squeezing it would clip its own border.
             .top(px(
-                editing.row as f32 * ROW_HEIGHT + scrolled_by - (EDITOR_HEIGHT - ROW_HEIGHT) / 2.
+                editing.row as f32 * row_height + scrolled_by - (editor_height - row_height) / 2.
             ))
             .w(width)
             // Without this the grid's own arithmetic hit test would see every
@@ -636,8 +649,8 @@ impl<S: GridSource> GridView<S> {
                             .flex_none()
                             .items_center()
                             .justify_center()
-                            .w(px(EXPAND_BUTTON_WIDTH))
-                            .h(px(EDITOR_HEIGHT))
+                            .w(px(self.scaled(EXPAND_BUTTON_WIDTH)))
+                            .h(px(editor_height))
                             .rounded_md()
                             .border_1()
                             .border_color(theme.border)
@@ -656,7 +669,7 @@ impl<S: GridSource> GridView<S> {
                             }))
                             .child(
                                 gpui::svg()
-                                    .size(px(EXPAND_ICON_SIZE))
+                                    .size(px(self.scaled(EXPAND_ICON_SIZE)))
                                     .flex_none()
                                     .path(rugpui::EXPAND)
                                     .text_color(theme.icon),
@@ -714,7 +727,7 @@ impl<S: GridSource> GridView<S> {
                     seeded: editing.seeded.clone(),
                     was_null: editing.was_null,
                     width,
-                    height: px(EDITOR_HEIGHT),
+                    height: px(editor_height),
                     commit: {
                         let grid = grid.clone();
                         Rc::new(move |value, _window: &mut Window, cx: &mut App| {
@@ -743,8 +756,8 @@ impl<S: GridSource> GridView<S> {
             // gutter and the scrollbar.
             div()
                 .absolute()
-                .left(px(GUTTER_WIDTH))
-                .top(px(HEADER_HEIGHT))
+                .left(px(self.scaled(GUTTER_WIDTH)))
+                .top(px(self.scaled(HEADER_HEIGHT)))
                 .right_0()
                 .bottom_0()
                 .overflow_hidden()

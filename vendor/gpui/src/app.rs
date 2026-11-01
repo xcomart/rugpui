@@ -1988,6 +1988,19 @@ impl App {
         self.platform.prompt_for_paths(options)
     }
 
+    /// RULOGMAN PATCH: [`App::prompt_for_paths`], starting in `directory`.
+    ///
+    /// The open-file counterpart of the folder [`App::prompt_for_new_path`]
+    /// takes. A folder that does not exist leaves the choice to the platform,
+    /// as it does for a save prompt.
+    pub fn prompt_for_paths_in(
+        &self,
+        options: PathPromptOptions,
+        directory: &Path,
+    ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+        self.platform.prompt_for_paths_in(options, Some(directory))
+    }
+
     /// Displays a platform modal for selecting a new path where a file can be saved.
     ///
     /// The provided directory will be used to set the initial location.

@@ -39,9 +39,10 @@ use gpui::{
 };
 
 use crate::slider::{
-    DEFAULT_STEP, DraggedKnob, HALF_KNOB, KNOB, RING_PAD, TRACK, TRACK_TOP, fraction, stepped,
-    value_at,
+    DEFAULT_STEP, DraggedKnob, KnobGeometry, RING_PAD, fraction, stepped, value_at,
 };
+#[cfg(test)]
+use crate::slider::{HALF_KNOB, KNOB};
 use crate::theme::theme;
 
 /// How far outside a knob its focus ring is drawn, in pixels.
@@ -258,6 +259,7 @@ impl RenderOnce for RangeSlider {
         let accent = theme.accent;
         let border = theme.border;
         let background = theme.background;
+        let knob_size = KnobGeometry::at(cx);
 
         // Drawn ordered even when the host's pair is not, so that a state that
         // is momentarily inside out — a text field being typed into, a load that
@@ -289,8 +291,8 @@ impl RenderOnce for RangeSlider {
             .absolute()
             .left_0()
             .right_0()
-            .top(px(TRACK_TOP))
-            .h(px(TRACK))
+            .top(knob_size.track_top())
+            .h(knob_size.track)
             .rounded_full()
             .border_1()
             .border_color(border)
@@ -301,8 +303,8 @@ impl RenderOnce for RangeSlider {
             .absolute()
             .left(relative(low))
             .right(relative(1. - high))
-            .top(px(TRACK_TOP))
-            .h(px(TRACK))
+            .top(knob_size.track_top())
+            .h(knob_size.track)
             .rounded_full()
             .bg(accent);
 
@@ -327,7 +329,7 @@ impl RenderOnce for RangeSlider {
                 // ring's own box and the box its children are placed in.
                 .left(px(KNOB_RING - 1.))
                 .top(px(KNOB_RING - 1.))
-                .size(px(KNOB))
+                .size(knob_size.size)
                 .rounded_full()
                 .border_1()
                 .border_color(border)
@@ -344,6 +346,7 @@ impl RenderOnce for RangeSlider {
                         id: ElementId::from((id.clone(), tail)),
                         track: track.clone(),
                         grab: Cell::new(px(0.)),
+                        knob: knob_size.size,
                     },
                     |dragged, grab, _window, cx| {
                         dragged.grab.set(grab.x);
@@ -358,9 +361,9 @@ impl RenderOnce for RangeSlider {
             let ring = div()
                 .id(ElementId::from((id.clone(), ring_tail)))
                 .absolute()
-                .left(px(-(HALF_KNOB + KNOB_RING)))
+                .left(-(knob_size.half() + px(KNOB_RING)))
                 .top(px(-KNOB_RING))
-                .size(px(KNOB + 2. * KNOB_RING))
+                .size(knob_size.size + px(2. * KNOB_RING))
                 .rounded_full()
                 // Transparent until focused, so the ring costs no layout.
                 .border_1()
@@ -424,8 +427,8 @@ impl RenderOnce for RangeSlider {
 
         let rail = div()
             .absolute()
-            .left(px(HALF_KNOB))
-            .right(px(HALF_KNOB))
+            .left(knob_size.half())
+            .right(knob_size.half())
             .top_0()
             .bottom_0()
             .child(filled)
@@ -441,7 +444,12 @@ impl RenderOnce for RangeSlider {
                 };
                 // Half a knob, because a press on the track asks for a knob's
                 // center to come to the pointer rather than its leading edge.
-                if let Some(at) = value_at(track.get(), event.position.x, px(HALF_KNOB)) {
+                if let Some(at) = value_at(
+                    track.get(),
+                    event.position.x,
+                    knob_size.half(),
+                    knob_size.size,
+                ) {
                     let next = placed(low, high, nearer(low, high, at), at);
                     if next != (low, high) {
                         handler(next.0, next.1, window, cx);
@@ -453,7 +461,7 @@ impl RenderOnce for RangeSlider {
         let bar = div()
             .relative()
             .w_full()
-            .h(px(KNOB))
+            .h(knob_size.size)
             .cursor_pointer()
             .on_mouse_down(MouseButton::Left, pressed)
             .child(measure)

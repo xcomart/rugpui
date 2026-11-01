@@ -25,6 +25,7 @@ use gpui::{
 
 use crate::icons::CARET_DOWN;
 use crate::overlay;
+use crate::scale::{TextSize, scaled};
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::{Theme, theme};
@@ -33,9 +34,10 @@ use crate::theme::{Theme, theme};
 /// mixes the two lines up.
 const TRIGGER_HEIGHT: f32 = 32.;
 
-/// Vertical distance from the top of the trigger to the top of the list, so the
-/// list clears the button it hangs from.
-const DROP_OFFSET: f32 = TRIGGER_HEIGHT + 4.;
+/// Gap between the bottom of the trigger and the top of the dropdown, so
+/// that the panel clears the button it hangs from. Not scaled: the trigger's
+/// own height is, and the gap is the frame around it.
+const DROP_GAP: f32 = 4.;
 
 /// Width of the list when the caller sets no width of its own.
 ///
@@ -55,6 +57,30 @@ const PREVIEW_HEIGHT: f32 = 20.;
 
 /// Diameter of one accent chip inside that pill.
 const CHIP_SIZE: f32 = 8.;
+
+/// Size of the sample text in a preview pill, at the default UI scale.
+const PREVIEW_TEXT_SIZE: f32 = 10.;
+
+/// A preview pill's measurements at the UI scale: it holds a line of sample
+/// text, so it grows with the interface. Taken once per render and handed to
+/// every pill, since the rows are built in a closure that cannot borrow the
+/// app.
+#[derive(Debug, Clone, Copy)]
+struct PillSize {
+    height: Pixels,
+    text_size: Pixels,
+    chip: Pixels,
+}
+
+impl PillSize {
+    fn at(cx: &App) -> Self {
+        Self {
+            height: scaled(PREVIEW_HEIGHT, cx),
+            text_size: scaled(PREVIEW_TEXT_SIZE, cx),
+            chip: scaled(CHIP_SIZE, cx),
+        }
+    }
+}
 
 /// Distance the list keeps from the window edges when it would overflow.
 const WINDOW_MARGIN: f32 = 6.;
@@ -150,7 +176,17 @@ impl SchemeSwatch {
 /// accents as chips. An entry with no colors of its own gets an outlined pill
 /// carrying its placeholder label, so that "inherit the other choice" reads as
 /// an absence of color rather than as a scheme that happens to be transparent.
-fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, theme: &Theme) -> Div {
+fn preview_pill(
+    preview: Option<&SchemePreview>,
+    placeholder: SharedString,
+    theme: &Theme,
+    size: PillSize,
+) -> Div {
+    let PillSize {
+        height,
+        text_size,
+        chip,
+    } = size;
     match preview {
         Some(preview) => div()
             .flex()
@@ -158,35 +194,34 @@ fn preview_pill(preview: Option<&SchemePreview>, placeholder: SharedString, them
             .flex_none()
             .items_center()
             .gap(px(3.))
-            .h(px(PREVIEW_HEIGHT))
+            .h(height)
             .px(px(6.))
             .rounded_sm()
             .bg(preview.background)
             .child(
                 div()
                     .flex_none()
-                    .text_size(px(10.))
+                    .text_size(text_size)
                     .text_color(preview.foreground)
                     .child("Aa"),
             )
-            .children(preview.accents.iter().map(|color| {
-                div()
-                    .flex_none()
-                    .size(px(CHIP_SIZE))
-                    .rounded_full()
-                    .bg(*color)
-            })),
+            .children(
+                preview
+                    .accents
+                    .iter()
+                    .map(|color| div().flex_none().size(chip).rounded_full().bg(*color)),
+            ),
         None => div()
             .flex()
             .flex_row()
             .flex_none()
             .items_center()
-            .h(px(PREVIEW_HEIGHT))
+            .h(height)
             .px(px(6.))
             .rounded_sm()
             .border_1()
             .border_color(theme.border)
-            .text_size(px(10.))
+            .text_size(text_size)
             .text_color(theme.text_muted)
             .child(placeholder),
     }
@@ -404,7 +439,8 @@ impl RenderOnce for SchemeSelect {
         let scroll_handle = self
             .scroll_handle
             .unwrap_or_else(|| keyboard.read(cx).scroll.clone());
-        let list_width = self.width.unwrap_or(px(DEFAULT_WIDTH));
+        let list_width = self.width.unwrap_or_else(|| scaled(DEFAULT_WIDTH, cx));
+        let pill_size = PillSize::at(cx);
         let chevron_icon = self.chevron_icon;
 
         let ids = options.clone();
@@ -421,6 +457,7 @@ impl RenderOnce for SchemeSelect {
                     entry.preview.as_ref(),
                     entry.placeholder_label.clone(),
                     &theme,
+                    pill_size,
                 )),
             ),
             None => (selected.clone().unwrap_or_default(), None),
@@ -433,15 +470,15 @@ impl RenderOnce for SchemeSelect {
             .items_center()
             .gap(px(8.))
             .w_full()
-            .h(px(TRIGGER_HEIGHT))
+            .h(scaled(TRIGGER_HEIGHT, cx))
             .px(px(8.))
             .rounded_md()
             .overflow_hidden()
             .border_1()
             .border_color(theme.border)
             .bg(theme.surface)
-            .text_size(px(14.))
-            .line_height(px(20.))
+            .text_size(TextSize::Title.size(cx))
+            .line_height(scaled(20., cx))
             // Everything that answers a pointer or the keyboard hangs off this
             // one branch, so a disabled control is inert rather than merely
             // gray: nothing to hover, nothing to click, nothing to tab to.
@@ -511,7 +548,7 @@ impl RenderOnce for SchemeSelect {
             // dropdown — just one somebody else is driving.
             .child(
                 svg()
-                    .size(px(CHEVRON_SIZE))
+                    .size(scaled(CHEVRON_SIZE, cx))
                     .flex_none()
                     .path(chevron_icon.clone().unwrap_or_else(|| CARET_DOWN.into()))
                     // An SVG takes its color from its own `text_color`, which
@@ -546,6 +583,8 @@ impl RenderOnce for SchemeSelect {
             });
 
         let row_theme = theme.clone();
+        let row_height = scaled(ROW_HEIGHT, cx);
+        let row_text = TextSize::Body.size(cx);
         let rows = options
             .iter()
             .cloned()
@@ -564,11 +603,11 @@ impl RenderOnce for SchemeSelect {
                     .flex_none()
                     .items_center()
                     .gap(px(8.))
-                    .h(px(ROW_HEIGHT))
+                    .h(row_height)
                     .px(px(10.))
                     .mx(px(4.))
                     .rounded_sm()
-                    .text_size(px(13.))
+                    .text_size(row_text)
                     .text_color(if is_current { theme.accent } else { theme.text })
                     .bg(if is_current {
                         theme.surface_active
@@ -590,13 +629,14 @@ impl RenderOnce for SchemeSelect {
                         entry.preview.as_ref(),
                         entry.placeholder_label,
                         theme,
+                        pill_size,
                     ))
             });
 
         // Never taller than the window shows, less the margins `anchored` snaps
         // back to: a longer list scrolls instead of running past the content.
         let list_max_height =
-            px(LIST_MAX_HEIGHT).min(overlay::max_height(window, px(WINDOW_MARGIN)));
+            scaled(LIST_MAX_HEIGHT, cx).min(overlay::max_height(window, px(WINDOW_MARGIN)));
         let list = div()
             .id(ElementId::from((id.clone(), "list")))
             .occlude()
@@ -661,7 +701,7 @@ impl RenderOnce for SchemeSelect {
                 deferred(
                     anchored()
                         .anchor(Anchor::TopLeft)
-                        .offset(point(px(0.), px(DROP_OFFSET)))
+                        .offset(point(px(0.), scaled(TRIGGER_HEIGHT, cx) + px(DROP_GAP)))
                         .snap_to_window_with_margin(px(WINDOW_MARGIN))
                         .child(list),
                 )

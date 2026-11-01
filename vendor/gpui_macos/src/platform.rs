@@ -903,13 +903,32 @@ impl Platform for MacPlatform {
         &self,
         options: PathPromptOptions,
     ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
-        use objc2_foundation::NSString;
+        // RULOGMAN PATCH: the body is upstream's, moved into
+        // `prompt_for_paths_in`; this is that prompt with no folder.
+        self.prompt_for_paths_in(options, None)
+    }
 
+    // RULOGMAN PATCH: `Platform::prompt_for_paths_in`. Upstream's open panel,
+    // given the `directoryURL` its save panel is already given.
+    fn prompt_for_paths_in(
+        &self,
+        options: PathPromptOptions,
+        directory: Option<&Path>,
+    ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+        use objc2_foundation::{NSString, NSURL};
+
+        // RULOGMAN PATCH: the folder, as `prompt_for_new_path` builds it.
+        let url = directory.and_then(NSURL::from_directory_path);
         let marker = self.1;
         let (done_tx, done_rx) = oneshot::channel();
         self.foreground_executor()
             .spawn(async move {
                 let panel = NSOpenPanel::openPanel(marker);
+                // RULOGMAN PATCH: only when there is one, so the panel's own
+                // memory of the last folder still answers otherwise.
+                if url.is_some() {
+                    panel.setDirectoryURL(url.as_deref());
+                }
                 panel.setCanChooseDirectories(options.directories);
                 panel.setCanChooseFiles(options.files);
                 panel.setAllowsMultipleSelection(options.multiple);

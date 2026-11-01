@@ -785,12 +785,26 @@ impl Platform for WindowsPlatform {
         &self,
         options: PathPromptOptions,
     ) -> Receiver<Result<Option<Vec<PathBuf>>>> {
+        // RULOGMAN PATCH: the body is upstream's, moved into
+        // `prompt_for_paths_in`; this is that prompt with no folder.
+        self.prompt_for_paths_in(options, None)
+    }
+
+    // RULOGMAN PATCH: `Platform::prompt_for_paths_in`. Upstream's open dialog,
+    // handed the folder its save dialog is already handed.
+    fn prompt_for_paths_in(
+        &self,
+        options: PathPromptOptions,
+        directory: Option<&Path>,
+    ) -> Receiver<Result<Option<Vec<PathBuf>>>> {
+        let directory = directory.map(Path::to_path_buf);
         let owner = self
             .find_current_active_window()
             .and_then(|hwnd| self.window_from_hwnd(hwnd))
             .map(|window| window.dialog_owner.clone());
         crate::dialog::show_dialog(owner, &self.foreground_executor, move |window| {
-            file_open_dialog(options, Some(window))
+            // RULOGMAN PATCH: and the folder.
+            file_open_dialog(options, directory, Some(window))
         })
     }
 
@@ -1528,6 +1542,8 @@ fn open_target_in_explorer(target: &Path) -> Result<()> {
 
 fn file_open_dialog(
     options: PathPromptOptions,
+    // RULOGMAN PATCH: see `prompt_for_paths_in`.
+    directory: Option<PathBuf>,
     window: Option<HWND>,
 ) -> Result<Option<Vec<PathBuf>>> {
     let folder_dialog: IFileOpenDialog =
@@ -1547,6 +1563,28 @@ fn file_open_dialog(
         if let Some(prompt) = options.prompt {
             let prompt: &str = &prompt;
             folder_dialog.SetOkButtonLabel(&HSTRING::from(prompt))?;
+        }
+
+        // RULOGMAN PATCH: start in the folder asked for, the way
+        // `file_save_dialog` does; a folder that cannot be had leaves the
+        // dialog where it would have opened anyway.
+        if let Some(full_path) = directory.and_then(|directory| {
+            directory
+                .canonicalize()
+                .context("failed to canonicalize directory")
+                .log_err()
+        }) {
+            let full_path_string = dunce::simplified(&full_path).display().to_string();
+            let path_item: Option<IShellItem> =
+                SHCreateItemFromParsingName(&HSTRING::from(full_path_string), None)
+                    .context("failed to find dialog folder")
+                    .log_err();
+            if let Some(path_item) = path_item {
+                folder_dialog
+                    .SetFolder(&path_item)
+                    .context("failed to set dialog folder")
+                    .log_err();
+            }
         }
 
         if let Err(error) = folder_dialog.Show(window) {

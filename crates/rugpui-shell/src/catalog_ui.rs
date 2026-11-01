@@ -28,6 +28,7 @@
 //! is what keeps the tab ring from shifting under the user as a confirmation
 //! appears.
 
+use rugpui::TextSize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -557,7 +558,7 @@ impl Render for CatalogActions {
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(TextSize::Sm.size(cx))
                         .text_color(chrome.text)
                         .child(question),
                 )
@@ -590,7 +591,7 @@ impl Render for CatalogActions {
 
         let status = self.status.clone().map(|message| {
             div()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.danger)
                 .child(message)
         });

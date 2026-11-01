@@ -42,6 +42,7 @@ use gpui::{
 };
 
 use crate::icons::{CARET_DOWN, CARET_RIGHT};
+use crate::scale::scaled;
 use crate::theme::theme;
 
 /// Width of the box the disclosure arrow is drawn in.
@@ -234,7 +235,7 @@ impl RenderOnce for Collapsible {
             None => (CARET_RIGHT.into(), CARET_DOWN.into()),
         };
         let mark = svg()
-            .size(px(ARROW_ICON_SIZE))
+            .size(scaled(ARROW_ICON_SIZE, cx))
             .flex_none()
             .path(if open { opened } else { closed })
             // An SVG takes its tint from the element itself; unlike text it
@@ -246,7 +247,7 @@ impl RenderOnce for Collapsible {
             .flex_none()
             .items_center()
             .justify_center()
-            .w(px(ARROW_WIDTH))
+            .w(scaled(ARROW_WIDTH, cx))
             .child(mark);
 
         let header = div()
@@ -288,7 +289,7 @@ impl RenderOnce for Collapsible {
                 .w_full()
                 .gap(px(BODY_GAP))
                 .pt(px(BODY_GAP))
-                .when(self.indent, |this| this.pl(px(ARROW_WIDTH)))
+                .when(self.indent, |this| this.pl(scaled(ARROW_WIDTH, cx)))
                 .children(self.children)
         });
 

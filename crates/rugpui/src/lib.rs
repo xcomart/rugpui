@@ -62,6 +62,7 @@ mod overlay;
 pub mod progress;
 pub mod range_slider;
 pub mod resize_handle;
+pub mod scale;
 pub mod scheme_select;
 pub mod scroll;
 pub mod scrollbar;
@@ -92,11 +93,12 @@ pub use editor_theme::{
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
 pub use icons::{CARET_DOWN, CARET_RIGHT, EXPAND, ICONS};
 pub use list::{ListEvent, ListRowInfo, ListSource, ListView};
-pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry};
-pub use modal::{form_row, modal};
+pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry, OpenAppMenu, OpenContextMenu};
+pub use modal::{DismissReason, FocusReturn, FormRow, Modal, fit_label_width, form_row, modal};
 pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
 pub use resize_handle::ResizeHandle;
+pub use scale::{TextSize, scaled, set_ui_scale, ui_scale};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scroll::SmoothScrollExt;
 pub use scrollbar::{
@@ -132,6 +134,8 @@ use gpui::App;
 /// the window looks like still has an answer, and it is the one that paints.
 pub fn init(cx: &mut App) {
     select_keyboard::init(cx);
+    modal::init(cx);
+    menu::init(cx);
     ThemeRegistry::init(cx);
     EditorThemeRegistry::init(cx);
     set_theme(Theme::dark(), cx);

@@ -53,30 +53,59 @@ use gpui::{
     canvas, div, prelude::*, px, relative, transparent_black,
 };
 
+use crate::scale::scaled;
 use crate::scrollbar::dragged_to;
 use crate::theme::theme;
 
-/// Diameter of the knob, in pixels.
+/// Diameter of the knob, in pixels at the default UI scale.
 ///
 /// Also the height of the whole control, since the knob is the tallest thing in
 /// it, and the length of track the knob covers — which is why the value `0.`
 /// leaves the knob at the very start of the track rather than hanging off it.
 pub(crate) const KNOB: f32 = 14.;
 
-/// Half the knob, in pixels.
+/// Half the knob, in pixels at the default UI scale.
 ///
 /// The distance from the knob's leading edge to its center, which is where a
 /// press on the bare track wants the knob to end up and where the filled part
 /// of the track stops.
+#[cfg(test)]
 pub(crate) const HALF_KNOB: f32 = KNOB / 2.;
 
-/// Thickness of the track, in pixels.
+/// Thickness of the track, in pixels at the default UI scale.
 pub(crate) const TRACK: f32 = 4.;
 
-/// Distance from the top of the control to the top of the track, in pixels.
-///
-/// Centers the thin track against the knob that rides it.
-pub(crate) const TRACK_TOP: f32 = (KNOB - TRACK) / 2.;
+/// The knob and the track at the UI scale: both grow with the interface, so a
+/// slider stays the same picture beside the larger text. The padding kept for
+/// the focus ring does not.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct KnobGeometry {
+    /// Diameter of the knob, and the height of the whole control.
+    pub(crate) size: Pixels,
+    /// Thickness of the track.
+    pub(crate) track: Pixels,
+}
+
+impl KnobGeometry {
+    /// The knob at the installed UI scale.
+    pub(crate) fn at(cx: &App) -> Self {
+        Self {
+            size: scaled(KNOB, cx),
+            track: scaled(TRACK, cx),
+        }
+    }
+
+    /// Half the knob: from its leading edge to its center.
+    pub(crate) fn half(self) -> Pixels {
+        self.size / 2.
+    }
+
+    /// From the top of the control to the top of the track, which centers the
+    /// thin track against the knob that rides it.
+    pub(crate) fn track_top(self) -> Pixels {
+        (self.size - self.track) / 2.
+    }
+}
 
 /// How far an arrow key moves a slider that has not said otherwise.
 ///
@@ -122,8 +151,15 @@ pub(crate) fn fraction(value: f32) -> f32 {
 /// diameter as the thumb's length is the whole of the adaptation. `None` when
 /// the track is too narrow to hold the knob, where there is nowhere to move it
 /// and nothing to report.
-pub(crate) fn value_at(track: Bounds<Pixels>, x: Pixels, grab: Pixels) -> Option<f32> {
-    dragged_to(track.size.width, px(KNOB), x - track.origin.x, grab)
+///
+/// `knob` is the knob's diameter as drawn, which follows the UI scale.
+pub(crate) fn value_at(
+    track: Bounds<Pixels>,
+    x: Pixels,
+    grab: Pixels,
+    knob: Pixels,
+) -> Option<f32> {
+    dragged_to(track.size.width, knob, x - track.origin.x, grab)
 }
 
 /// `value` moved one step, in the direction `up` points.
@@ -188,6 +224,8 @@ pub struct DraggedKnob {
     /// than a plain field because the payload is only ever seen through a shared
     /// reference after that.
     pub(crate) grab: Cell<Pixels>,
+    /// The knob's diameter as the slider drew it when the drag began.
+    pub(crate) knob: Pixels,
 }
 
 impl DraggedKnob {
@@ -197,7 +235,7 @@ impl DraggedKnob {
             return None;
         }
 
-        value_at(self.track.get(), position.x, self.grab.get())
+        value_at(self.track.get(), position.x, self.grab.get(), self.knob)
     }
 }
 
@@ -323,6 +361,7 @@ impl RenderOnce for Slider {
         let step = self.step;
         let id = self.id;
         let on_change = self.on_change;
+        let knob_size = KnobGeometry::at(cx);
 
         // Filled by the canvas below during this frame's prepaint, and read by
         // every press and drag that follows it.
@@ -342,8 +381,8 @@ impl RenderOnce for Slider {
             .absolute()
             .left_0()
             .right_0()
-            .top(px(TRACK_TOP))
-            .h(px(TRACK))
+            .top(knob_size.track_top())
+            .h(knob_size.track)
             .rounded_full()
             .border_1()
             .border_color(theme.border)
@@ -351,19 +390,19 @@ impl RenderOnce for Slider {
 
         let filled = div()
             .absolute()
-            .left(px(-HALF_KNOB))
+            .left(-knob_size.half())
             .right(relative(1. - value))
-            .top(px(TRACK_TOP))
-            .h(px(TRACK))
+            .top(knob_size.track_top())
+            .h(knob_size.track)
             .rounded_full()
             .bg(theme.accent);
 
         let knob = div()
             .id(ElementId::from((id.clone(), "knob")))
             .absolute()
-            .left(px(-HALF_KNOB))
+            .left(-knob_size.half())
             .top_0()
-            .size(px(KNOB))
+            .size(knob_size.size)
             .rounded_full()
             .border_1()
             .border_color(theme.border)
@@ -380,6 +419,7 @@ impl RenderOnce for Slider {
                     id: id.clone(),
                     track: track.clone(),
                     grab: Cell::new(px(0.)),
+                    knob: knob_size.size,
                 },
                 |dragged, grab, _window, cx| {
                     dragged.grab.set(grab.x);
@@ -400,8 +440,8 @@ impl RenderOnce for Slider {
 
         let rail = div()
             .absolute()
-            .left(px(HALF_KNOB))
-            .right(px(HALF_KNOB))
+            .left(knob_size.half())
+            .right(knob_size.half())
             .top_0()
             .bottom_0()
             .child(filled)
@@ -416,8 +456,12 @@ impl RenderOnce for Slider {
                 };
                 // Half a knob, because a press on the track asks for the knob's
                 // center to come to the pointer rather than its leading edge.
-                if let Some(next) = value_at(track.get(), event.position.x, px(HALF_KNOB))
-                    && next != value
+                if let Some(next) = value_at(
+                    track.get(),
+                    event.position.x,
+                    knob_size.half(),
+                    knob_size.size,
+                ) && next != value
                 {
                     handler(next, window, cx);
                 }
@@ -427,7 +471,7 @@ impl RenderOnce for Slider {
         let bar = div()
             .relative()
             .w_full()
-            .h(px(KNOB))
+            .h(knob_size.size)
             .cursor_pointer()
             .on_mouse_down(MouseButton::Left, pressed)
             .child(measure)
@@ -747,12 +791,15 @@ mod tests {
     fn the_knob_reaches_both_ends_of_its_track() {
         let track = track(0., 114.);
 
-        assert_eq!(value_at(track, px(HALF_KNOB), px(HALF_KNOB)), Some(0.));
         assert_eq!(
-            value_at(track, px(114. - HALF_KNOB), px(HALF_KNOB)),
+            value_at(track, px(HALF_KNOB), px(HALF_KNOB), px(KNOB)),
+            Some(0.)
+        );
+        assert_eq!(
+            value_at(track, px(114. - HALF_KNOB), px(HALF_KNOB), px(KNOB)),
             Some(1.)
         );
-        assert_eq!(value_at(track, px(57.), px(HALF_KNOB)), Some(0.5));
+        assert_eq!(value_at(track, px(57.), px(HALF_KNOB), px(KNOB)), Some(0.5));
     }
 
     /// The pointer is read against the track's own corner rather than the
@@ -762,7 +809,10 @@ mod tests {
     fn the_pointer_is_read_from_the_tracks_corner() {
         let track = track(40., 114.);
 
-        assert_eq!(value_at(track, px(40. + 57.), px(HALF_KNOB)), Some(0.5));
+        assert_eq!(
+            value_at(track, px(40. + 57.), px(HALF_KNOB), px(KNOB)),
+            Some(0.5)
+        );
     }
 
     /// The point taken hold of stays under the pointer: a press near the knob's
@@ -773,7 +823,8 @@ mod tests {
 
         // Grabbed at its far edge and held at 100: the knob's start is at 86,
         // which is 86/100 of the travel.
-        let value = value_at(track, px(100.), px(KNOB)).expect("a knob with room to travel");
+        let value =
+            value_at(track, px(100.), px(KNOB), px(KNOB)).expect("a knob with room to travel");
         assert!(close(value, 0.86), "{value}");
     }
 
@@ -783,8 +834,14 @@ mod tests {
     fn a_drag_past_either_end_stops_there() {
         let track = track(0., 114.);
 
-        assert_eq!(value_at(track, px(9_000.), px(HALF_KNOB)), Some(1.));
-        assert_eq!(value_at(track, px(-9_000.), px(HALF_KNOB)), Some(0.));
+        assert_eq!(
+            value_at(track, px(9_000.), px(HALF_KNOB), px(KNOB)),
+            Some(1.)
+        );
+        assert_eq!(
+            value_at(track, px(-9_000.), px(HALF_KNOB), px(KNOB)),
+            Some(0.)
+        );
     }
 
     /// A slider too narrow to hold its own knob has nowhere to move it, and says
@@ -792,10 +849,16 @@ mod tests {
     /// slider looks like, before anything has been laid out.
     #[test]
     fn a_track_with_no_room_reports_nothing() {
-        assert_eq!(value_at(track(0., 0.), px(5.), px(HALF_KNOB)), None);
-        assert_eq!(value_at(track(0., KNOB), px(5.), px(HALF_KNOB)), None);
         assert_eq!(
-            value_at(Bounds::default(), px(5.), px(HALF_KNOB)),
+            value_at(track(0., 0.), px(5.), px(HALF_KNOB), px(KNOB)),
+            None
+        );
+        assert_eq!(
+            value_at(track(0., KNOB), px(5.), px(HALF_KNOB), px(KNOB)),
+            None
+        );
+        assert_eq!(
+            value_at(Bounds::default(), px(5.), px(HALF_KNOB), px(KNOB)),
             None,
             "an unmeasured slider answered a press"
         );
@@ -809,6 +872,7 @@ mod tests {
             id: "mine".into(),
             track: Rc::new(Cell::new(track(0., 114.))),
             grab: Cell::new(px(HALF_KNOB)),
+            knob: px(KNOB),
         };
 
         assert_eq!(

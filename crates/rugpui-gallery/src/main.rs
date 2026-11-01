@@ -21,19 +21,20 @@
 use std::borrow::Cow;
 
 use gpui::{
-    AnyView, App, AssetSource, Axis, Bounds, Context, Div, DragMoveEvent, Entity, Hsla, Result,
-    ScrollHandle, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
-    prelude::*, px, size,
+    AnyView, App, AssetSource, Axis, Bounds, Context, Div, DragMoveEvent, Entity, FocusHandle,
+    Hsla, Result, ScrollHandle, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size,
 };
 use rugpui::{
     Button, ButtonVariant, Checkbox, Collapsible, ColorPicker, DraggedThumb, EditorTheme, Hsv,
     ListEvent, ListView, MenuButton, MenuEntry, ProgressBar, RangeSlider, Scrollbar, ScrollbarAxis,
     Segmented, Select, SelectOption, Slider, Spinner, Splitter, Switch, TabBar, TabItem, TabStatus,
-    TextInput, Theme, Tooltip, TreeView, scroll_to, set_editor_theme, set_theme, theme,
-    tooltip_label,
+    TextInput, Theme, Tooltip, TreeView, fit_label_width, form_row, modal, scroll_to,
+    set_editor_theme, set_theme, set_ui_scale, theme, tooltip_label,
 };
 use rugpui_editor::{CodeSnippet, EditorView, MarkKind, highlighter_for_extension};
-use rugpui_grid::{GridEvent, GridView};
+use rugpui_grid::{GridEvent, GridRequest, GridView};
+use rugpui_shell::{CloseChoice, CloseIntent, Toast, UnsavedWorkDialog, show_toast, toast_stack};
 
 mod data;
 mod shots;
@@ -282,6 +283,29 @@ fn parse_args() -> Args {
 
 // --- start-up ---------------------------------------------------------------
 
+/// The words the shell's pieces look up, for the few the gallery shows. An
+/// application answers from its own locale files; the gallery has none.
+struct Words;
+
+impl rugpui_shell::Strings for Words {
+    fn text(&self, key: &str) -> SharedString {
+        SharedString::new_static(match key {
+            "common.cancel" => "Cancel",
+            "common.close" => "Close",
+            "close_guard.title_window" => "Close the window with unsaved work?",
+            "close_guard.title_quit" => "Quit with unsaved work?",
+            "close_guard.title_restart" => "Restart with unsaved work?",
+            "close_guard.message" => "If you go on, this is lost:",
+            "close_guard.more" => "…and %{count} more",
+            "close_guard.close_anyway" => "Close anyway",
+            "close_guard.quit_anyway" => "Quit anyway",
+            "close_guard.restart_anyway" => "Restart anyway",
+            "close_guard.save_all" => "Save all",
+            _ => return SharedString::from(key.to_owned()),
+        })
+    }
+}
+
 fn main() {
     let args = parse_args();
 
@@ -293,6 +317,7 @@ fn main() {
         rugpui::init(cx);
         rugpui_grid::init(cx);
         rugpui_editor::init(cx);
+        rugpui_shell::set_strings(Box::new(Words), cx);
         // Over the defaults `rugpui::init` just set.
         set_theme(args.palettes.ui.clone(), cx);
         set_editor_theme(args.palettes.editor.clone(), cx);
@@ -350,8 +375,21 @@ struct Gallery {
     /// The dropdown's choice, and whether its list is showing.
     choice: SharedString,
     select_open: bool,
-    /// Whether the toolbar button's menu is showing.
+    /// Whether the toolbar button's menu is showing, and whether F10 opened
+    /// it — which starts it on its first row.
     menu_open: bool,
+    menu_by_keyboard: bool,
+    /// The dialog the "Dialogs and notices" section opens: whether it is up,
+    /// its two fields, and the button it focuses as it opens.
+    dialog_open: bool,
+    dialog_name: Entity<TextInput>,
+    dialog_host: Entity<TextInput>,
+    dialog_ok: FocusHandle,
+    /// Whether the unsaved-work question is up, and its Cancel button.
+    unsaved_open: bool,
+    unsaved_cancel: FocusHandle,
+    /// Which step of the UI scale is picked.
+    scale: usize,
     /// Whether each of the two fold-away sections is open.
     advanced_open: bool,
     ssh_open: bool,
@@ -402,6 +440,8 @@ impl Gallery {
             input
         });
         let tunnel_host = cx.new(|cx| TextInput::new(cx).placeholder("bastion:22"));
+        let dialog_name = cx.new(|cx| TextInput::new(cx).placeholder("Production"));
+        let dialog_host = cx.new(|cx| TextInput::new(cx).placeholder("db.internal"));
 
         let tree = cx.new(|cx| {
             let mut tree = TreeView::new(Catalog, cx);
@@ -434,7 +474,11 @@ impl Gallery {
         .detach();
 
         let grid = cx.new(|cx| {
-            let mut grid = GridView::new(Orders, cx).insert_table("public.orders");
+            // `key_requests` is what makes Delete, F2, typing and paste the
+            // host's to answer; see the subscription below.
+            let mut grid = GridView::new(Orders, cx)
+                .insert_table("public.orders")
+                .key_requests(true);
             grid.select_cell(2, 1, cx);
             grid.extend_selection(4, 3, cx);
             grid
@@ -459,6 +503,31 @@ impl Gallery {
                     eprintln!("edit committed on row {row}, column {column}: {value:?}");
                 }
                 _ => {}
+            },
+        )
+        .detach();
+
+        // The other half of `key_requests`: a printable key or F2 opens the
+        // field with what was typed, and Delete and paste are reported.
+        cx.subscribe_in(
+            &grid,
+            window,
+            |_gallery, grid, request: &GridRequest, window, cx| match request {
+                GridRequest::Edit { row, column, text } => {
+                    grid.update(cx, |grid, cx| match text {
+                        Some(text) => grid.begin_edit_with(*row, *column, text, window, cx),
+                        None => grid.begin_edit(*row, *column, window, cx),
+                    });
+                }
+                GridRequest::Delete => {
+                    show_toast(Toast::info("Delete asked for the selected rows"), cx);
+                }
+                GridRequest::Paste { text } => {
+                    show_toast(
+                        Toast::info(format!("Paste of {} characters", text.len())),
+                        cx,
+                    );
+                }
             },
         )
         .detach();
@@ -492,6 +561,14 @@ impl Gallery {
             choice: "PostgreSQL".into(),
             select_open: false,
             menu_open: false,
+            menu_by_keyboard: false,
+            dialog_open: false,
+            dialog_name,
+            dialog_host,
+            dialog_ok: cx.focus_handle(),
+            unsaved_open: false,
+            unsaved_cancel: cx.focus_handle(),
+            scale: 0,
             advanced_open: true,
             advanced_on: true,
             ssh_open: false,
@@ -717,6 +794,8 @@ impl Gallery {
                 .child(
                     MenuButton::new("app-menu")
                         .tooltip("Everything this window can do")
+                        .tab_index(0)
+                        .highlight_first(self.menu_by_keyboard)
                         .open(self.menu_open)
                         .entries(vec![
                             MenuEntry::new("New tab").shortcut("Ctrl+T"),
@@ -730,6 +809,7 @@ impl Gallery {
                             move |open, _window, cx| {
                                 this.update(cx, |gallery, cx| {
                                     gallery.menu_open = open;
+                                    gallery.menu_by_keyboard = false;
                                     cx.notify();
                                 });
                             }
@@ -774,7 +854,187 @@ impl Gallery {
             .child(slider)
             .child(fields)
             .child(menu)
+            .child(self.notices(cx))
             .child(picker)
+    }
+
+    /// Dialogs, toasts and the UI scale: the parts an application's own views
+    /// put on top of everything else.
+    fn notices(&self, cx: &mut Context<Self>) -> Div {
+        let palette = theme(cx);
+        let this = cx.entity();
+        let toast = |id: &'static str, label: &'static str, toast: fn() -> Toast| {
+            Button::new(id, label)
+                .variant(ButtonVariant::Secondary)
+                .compact()
+                .on_click(move |_, _, cx| {
+                    show_toast(toast(), cx);
+                })
+        };
+        section("Dialogs and notices", &palette)
+            .child(
+                row()
+                    .child(Button::new("open-dialog", "Open dialog").on_click({
+                        let this = this.clone();
+                        move |_, _, cx| {
+                            this.update(cx, |gallery, cx| {
+                                gallery.dialog_open = true;
+                                cx.notify();
+                            })
+                        }
+                    }))
+                    .child(
+                        Button::new("open-unsaved", "Unsaved work…")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click({
+                                let this = this.clone();
+                                move |_, _, cx| {
+                                    this.update(cx, |gallery, cx| {
+                                        gallery.unsaved_open = true;
+                                        cx.notify();
+                                    })
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                row()
+                    .child(toast("toast-info", "Info", || {
+                        Toast::info("Layout saved to Production")
+                    }))
+                    .child(toast("toast-warning", "Warning", || {
+                        Toast::warning("Layout not saved: a pane is not a followed file")
+                    }))
+                    .child(toast("toast-error", "Error", || {
+                        Toast::error("orders.sql could not be read: permission denied")
+                            .title("Open failed")
+                    })),
+            )
+            .child(
+                row()
+                    .child(div().text_color(palette.text_muted).child("Interface size"))
+                    .child(
+                        Segmented::new("ui-scale")
+                            .options([("100", "100%"), ("125", "125%"), ("150", "150%")])
+                            .selected(self.scale)
+                            .on_select({
+                                let this = this.clone();
+                                move |index, _, cx| {
+                                    set_ui_scale([1.0, 1.25, 1.5][index], cx);
+                                    this.update(cx, |gallery, cx| {
+                                        gallery.scale = index;
+                                        cx.notify();
+                                    })
+                                }
+                            }),
+                    ),
+            )
+            // A label that is data, in a column too narrow for it: cut, with
+            // the whole of it in a tooltip.
+            .child(
+                div().flex().w(px(200.)).child(
+                    Button::new(
+                        "profile",
+                        "production-reporting · reporting@db-replica-3.internal:5432",
+                    )
+                    .variant(ButtonVariant::Ghost)
+                    .truncate(true),
+                ),
+            )
+    }
+
+    /// The dialog "Open dialog" raises: a form whose label column fits its
+    /// longest label, the default button focused as it opens, `Enter` as that
+    /// default, and a backdrop that will not throw a typed name away.
+    fn dialog(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let this = cx.entity();
+        let labels = ["Name", "Verbindungszeitlimit"];
+        let width = fit_label_width(labels, window, cx);
+        let close = {
+            let this = this.clone();
+            move |_: &mut Window, cx: &mut App| {
+                this.update(cx, |gallery, cx| {
+                    gallery.dialog_open = false;
+                    cx.notify();
+                })
+            }
+        };
+        let confirm = {
+            let close = close.clone();
+            move |window: &mut Window, cx: &mut App| {
+                close(window, cx);
+                show_toast(Toast::info("Saved"), cx);
+            }
+        };
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(form_row(labels[0], self.dialog_name.clone()).label_width(width))
+            .child(form_row(labels[1], self.dialog_host.clone()).label_width(width))
+            .child(
+                form_row(
+                    "A label that is a whole sentence, above its field",
+                    div().child(Checkbox::new("dialog-check", "Stacked").checked(true)),
+                )
+                .stacked(true),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        Button::new("dialog-cancel", "Cancel")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click({
+                                let close = close.clone();
+                                move |_, window, cx| close(window, cx)
+                            }),
+                    )
+                    .child(
+                        Button::new("dialog-ok", "Save")
+                            .focus_handle(&self.dialog_ok)
+                            .on_click({
+                                let confirm = confirm.clone();
+                                move |_, window, cx| confirm(window, cx)
+                            }),
+                    ),
+            );
+        let typed = !self.dialog_name.read(cx).content().is_empty();
+        modal("gallery-dialog", "Connection", px(440.), body, close)
+            .initial_focus(&self.dialog_ok)
+            .on_confirm(confirm)
+            .escape_dismisses(true)
+            // A stray click on the backdrop does not throw a typed name away;
+            // `Escape` still does, deliberately.
+            .dismiss_guard(move |reason, _, _| reason == rugpui::DismissReason::Escape || !typed)
+            .into_any_element()
+    }
+
+    /// The question a close asks when it would lose work, drawn by itself.
+    fn unsaved(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let this = cx.entity();
+        UnsavedWorkDialog::new(
+            CloseIntent::Quit,
+            ["orders.sql".into(), "Template customer.ftl".into()],
+        )
+        .save_all(true)
+        .cancel_focus(&self.unsaved_cancel)
+        .on_choice(move |choice, _, cx| {
+            this.update(cx, |gallery, cx| {
+                gallery.unsaved_open = false;
+                cx.notify();
+            });
+            let words = match choice {
+                CloseChoice::Cancel => "Canceled",
+                CloseChoice::Discard => "Would quit, losing both",
+                CloseChoice::SaveAll => "Would save both, then quit",
+            };
+            show_toast(Toast::info(words), cx);
+        })
+        .into_any_element()
     }
 
     /// The rich tooltip: a thumbnail, a caption and four lines of highlighted
@@ -1063,19 +1323,29 @@ impl Gallery {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = theme(cx);
         let controls = self.controls(cx);
         let data = self.data(cx);
         let tabs = self.tabs(cx);
 
+        let dialog = self.dialog_open.then(|| self.dialog(window, cx));
+        let unsaved = self.unsaved_open.then(|| self.unsaved(cx));
+
         div()
+            .relative()
             .flex()
             .flex_col()
             .size_full()
             .bg(palette.background)
             .text_color(palette.text)
-            .text_size(px(13.))
+            .text_size(rugpui::TextSize::Body.size(cx))
+            // F10 opens the application menu from wherever the focus is.
+            .on_action(cx.listener(|gallery, _: &rugpui::OpenAppMenu, _, cx| {
+                gallery.menu_open = true;
+                gallery.menu_by_keyboard = true;
+                cx.notify();
+            }))
             .child(tabs)
             .child(
                 div()
@@ -1090,6 +1360,9 @@ impl Render for Gallery {
                     .child(controls)
                     .child(data),
             )
+            .children(dialog)
+            .children(unsaved)
+            .child(toast_stack())
     }
 }
 

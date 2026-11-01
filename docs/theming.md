@@ -417,6 +417,39 @@ for the shell alone, and only for a fill it has reasoned about;
 legible than see-through simply does not ask and paints itself opaque, which is
 the choice the code editor made.
 
+## The UI scale
+
+`rugpui::set_ui_scale(factor, cx)` sets how large the interface is drawn, `1.0`
+being the size every widget was designed at. It is a global like the theme,
+clamped to 0.5–3.0, and it redraws every window when it changes. Every widget
+reads its text through `TextSize` and the heights that hold that text — button,
+tree, list, menu and dropdown rows, the tab strip, text fields, the dialog title,
+the grid's rows and header — through `scaled`. At the default factor each is the
+pixel value it replaced; borders, gaps, paddings and icons are not scaled.
+
+| token | at 1.0 | used for |
+| --- | --- | --- |
+| `TextSize::Xs` | 11 px | hints, shortcut labels, tooltips, compact buttons, status lines |
+| `TextSize::Sm` | 12 px | secondary text: a segmented control, a caption |
+| `TextSize::Body` | 13 px | rows, labels, buttons, tabs, menus |
+| `TextSize::Title` | 14 px | a dialog's title, a dropdown's trigger, a text field |
+
+An application maps its own "interface size" onto the factor against the size it
+calls normal, and converts its own fixed sizes the same way the widgets did:
+
+```rust
+rugpui::set_ui_scale(settings.ui_font_size / DEFAULT_UI_FONT_SIZE, cx);
+
+div().text_size(TextSize::Xs.size(cx))      // one of the four steps
+div().text_size(rugpui::scaled(10.5, cx))   // a size of its own
+div().h(rugpui::scaled(24., cx))            // a height that holds text
+```
+
+`ui_scale(cx)` reads the factor back. Palette previews — the scheme dropdown's
+chips, the editor theme picker's thumbnails — are pictures of a palette and keep
+their fixed sizes, and `tooltip_frame` keeps 11 px for a host building its own
+tooltip; the three tooltip builders in `rugpui::tooltip` scale.
+
 ## Three helpers
 
 - `shift_lightness(color, delta) -> Hsla` — lightness moved by `delta`, clamped

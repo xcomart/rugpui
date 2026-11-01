@@ -279,6 +279,126 @@ impl<S: GridSource> GridView<S> {
         self.step_edit(false, window, cx);
     }
 
+    /// Whether a key behind a [`GridRequest`] is the grid's to answer at all.
+    ///
+    /// Not while the host has not opted in, and not while an editor is open:
+    /// the field binds `Delete` and the paste chord itself, deeper, so those
+    /// never get here from a field — but a dropdown or a host's own editor
+    /// sits in a box the grid focuses, and a request raised from there would
+    /// be about a cell the user is already editing.
+    fn asks(&self) -> bool {
+        self.key_requests && self.editing.is_none()
+    }
+
+    /// The cell under the cursor, as `(row, source column)`.
+    fn cursor_cell(&self) -> Option<(usize, usize)> {
+        let cursor = self.selection.cursor()?;
+        let placed = self.laid_out.get(cursor.column)?;
+        (cursor.row < self.source.row_count()).then_some((cursor.row, placed.column))
+    }
+
+    /// The cell under the cursor, when it is one [`GridSource::cell_editable`]
+    /// accepts — the only kind a [`GridRequest::Edit`] is raised for.
+    fn editable_cursor_cell(&self) -> Option<(usize, usize)> {
+        self.cursor_cell()
+            .filter(|&(row, column)| self.source.cell_editable(row, column))
+    }
+
+    /// `Delete`: [`GridRequest::Delete`], or nothing at all.
+    ///
+    /// Every one of the three request keys ends the same way when the grid has
+    /// nothing to ask: [`App::propagate`], which hands the keystroke on to the
+    /// next binding and then to the window exactly as if the grid had never
+    /// bound it. That is what keeps a host that has not opted in — or a grid
+    /// with nothing selected — from swallowing a key somebody else wanted.
+    pub(super) fn request_delete(
+        &mut self,
+        _: &RequestDelete,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.asks() || self.selection.is_empty() {
+            cx.propagate();
+            return;
+        }
+        cx.emit(GridRequest::Delete);
+    }
+
+    /// `F2`: [`GridRequest::Edit`] with no text, for an editable cell.
+    pub(super) fn request_edit(&mut self, _: &RequestEdit, _: &mut Window, cx: &mut Context<Self>) {
+        let Some((row, column)) = self.editable_cursor_cell().filter(|_| self.asks()) else {
+            cx.propagate();
+            return;
+        };
+        cx.emit(GridRequest::Edit {
+            row,
+            column,
+            text: None,
+        });
+    }
+
+    /// The paste chord: [`GridRequest::Paste`] with what the clipboard holds.
+    ///
+    /// An empty clipboard, or one holding only an image, asks for nothing —
+    /// there is nothing to stage.
+    pub(super) fn request_paste(
+        &mut self,
+        _: &RequestPaste,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = (self.asks() && self.cursor_cell().is_some())
+            .then(|| cx.read_from_clipboard().and_then(|item| item.text()))
+            .flatten()
+            .filter(|text| !text.is_empty());
+        let Some(text) = text else {
+            cx.propagate();
+            return;
+        };
+        cx.emit(GridRequest::Paste { text });
+    }
+
+    /// A printable keystroke on an editable cell: [`GridRequest::Edit`] with
+    /// the character.
+    ///
+    /// A key-down listener rather than a binding, because the trigger is "any
+    /// character" and a binding names one key. It runs after every binding
+    /// has had its turn, so `Enter`, the arrows and the chords never get here
+    /// while they mean something; what does is held to a character with no
+    /// command modifier — Shift is how a capital is typed, so it is allowed —
+    /// and stopped only when it becomes a request.
+    pub(super) fn on_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.asks() {
+            return;
+        }
+        let keystroke = &event.keystroke;
+        let modifiers = &keystroke.modifiers;
+        if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
+            return;
+        }
+        let Some(text) = keystroke
+            .key_char
+            .as_ref()
+            .filter(|text| !text.is_empty() && !text.chars().any(char::is_control))
+        else {
+            return;
+        };
+        let Some((row, column)) = self.editable_cursor_cell() else {
+            return;
+        };
+        cx.stop_propagation();
+        cx.emit(GridRequest::Edit {
+            row,
+            column,
+            text: Some(text.clone()),
+        });
+    }
+
     /// What the pointer is over, worked out from the grid's own geometry.
     ///
     /// Done arithmetically rather than with a listener per cell: a cell that
@@ -298,15 +418,16 @@ impl<S: GridSource> GridView<S> {
             return None;
         }
 
-        let row = (content_y / ROW_HEIGHT) as usize;
+        let row = (content_y / self.scaled(ROW_HEIGHT)) as usize;
         if row >= self.source.row_count() {
             return None;
         }
-        if local_x < GUTTER_WIDTH {
+        let gutter = self.scaled(GUTTER_WIDTH);
+        if local_x < gutter {
             return Some(Hit::Gutter(row));
         }
 
-        let x = local_x - GUTTER_WIDTH + self.h_offset;
+        let x = local_x - gutter + self.h_offset;
         let display = self
             .laid_out
             .partition_point(|placed| placed.x + self.column_width(placed.column) <= x);
@@ -475,7 +596,7 @@ impl<S: GridSource> GridView<S> {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(ROW_HEIGHT));
+        let delta = event.delta.pixel_delta(px(self.scaled(ROW_HEIGHT)));
         // A plain mouse has no sideways wheel, so `Shift` folds the vertical one
         // onto the horizontal axis — the convention every other scrolling
         // surface uses.
@@ -513,12 +634,10 @@ impl<S: GridSource> GridView<S> {
     /// content area, which is the body less the gutter.
     pub(super) fn horizontal_bar(&self) -> Scrollbar {
         let body = self.base_handle().bounds();
+        let gutter = px(self.scaled(GUTTER_WIDTH));
         let track = Bounds::new(
-            body.origin + point(px(GUTTER_WIDTH), px(0.)),
-            size(
-                (body.size.width - px(GUTTER_WIDTH)).max(px(0.)),
-                body.size.height,
-            ),
+            body.origin + point(gutter, px(0.)),
+            size((body.size.width - gutter).max(px(0.)), body.size.height),
         );
         Scrollbar::new(
             self.h_bar_id.clone(),
@@ -572,7 +691,7 @@ impl<S: GridSource> GridView<S> {
             .flex()
             .flex_row()
             .flex_none()
-            .h(px(HEADER_HEIGHT))
+            .h(px(self.scaled(HEADER_HEIGHT)))
             .w_full()
             .bg(theme.grid_header)
             .border_b_1()
@@ -581,7 +700,7 @@ impl<S: GridSource> GridView<S> {
                 div()
                     .id("grid-corner")
                     .flex_none()
-                    .w(px(GUTTER_WIDTH))
+                    .w(px(self.scaled(GUTTER_WIDTH)))
                     .h_full()
                     .border_r_1()
                     .border_color(theme.border)

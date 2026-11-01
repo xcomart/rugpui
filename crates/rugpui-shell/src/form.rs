@@ -8,6 +8,7 @@
 //! text field into a number field.
 
 use gpui::{App, Context, Entity, IntoElement, SharedString, div, prelude::*, px};
+use rugpui::TextSize;
 use rugpui::{TextInput, theme};
 
 /// Wraps `body` in a titled card.
@@ -31,7 +32,7 @@ pub fn section<E: IntoElement>(
         .bg(chrome.surface)
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(title),
         )
@@ -42,10 +43,14 @@ pub fn section<E: IntoElement>(
 pub fn hint(words: SharedString, cx: &App) -> impl IntoElement + use<> {
     let chrome = theme(cx);
     div()
-        .text_size(px(11.))
+        .text_size(TextSize::Xs.size(cx))
         .text_color(chrome.text_muted)
         .child(words)
 }
+
+/// Width of the narrow control [`suffixed`] puts a unit hint beside, at the
+/// default UI scale: room for a number of a few digits.
+const SUFFIXED_CONTROL_WIDTH: f32 = 96.;
 
 /// Lays a short unit hint out to the right of a narrow control.
 pub fn suffixed<E: IntoElement>(
@@ -60,12 +65,17 @@ pub fn suffixed<E: IntoElement>(
         .items_center()
         .gap(px(8.))
         .w_full()
-        .child(div().flex_none().w(px(96.)).child(control))
+        .child(
+            div()
+                .flex_none()
+                .w(rugpui::scaled(SUFFIXED_CONTROL_WIDTH, cx))
+                .child(control),
+        )
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(11.))
+                .text_size(TextSize::Xs.size(cx))
                 .text_color(chrome.text_muted)
                 .child(words),
         )

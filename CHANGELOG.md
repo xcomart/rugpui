@@ -9,6 +9,135 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-01
+
+### Added
+
+- A UI scale. `rugpui::set_ui_scale(factor, cx)` installs a factor as a
+  global (clamped to 0.5–3.0, redrawing every window), `TextSize::{Xs, Sm,
+  Body, Title}` names the four text sizes the widgets draw at (11, 12, 13 and
+  14 px at the default factor) and `rugpui::scaled(px, cx)` converts any other
+  size. An application maps its "interface size" onto the factor and converts
+  its own fixed sizes the same way.
+- `modal(..)` returns a `Modal` with opt-in options: `initial_focus(&handle)`
+  and `autofocus(true)` take the focus as the dialog opens and give it back
+  when it goes, `on_confirm` answers `Enter` on the panel or in a one-line
+  field without a submit of its own, `escape_dismisses(true)` sends `Escape`
+  to the dismiss handler, `backdrop_dismisses(false)` makes the backdrop
+  inert, and `dismiss_guard` is asked — with a `DismissReason` — before either
+  gesture dismisses. `FocusReturn` captures and restores the focus for an
+  overlay that is not a modal.
+- `form_row(..)` returns a `FormRow` with `label_width(..)` and `stacked(..)`,
+  and `fit_label_width(labels, window, cx)` measures a form's labels into a
+  column between 96 and 200 px.
+- `Button::focus_handle(&handle)`, so a dialog can focus one of its buttons,
+  and `Button::truncate(true)`, which lets a button shrink below its label,
+  cut it off with an ellipsis and show the whole label as a tooltip while it
+  is cut.
+- Menus work from the keyboard. An open `MenuButton` or `ContextMenu` takes
+  `Up`, `Down`, `Home`, `End`, `Enter`, `Space`, `Escape`, `Tab` and typed
+  letters, skipping separators and disabled rows, while the focus stays on the
+  surface it was opened over. `highlight_first(true)` opens a menu on its first
+  row, `MenuButton::tab_index(..)` makes the trigger a tab stop that opens with
+  `Enter`, `Space` or `Down`, and `rugpui::init` binds `Shift+F10` and the Menu
+  key to the new `OpenContextMenu` action and `F10` to `OpenAppMenu`, with no
+  key context, for the surfaces that own the menus to handle.
+- A middle click on a closable tab asks `TabBar::on_close` to close it.
+- `WindowControls::on_close(handler)` runs the handler in place of removing
+  the window.
+- `rugpui_shell::close_guard`: `set_close_guard` installs a per-window guard
+  that the caption's close (`request_close`), the platform's close (through
+  `on_window_should_close`), `request_quit` and `request_restart` all ask, and
+  `proceed` performs the intent once the user has said to go on. `CloseGuard`
+  is the ready-made guard, putting up `UnsavedWorkDialog` (Cancel, the gesture
+  "anyway", optional Save all) when the application reports work it would
+  lose. Its words are the new `close_guard.*` keys.
+- `rugpui_shell::toast`: `show_toast(Toast::info | warning | error(..), cx)`
+  from anywhere with an `App`, drawn by `toast_stack()` in the window's
+  bottom-right corner. Info leaves after four seconds, a warning after eight,
+  an error stays until closed.
+- `rugpui_grid::GridRequest`, a second event a `GridView` raises once its host
+  opts in with `key_requests(true)` (or `set_key_requests`): `Delete` (and
+  `Backspace` on macOS) with a selection, `F2` or a printable character on an
+  editable cell (`Edit`, carrying the typed text), and the paste chord with
+  text on the clipboard (`Paste`). Off by default, and whenever there is
+  nothing to act on, those keys pass through to whatever they reached before.
+  `GridView::begin_edit_with` opens the field holding the typed text and still
+  stages it against the cell's own value.
+- `App::prompt_for_paths_in` in the vendored gpui: an open-file prompt that
+  starts in a folder, the counterpart of the folder `prompt_for_new_path`
+  takes. It is a new method rather than a `PathPromptOptions` field, so
+  existing struct literals are untouched.
+- In the editor on macOS, `Cmd+G` and `Cmd+Shift+G` are Find Next and Find
+  Previous, beside F3.
+
+### Changed
+
+- Every widget's text, and the heights that hold it, follow the UI scale:
+  buttons, checkboxes, switches, segmented controls, text fields, dropdowns,
+  menus, tabs, trees, lists, tooltips, dialogs, the grid's rows, header and
+  gutter, the editor's find bar and code tooltips, and the shell's dialogs. At
+  the default scale nothing moves. A change of scale refits the grid's fitted
+  columns.
+- A one-line `TextInput` without `on_submit` passes `Enter` on instead of
+  swallowing it, which is what lets a dialog around it take the key as its
+  default action. A host that relied on `Enter` doing nothing in such a field
+  under a binding of its own gives the field an `on_submit`.
+- `modal` and `form_row` return the concrete `Modal` and `FormRow` instead of
+  `impl IntoElement`; both are elements, so existing call sites compile as
+  they were.
+- The strips `rugpui_shell::window_control_strips` builds send their close
+  button through `request_close`, which closes the window at once when no
+  guard is installed — exactly as before.
+- On macOS, `Cmd+G` and `Cmd+Shift+G` take the key in an editor even with
+  nothing to find, so a host's own `Cmd+G` at a wider context no longer fires
+  while an editor has the focus.
+- A `GridView` subscription closure that ignores its event entirely now has
+  to name its type (`event: &GridEvent`), since the grid emits two event
+  types; closures that match on `GridEvent` variants infer it as before.
+- The UI scale reaches the symbols and boxes beside the text, not only the
+  text and the rows holding it: icons and the fixed boxes that hold only an
+  icon (a tab's close and "+" buttons, a `MenuButton` trigger), a
+  `Checkbox`'s box, a `Switch`'s track and knob, a `Slider`'s and a
+  `RangeSlider`'s knob and track, the tree and `Collapsible` arrows and a tree
+  level's indent, the `Select` and `SchemeSelect` chevrons, option icons,
+  swatches and preview pills, tab status dots and marks, the grid's expand
+  icon, `ProgressBar`, a `Spinner` that was not given a size, the
+  `ColorPicker` knobs, swatches, hue strip, field and hex field, and the fixed
+  widths that hold text (a `Select`'s default width and list height, a menu's
+  panel width, the theme editor's label and hex columns, the shell's
+  dialogs). Borders, gaps, paddings, radii, scroll bar thickness and resize
+  hit areas stay as they were. At the default scale every pixel is the same.
+  `tooltip_frame` now takes `cx` as well as the theme, for its text size.
+  A consumer should draw its own icons and fixed boxes the same way —
+  `icons::icon(path, scaled(16., cx), color)` rather than `px(16.)`;
+  `Spinner::size` and `ColorPicker::field_height` take a size as given, so a
+  host that sets one scales it.
+
+### Fixed
+
+- A dropdown opened from a `Select` or a `SchemeSelect` at a UI scale above
+  1 overlapped its own trigger: the trigger's height followed the scale and
+  the offset the list hung at did not.
+- A `modal` is never wider than its window less the margin it keeps above
+  and below, so a width an application scaled for a large interface stops at
+  the window's edge instead of running off both sides. A width that fits is
+  drawn as asked.
+- Tooltip text and the release notes in the update dialog follow the UI
+  scale.
+- A `Checkbox` or `Switch` label longer than the room it has wraps onto more
+  lines instead of running past its container on one: the label, and the
+  row itself, may now be narrower than the label's one-line width. The box or
+  the track stays beside the first line of a wrapped label rather than moving
+  to the middle of it; a label that fits draws exactly as before. A host that
+  puts one in a row of its own still gives the item between them `min_w_0()`
+  for the label to have a width to wrap at.
+- A `modal` title too long for the panel wraps inside the title band, which
+  grows to hold it, instead of running out past the panel's border. A title
+  that fits keeps the band's 44 px.
+- The update dialog's download heading gives way to the percentage beside
+  it rather than pushing it out of the dialog.
+
 ## [0.1.13] - 2026-10-29
 
 ### Added
@@ -301,7 +430,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.13...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.14...dev
+[0.1.14]: https://github.com/xcomart/rugpui/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11

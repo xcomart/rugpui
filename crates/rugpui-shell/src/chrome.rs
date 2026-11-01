@@ -526,7 +526,10 @@ pub fn window_control_strips(
     let active = custom.then(|| window.is_window_active());
     let strip = |id: &'static str, buttons: Vec<gpui::WindowButton>| {
         (!buttons.is_empty()).then(|| {
-            let controls = WindowControls::new(id, icons.clone(), buttons);
+            // The close button asks the window's close guard, if it has one,
+            // rather than removing the window outright.
+            let controls = WindowControls::new(id, icons.clone(), buttons)
+                .on_close(crate::close_guard::request_close);
             match active {
                 Some(active) => controls.with_active(active),
                 None => controls,
