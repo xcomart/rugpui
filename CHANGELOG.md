@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-01
+
 ### Added
 
 - A UI scale. `rugpui::set_ui_scale(factor, cx)` installs a factor as a
@@ -428,7 +430,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.13...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.14...dev
+[0.1.14]: https://github.com/xcomart/rugpui/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/xcomart/rugpui/compare/v0.1.10...v0.1.11
