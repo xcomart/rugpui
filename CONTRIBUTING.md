@@ -173,6 +173,52 @@ the consumer's manifest to the same revision, regenerate its lockfile and
 rerun checks. This includes the four gpui patches and rulogman's unicode-width
 patch. Submit intended manifest and lockfile updates together.
 
+## Using AI coding agents
+
+Parts of rugpui were generated with AI coding agents, and a contribution made
+with one is welcome on the same terms as any other. You are its author: read
+every line before submitting it and be ready to explain it in review. An agent
+does the typing; it does not take the responsibility.
+
+Start the agent from a checkout of `dev` and point it at this guide, the
+[README](README.md), the [documentation index](docs/README.md) and the root
+[Cargo.toml](Cargo.toml), so that it works from the documented APIs, the table
+in [Where changes belong](#where-changes-belong) and the checks above rather
+than from guesses. Ask for one focused change at a time and let it stop at a
+local commit you review. Pushing, opening or merging pull requests, moving tags
+and publishing releases stay with a person.
+
+- **Run the checks yourself.** An agent's report that the tests pass is not
+  validation. Run every command in [Validate a change](#validate-a-change),
+  including the `custom-syntax` feature, and exercise visual or input changes
+  in the gallery. An agent that cannot see the window has not checked them.
+- **Keep it out of `vendor/` unless that is the task.** An agent tidying up may
+  reformat, rename or "fix" upstream gpui code. A deliberate patch keeps its
+  `RULOGMAN PATCH` markers and passes `scripts/vendor_check.py`, as
+  [Vendored code and consumer checks](#vendored-code-and-consumer-checks)
+  describes.
+- **Check the consumers.** A change that compiles here can still break
+  rulogman, rudbman or rudbgen. Validate public API and behavior changes
+  against them through the local patch tables above, and add the
+  [CHANGELOG](CHANGELOG.md) entry a consumer needs to move its revision.
+- **Keep host concerns out.** Agents readily add an application name, a
+  database or log concept, or a hard-coded English string to a shared widget.
+  Those come from the host through adapters.
+- **Review the diff for what agents tend to get wrong:** edits outside the task,
+  reworded comments and reformatted code it had no reason to touch, tests
+  deleted, weakened or marked `#[ignore]` to reach a green run, invented gpui
+  APIs, new dependencies, and a fix made in one platform's code but not in its
+  Windows, macOS or Linux counterpart. A new dependency needs the same
+  discussion as any other, and `cargo deny --locked check` must still pass.
+- **Keep private text out of the agent.** Most agents send what they read to a
+  remote service. Remove private content from screenshots, logs and examples
+  before handing them over, as you would for an issue.
+- **Leave the agent out of the history.** Commit messages and pull request
+  descriptions describe the change in the format below. Do not add
+  generated-by footers, tool signatures or `Co-authored-by` trailers naming an
+  agent, and keep its instruction files, configuration, memory, caches and
+  transcripts out of the diff.
+
 ## Submit your contribution
 
 Follow the surrounding Rust style and run `cargo fmt --all`. Keep a contribution
