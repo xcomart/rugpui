@@ -213,11 +213,6 @@ and publishing releases stay with a person.
 - **Keep private text out of the agent.** Most agents send what they read to a
   remote service. Remove private content from screenshots, logs and examples
   before handing them over, as you would for an issue.
-- **Leave the agent out of the history.** Commit messages and pull request
-  descriptions describe the change in the format below. Do not add
-  generated-by footers, tool signatures or `Co-authored-by` trailers naming an
-  agent, and keep its instruction files, configuration, memory, caches and
-  transcripts out of the diff.
 
 ## Submit your contribution
 
