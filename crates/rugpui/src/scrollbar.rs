@@ -56,7 +56,8 @@ use std::time::Duration;
 use gpui::{Animation, transparent_black};
 use gpui::{
     AnimationExt, AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, MouseButton,
-    MouseUpEvent, Pixels, Point, ScrollHandle, Size, Window, div, ease_in_out, prelude::*, px,
+    MouseUpEvent, Pixels, Point, ScrollHandle, Size, Window, canvas, div, ease_in_out, prelude::*,
+    px,
 };
 
 use crate::theme::Theme;
@@ -890,6 +891,91 @@ pub(crate) fn answer_own_scrollbar<E: InteractiveElement, S: 'static>(
         .on_mouse_up_out(MouseButton::Left, release)
 }
 
+/// The state [`ScrollbarExt::with_scrollbar`] keeps is the bar's state and
+/// nothing else.
+fn the_bar(state: &mut ScrollbarState) -> &mut ScrollbarState {
+    state
+}
+
+/// Gives a box a vertical overlay bar that runs off state it keeps for
+/// itself.
+///
+/// For a scroll container whose view keeps no [`ScrollbarState`], hide timer
+/// or drag listener of its own — a dialog's list, a side panel's body — so it
+/// scrolls with the same bar as every other surface without that wiring being
+/// written out again, and forgotten again, view by view:
+///
+/// ```ignore
+/// div()
+///     .relative()
+///     .flex_1()
+///     .min_h_0()
+///     .child(
+///         div()
+///             .id("hosts")
+///             .track_scroll(&self.scroll)
+///             .size_full()
+///             .overflow_y_scroll()
+///             .children(rows),
+///     )
+///     .with_scrollbar("hosts-scrollbar", &self.scroll, window, cx)
+/// ```
+pub trait ScrollbarExt: ParentElement + InteractiveElement + Sized {
+    /// Draws the bar for `handle` over this box's right edge, and has the box
+    /// answer drags of it.
+    ///
+    /// The box is the one the bar is positioned against, so it must be
+    /// `relative()` and cover the scroll container `handle` tracks — usually
+    /// its parent. `id` names the bar and keys its state, so it must be unique
+    /// among the bars the view draws; the state lives as long as the box is
+    /// drawn, and a box drawn again after a gap starts with the bar down.
+    fn with_scrollbar(
+        self,
+        id: impl Into<ElementId>,
+        handle: &ScrollHandle,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        let id = id.into();
+        let state = window.use_keyed_state(
+            ElementId::from((id.clone(), "own-scrollbar")),
+            cx,
+            |_, _| ScrollbarState::new(),
+        );
+        let bar = own_scrollbar(
+            &state,
+            the_bar,
+            id.clone(),
+            ScrollbarAxis::Vertical,
+            handle,
+            cx,
+        );
+        let theme = crate::theme::theme(cx).clone();
+        // The bar is measured off the last layout, which a box drawn for the
+        // first time has not had, and which content that grew or a pane that
+        // was resized has outrun. Once the container is laid out, a
+        // measurement that moved asks the view for one more frame, which draws
+        // the bar from it; a box that stays put asks for nothing.
+        let drawn = (handle.bounds(), handle.max_offset());
+        let measured = handle.clone();
+        let remeasure = canvas(
+            move |_, window, _| {
+                if (measured.bounds(), measured.max_offset()) != drawn {
+                    window.request_animation_frame();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_0();
+        answer_own_scrollbar(self, &state, the_bar, id, ScrollbarAxis::Vertical, handle)
+            .children(bar.render(&theme))
+            .child(remeasure)
+    }
+}
+
+impl<E: ParentElement + InteractiveElement> ScrollbarExt for E {}
+
 #[cfg(test)]
 mod tests {
     use gpui::{point, size};
@@ -1301,6 +1387,71 @@ mod tests {
         assert!(
             nothing.render(&Theme::dark()).is_none(),
             "a surface with nothing to scroll was drawn anyway"
+        );
+    }
+
+    /// A view that keeps a scroll handle and nothing else for its bar.
+    struct Pane {
+        scroll: ScrollHandle,
+    }
+
+    impl gpui::Render for Pane {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(
+                div()
+                    .relative()
+                    .w(px(200.))
+                    .h(px(100.))
+                    .child(
+                        div()
+                            .id("rows")
+                            .track_scroll(&self.scroll)
+                            .size_full()
+                            .overflow_y_scroll()
+                            .child(div().h(px(1000.))),
+                    )
+                    .with_scrollbar("rows-scrollbar", &self.scroll, window, cx),
+            )
+        }
+    }
+
+    /// The pointer on the right edge of a box given [`ScrollbarExt::with_scrollbar`]
+    /// brings up a thumb that drags the content, with no state in the view.
+    #[gpui::test]
+    fn a_box_runs_its_own_bar(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, VisualTestContext};
+
+        cx.update(crate::init);
+        let window = cx.add_window(|_, _| Pane {
+            scroll: ScrollHandle::new(),
+        });
+        let mut cx = VisualTestContext::from_window(*window, cx);
+        cx.run_until_parked();
+        // The frame the box asked for once its container was laid out.
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+        let pane = window.root(&mut cx).unwrap();
+        let rows = pane.read_with(&cx, |pane, _| pane.scroll.bounds());
+
+        let thumb = point(rows.right() - px(3.), rows.top() + px(5.));
+        cx.simulate_mouse_move(thumb, None, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_mouse_down(thumb, MouseButton::Left, Modifiers::none());
+        for step in 1..=6 {
+            let to = point(thumb.x, thumb.y + px(5. * step as f32));
+            cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+        }
+        cx.simulate_mouse_up(
+            point(thumb.x, thumb.y + px(30.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.run_until_parked();
+        assert!(
+            pane.read_with(&cx, |pane, _| pane.scroll.offset().y) < px(0.),
+            "dragging the thumb scrolled nothing"
         );
     }
 }

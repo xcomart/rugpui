@@ -9,6 +9,20 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- A menu taller than its window marks the edges with rows past them. While a
+  `MenuButton` or `ContextMenu` panel has rows scrolled past its top or
+  bottom, an arrow band lies over that edge: resting the pointer on it scrolls
+  that way until the pointer leaves or the list ends, a click turns a page,
+  and the wheel goes through it to the list. A row the keys move to is
+  scrolled clear of the bands. Nothing changes for a caller.
+- `ScrollbarExt::with_scrollbar(id, &handle, window, cx)` gives a box an
+  overlay scrollbar that keeps its own state, timer and drag listener, for a
+  scroll container whose view runs no `ScrollbarState` of its own. The box
+  must be `relative()` and cover the container the handle tracks.
+- `rugpui::CARET_UP`, the up-pointing chevron, in `ICONS`.
+
 ## [0.1.14] - 2026-11-01
 
 ### Added

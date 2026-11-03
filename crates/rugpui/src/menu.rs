@@ -27,14 +27,15 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, Div, ElementId, Hsla, KeyBinding, Keystroke, Pixels, Point, ScrollHandle,
-    SharedString, Size, Subscription, Window, actions, anchored, deferred, div, point, prelude::*,
-    px, svg,
+    SharedString, Size, Subscription, Task, Window, actions, anchored, deferred, div, point,
+    prelude::*, px, svg,
 };
 
+use crate::icons;
 use crate::overlay;
 use crate::scale::{TextSize, scaled};
 use crate::select_keyboard::Typeahead;
@@ -170,6 +171,29 @@ pub(crate) const PANEL_SELECTOR: &str = "rugpui-menu-panel";
 
 /// Distance the dropdown keeps from the window edges when it would overflow.
 const WINDOW_MARGIN: f32 = 6.;
+
+/// Height of the arrow band a panel too tall for the window draws over its top
+/// or bottom edge while there are rows scrolled past it, at the default UI
+/// scale.
+///
+/// Lower than a row, so a band never hides a whole row behind it, and tall
+/// enough to rest the pointer on.
+const ARROW_BAND: f32 = 18.;
+
+/// Edge length of the chevron in an arrow band, at the default UI scale.
+const ARROW_ICON: f32 = 12.;
+
+/// How fast the rows move while the pointer rests on an arrow band, in pixels a
+/// second at the default UI scale: about ten rows a second, slow enough to stop
+/// on the row wanted by moving off the band.
+const ARROW_SPEED: f32 = 280.;
+
+/// How often a band under the pointer moves the rows.
+const ARROW_TICK: Duration = Duration::from_millis(16);
+
+/// Keys a test looks the two arrow bands up by.
+const UP_ARROW_SELECTOR: &str = "rugpui-menu-up-arrow";
+const DOWN_ARROW_SELECTOR: &str = "rugpui-menu-down-arrow";
 
 /// Draw order of the click-catching backdrop, relative to other deferred draws.
 const BACKDROP_PRIORITY: usize = 1;
@@ -380,6 +404,85 @@ struct MenuKeys {
 struct PanelKeys {
     highlight: Rc<Cell<Option<usize>>>,
     scroll: ScrollHandle,
+    /// The scroll an arrow band runs while the pointer rests on it; dropping
+    /// the task stops it.
+    arrow_scroll: Rc<RefCell<Option<Task<()>>>>,
+}
+
+impl PanelKeys {
+    /// The keys of a panel that is not open, which nothing can reach.
+    fn closed() -> Self {
+        Self {
+            highlight: Rc::default(),
+            scroll: ScrollHandle::new(),
+            arrow_scroll: Rc::default(),
+        }
+    }
+}
+
+/// Which way an arrow band scrolls.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Arrow {
+    /// Toward the first row, from the band over the top edge.
+    Up,
+    /// Toward the last row, from the band over the bottom edge.
+    Down,
+}
+
+/// Whether the rows of `scroll` run past the top and past the bottom of what
+/// it shows, as `(above, below)`.
+///
+/// The offset is clamped first: a wheel moves it before the next layout pulls
+/// it back inside the list, and a band drawn from the raw value would promise
+/// rows past an end the list has already reached.
+fn rows_past(scroll: &ScrollHandle) -> (bool, bool) {
+    let max = scroll.max_offset().y.max(px(0.));
+    let scrolled = (-scroll.offset().y).clamp(px(0.), max);
+    (scrolled > px(0.5), max - scrolled > px(0.5))
+}
+
+/// Moves the rows of `scroll` by `distance` the way `arrow` points, held inside
+/// the list, and says whether they moved.
+fn scroll_rows(scroll: &ScrollHandle, arrow: Arrow, distance: Pixels) -> bool {
+    let max = scroll.max_offset().y.max(px(0.));
+    let mut offset = scroll.offset();
+    let delta = match arrow {
+        Arrow::Up => distance,
+        Arrow::Down => -distance,
+    };
+    let next = (offset.y + delta).clamp(-max, px(0.));
+    if next == offset.y {
+        return false;
+    }
+    offset.y = next;
+    scroll.set_offset(offset);
+    true
+}
+
+/// Scrolls `scroll` the least that shows row `index` whole and clear of the
+/// `band` an arrow draws over either edge.
+///
+/// [`ScrollHandle::scroll_to_item`] knows nothing of the bands, and would leave
+/// a row the keys moved to under one of them. A row at either end of the list
+/// still lands against the edge, since the band there goes away once the list
+/// reaches it. Before the first layout there are no rows to measure, and gpui's
+/// own reveal is the one that waits for them.
+fn reveal(scroll: &ScrollHandle, index: usize, band: Pixels) {
+    let Some(row) = scroll.bounds_for_item(index) else {
+        scroll.scroll_to_item(index);
+        return;
+    };
+    let view = scroll.bounds();
+    let max = scroll.max_offset().y.max(px(0.));
+    let mut offset = scroll.offset();
+    let mut y = offset.y;
+    if row.top() + y < view.top() + band {
+        y = view.top() + band - row.top();
+    } else if row.bottom() + y > view.bottom() - band {
+        y = view.bottom() - band - row.bottom();
+    }
+    offset.y = y.clamp(-max, px(0.));
+    scroll.set_offset(offset);
 }
 
 /// Whether `keystroke` carries a command modifier. Shift is allowed, the way a
@@ -412,6 +515,7 @@ struct KeyHandles {
     target: Rc<RefCell<KeyTarget>>,
     highlight: Rc<Cell<Option<usize>>>,
     scroll: ScrollHandle,
+    arrow_scroll: Rc<RefCell<Option<Task<()>>>>,
 }
 
 impl KeyHandles {
@@ -448,7 +552,7 @@ impl KeyHandles {
                     }
                 };
                 if next.is_some() {
-                    self.move_to(next, window);
+                    self.move_to(next, window, cx);
                 }
             }
             "enter" | "space" => {
@@ -494,18 +598,18 @@ impl KeyHandles {
                     )
                 };
                 if found.is_some() {
-                    self.move_to(found, window);
+                    self.move_to(found, window, cx);
                 }
             }
         }
         true
     }
 
-    /// Highlights `index`, scrolled into view.
-    fn move_to(&self, index: Option<usize>, window: &mut Window) {
+    /// Highlights `index`, scrolled into view clear of the arrow bands.
+    fn move_to(&self, index: Option<usize>, window: &mut Window, cx: &App) {
         self.highlight.set(index);
         if let Some(index) = index {
-            self.scroll.scroll_to_item(index);
+            reveal(&self.scroll, index, scaled(ARROW_BAND, cx));
         }
         window.refresh();
     }
@@ -547,6 +651,7 @@ fn menu_keys(
             })),
             highlight: Rc::new(Cell::new(first)),
             scroll: ScrollHandle::new(),
+            arrow_scroll: Rc::default(),
         };
         let owner = window.window_handle();
         let mut search = Typeahead::default();
@@ -570,6 +675,7 @@ fn menu_keys(
     PanelKeys {
         highlight: handles.highlight.clone(),
         scroll: handles.scroll.clone(),
+        arrow_scroll: handles.arrow_scroll.clone(),
     }
 }
 
@@ -604,9 +710,11 @@ fn menu_backdrop(
 ///
 /// `max_height` caps how tall the panel may grow. A list longer than that — a
 /// menu of every syntax the application knows, which is as long as the user's
-/// own grammars make it — scrolls under the wheel instead of running off the
-/// bottom of the window, where snapping the panel back inside would only trade
-/// unreachable rows at the end for unreachable rows at the start.
+/// own grammars make it — scrolls instead of running off the bottom of the
+/// window, where snapping the panel back inside would only trade unreachable
+/// rows at the end for unreachable rows at the start. While there are rows
+/// past an edge, an arrow band over that edge says so and scrolls to them;
+/// see [`arrow_band`].
 fn menu_panel(
     id: ElementId,
     entries: Vec<MenuEntry>,
@@ -749,22 +857,45 @@ fn menu_panel(
             }))
     });
 
+    // The rows scroll inside the panel rather than the panel itself, so that the
+    // arrow bands can sit over its edges without scrolling away with the rows.
+    // The list carries an id, which is what gpui needs to keep a scroll offset
+    // for it between frames; the rows stay `flex_none` so that they scroll past
+    // rather than being squeezed to fit. The lock to one axis keeps a
+    // horizontal wheel — or a trackpad's stray sideways component — from
+    // sliding a panel that has nothing to show sideways.
+    let list = div()
+        .id(ElementId::from((id.clone(), "rows")))
+        .flex()
+        .flex_col()
+        .min_h_0()
+        .py(px(4.))
+        .overflow_y_scroll()
+        .track_scroll(&keys.scroll)
+        .restrict_scroll_to_axis()
+        .children(rows);
+
+    // Each band is drawn from the scroll as the last frame left it, which the
+    // first frame of an open menu has not laid out yet, and which a resized
+    // window or a list that changed under the open menu leaves behind. Once
+    // the rows are laid out, a band that came out wrong asks for one more
+    // frame; the bands lie over the list and never move it, so that frame
+    // agrees with itself.
+    let (above, below) = rows_past(&keys.scroll);
+    let drawn = keys.scroll.clone();
     let panel = div()
-        .id(id)
+        .on_children_prepainted(move |_, window, _| {
+            if rows_past(&drawn) != (above, below) {
+                window.on_next_frame(|window, _| window.refresh());
+            }
+        })
+        .id(id.clone())
         .occlude()
+        .relative()
         .flex()
         .flex_col()
         .flex_none()
         .max_h(max_height)
-        .py(px(4.))
-        // The panel carries an id, which is what gpui needs to keep a scroll
-        // offset for it between frames; the rows stay `flex_none` so that they
-        // scroll past rather than being squeezed to fit. The lock to one axis
-        // keeps a horizontal wheel — or a trackpad's stray sideways component —
-        // from sliding a panel that has nothing to show sideways.
-        .overflow_y_scroll()
-        .track_scroll(&keys.scroll)
-        .restrict_scroll_to_axis()
         .bg(theme.background)
         .border_1()
         .border_color(theme.border)
@@ -778,8 +909,119 @@ fn menu_panel(
         // Wide enough for the same words at any UI scale.
         PanelWidth::Content { min, max } => panel.min_w(scaled(min, cx)).max_w(scaled(max, cx)),
     }
-    .children(rows)
+    .child(list)
+    .when(above, |this| {
+        this.child(arrow_band(&id, Arrow::Up, &keys, theme, cx))
+    })
+    .when(below, |this| {
+        this.child(arrow_band(&id, Arrow::Down, &keys, theme, cx))
+    })
     .into_any_element()
+}
+
+/// The band an overflowing panel draws over its edge on the side `arrow`
+/// points to, while there are rows scrolled past it.
+///
+/// The band is both the sign that the list goes on and the way to it, the way
+/// a native menu too tall for the screen does it: resting the pointer on it
+/// moves the rows until the pointer leaves or the list ends, and a click turns
+/// a whole page. The wheel goes through it to the list underneath. It covers
+/// the row partly scrolled under it, which takes no click or hover through it;
+/// once the list reaches that end the band goes, and the row shows whole.
+fn arrow_band(
+    panel: &ElementId,
+    arrow: Arrow,
+    keys: &PanelKeys,
+    theme: &Theme,
+    cx: &App,
+) -> AnyElement {
+    let (name, icon, selector) = match arrow {
+        Arrow::Up => ("up-arrow", icons::CARET_UP, UP_ARROW_SELECTOR),
+        Arrow::Down => ("down-arrow", icons::CARET_DOWN, DOWN_ARROW_SELECTOR),
+    };
+    let speed = scaled(ARROW_SPEED, cx);
+    let band = scaled(ARROW_BAND, cx);
+    let hover = {
+        let scroll = keys.scroll.clone();
+        let running = keys.arrow_scroll.clone();
+        move |hovered: &bool, window: &mut Window, cx: &mut App| {
+            // Replacing the task drops the one before it, which stops it.
+            *running.borrow_mut() =
+                hovered.then(|| arrow_scroll(scroll.clone(), arrow, speed, window, cx));
+        }
+    };
+    let page = {
+        let scroll = keys.scroll.clone();
+        move |_: &gpui::ClickEvent, window: &mut Window, _: &mut App| {
+            let page = (scroll.bounds().size.height - band * 2.).max(band);
+            if scroll_rows(&scroll, arrow, page) {
+                window.refresh();
+            }
+        }
+    };
+
+    div()
+        .id(ElementId::from((panel.clone(), name)))
+        .absolute()
+        .left_0()
+        .right_0()
+        .map(|this| match arrow {
+            Arrow::Up => this.top_0().rounded_t_lg(),
+            Arrow::Down => this.bottom_0().rounded_b_lg(),
+        })
+        .h(band)
+        .flex()
+        .items_center()
+        .justify_center()
+        .block_mouse_except_scroll()
+        .bg(theme.background)
+        .hover(|style| style.bg(theme.surface_hover))
+        .debug_selector(|| selector.to_string())
+        .on_hover(hover)
+        .on_click(page)
+        .child(
+            svg()
+                .size(scaled(ARROW_ICON, cx))
+                .flex_none()
+                .path(icon)
+                .text_color(theme.text_muted),
+        )
+        .into_any_element()
+}
+
+/// Moves the rows of `scroll` the way `arrow` points at `speed` pixels a
+/// second, until the list reaches that end or the task is dropped.
+///
+/// Measured against the clock rather than counted in ticks, so a tick the
+/// executor runs late moves the rows as far as the time that passed.
+fn arrow_scroll(
+    scroll: ScrollHandle,
+    arrow: Arrow,
+    speed: Pixels,
+    window: &mut Window,
+    cx: &mut App,
+) -> Task<()> {
+    window.spawn(cx, async move |cx| {
+        let mut last = cx.background_executor().now();
+        loop {
+            cx.background_executor().timer(ARROW_TICK).await;
+            let now = cx.background_executor().now();
+            let distance = speed * now.saturating_duration_since(last).as_secs_f32();
+            last = now;
+            let moved = cx
+                .update(|window, _| {
+                    let moved = scroll_rows(&scroll, arrow, distance);
+                    if moved {
+                        window.refresh();
+                    }
+                    moved
+                })
+                .unwrap_or(false);
+            if !moved {
+                break;
+            }
+        }
+    })
 }
 
 /// A menu opened at a point of the caller's choosing, with no trigger of its
@@ -1203,10 +1445,7 @@ impl RenderOnce for MenuButton {
             PanelWidth::Fixed(scaled(PANEL_WIDTH, cx)),
             panel_max_height(window),
             on_dismiss,
-            keys.unwrap_or_else(|| PanelKeys {
-                highlight: Rc::default(),
-                scroll: ScrollHandle::new(),
-            }),
+            keys.unwrap_or_else(PanelKeys::closed),
             cx,
         );
 
@@ -1942,6 +2181,172 @@ mod tests {
         assert!(
             panel_bottom(&mut cx) <= viewport - INSET - WINDOW_MARGIN,
             "and its foot clears the band"
+        );
+    }
+
+    /// Delivers the frame a panel asked for once its rows were laid out.
+    fn settle(cx: &mut VisualTestContext) {
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+        });
+        cx.run_until_parked();
+    }
+
+    /// Moves the pointer to `position` with no button down.
+    fn move_pointer(cx: &mut VisualTestContext, position: Point<Pixels>) {
+        cx.simulate_event(gpui::MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: Modifiers::none(),
+        });
+        cx.run_until_parked();
+    }
+
+    /// The row a click at `position` runs.
+    fn row_at(cx: &mut VisualTestContext, menu: &Handles, position: Point<Pixels>) -> usize {
+        click(cx, position);
+        let activated = menu.drain();
+        assert_eq!(activated.len(), 1, "one row runs: {activated:?}");
+        activated[0]
+    }
+
+    /// The bounds of the arrow band `selector` names, if one is drawn.
+    fn band(cx: &mut VisualTestContext, selector: &'static str) -> Option<gpui::Bounds<Pixels>> {
+        cx.debug_bounds(selector)
+    }
+
+    /// A menu with nothing past its edges draws no arrows.
+    #[gpui::test]
+    fn a_menu_that_fits_draws_no_arrows(cx: &mut TestAppContext) {
+        let rows = vec![Row::new(SHORT), Row::new(MEDIUM), Row::new(SHORT)];
+        let (_, mut cx) = open(Surface::Context, rows, cx);
+        settle(&mut cx);
+        assert!(band(&mut cx, UP_ARROW_SELECTOR).is_none());
+        assert!(band(&mut cx, DOWN_ARROW_SELECTOR).is_none());
+    }
+
+    /// An overflowing menu marks the edge that has rows past it, and only that
+    /// one: down at the start, up at the end.
+    #[gpui::test]
+    fn the_arrows_mark_the_edges_with_rows_past_them(cx: &mut TestAppContext) {
+        for surface in [Surface::Context, Surface::Button] {
+            let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+            let (_, mut cx) = open(surface, rows, cx);
+            settle(&mut cx);
+            assert!(
+                band(&mut cx, UP_ARROW_SELECTOR).is_none(),
+                "nothing above yet"
+            );
+            let down = band(&mut cx, DOWN_ARROW_SELECTOR).expect("rows past the bottom");
+            let panel = cx.debug_bounds(PANEL_SELECTOR).expect("the panel is drawn");
+            assert!(
+                down.bottom() <= panel.bottom() && down.bottom() > panel.bottom() - px(2.),
+                "the band sits on the panel's foot: {down:?} in {panel:?}"
+            );
+
+            scroll(&mut cx, panel.center(), -100_000.);
+            settle(&mut cx);
+            assert!(
+                band(&mut cx, UP_ARROW_SELECTOR).is_some(),
+                "rows past the top"
+            );
+            assert!(
+                band(&mut cx, DOWN_ARROW_SELECTOR).is_none(),
+                "the end is in view"
+            );
+
+            scroll(&mut cx, panel.center(), 100_000.);
+            settle(&mut cx);
+            assert!(band(&mut cx, UP_ARROW_SELECTOR).is_none());
+            assert!(band(&mut cx, DOWN_ARROW_SELECTOR).is_some());
+        }
+    }
+
+    /// Resting the pointer on an arrow moves the rows, and moving it off stops
+    /// them.
+    #[gpui::test]
+    fn resting_on_an_arrow_scrolls_until_the_pointer_leaves(cx: &mut TestAppContext) {
+        let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+        let (menu, mut cx) = open(Surface::Context, rows, cx);
+        settle(&mut cx);
+        let middle = cx.debug_bounds(PANEL_SELECTOR).unwrap().center();
+        let at_rest = row_at(&mut cx, &menu, middle);
+
+        let down = band(&mut cx, DOWN_ARROW_SELECTOR).expect("rows past the bottom");
+        move_pointer(&mut cx, down.center());
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+        move_pointer(&mut cx, middle);
+        let moved = row_at(&mut cx, &menu, middle);
+        assert!(
+            moved >= at_rest + 3,
+            "half a second on the arrow moved several rows: {at_rest} -> {moved}"
+        );
+
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+        assert_eq!(
+            row_at(&mut cx, &menu, middle),
+            moved,
+            "off the arrow, it stops"
+        );
+
+        let up = band(&mut cx, UP_ARROW_SELECTOR).expect("rows past the top now");
+        move_pointer(&mut cx, up.center());
+        cx.executor().advance_clock(Duration::from_secs(10));
+        cx.run_until_parked();
+        assert!(
+            band(&mut cx, UP_ARROW_SELECTOR).is_none(),
+            "the up arrow ran the list back to its first row and went away"
+        );
+    }
+
+    /// A click on an arrow turns a page, and neither runs the row under the band
+    /// nor closes the menu.
+    #[gpui::test]
+    fn a_click_on_an_arrow_turns_a_page(cx: &mut TestAppContext) {
+        let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+        let (menu, mut cx) = open(Surface::Context, rows, cx);
+        settle(&mut cx);
+        let panel = cx.debug_bounds(PANEL_SELECTOR).unwrap();
+        let middle = panel.center();
+        let before = row_at(&mut cx, &menu, middle);
+        let dismissals = menu.dismissals();
+
+        let down = band(&mut cx, DOWN_ARROW_SELECTOR).expect("rows past the bottom");
+        click(&mut cx, down.center());
+        assert!(
+            menu.drain().is_empty(),
+            "the row under the band did not run"
+        );
+        assert_eq!(menu.dismissals(), dismissals, "and the menu stayed open");
+
+        let after = row_at(&mut cx, &menu, middle);
+        let page = f32::from(panel.size.height) / ROW_HEIGHT;
+        assert!(
+            (after - before) as f32 >= page - 3.,
+            "a page is most of what the panel shows: {before} -> {after}, page {page}"
+        );
+    }
+
+    /// A row the keys move to past the foot of the panel stops above the down
+    /// arrow rather than under it.
+    #[gpui::test]
+    fn the_keys_bring_a_row_out_from_under_the_arrow(cx: &mut TestAppContext) {
+        let rows: Vec<Row> = (0..MANY_ROWS).map(|_| Row::new(MEDIUM)).collect();
+        let (menu, mut cx) = open(Surface::Context, rows, cx);
+        settle(&mut cx);
+        let visible = (panel_height(&mut cx) / ROW_HEIGHT) as usize;
+        let presses = visible + 3;
+        press(&mut cx, &vec!["down"; presses].join(" "));
+        settle(&mut cx);
+
+        let down = band(&mut cx, DOWN_ARROW_SELECTOR).expect("rows past the bottom");
+        let above_the_band = point(px(INSIDE_THE_PANEL), down.top() - px(ROW_HEIGHT / 2.));
+        assert_eq!(
+            row_at(&mut cx, &menu, above_the_band),
+            presses - 1,
+            "the highlighted row sits whole just above the arrow"
         );
     }
 

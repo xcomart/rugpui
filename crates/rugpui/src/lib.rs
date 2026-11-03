@@ -91,7 +91,7 @@ pub use editor_theme::{
     EditorThemeRegistry, editor_theme, set_editor_theme,
 };
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
-pub use icons::{CARET_DOWN, CARET_RIGHT, EXPAND, ICONS};
+pub use icons::{CARET_DOWN, CARET_RIGHT, CARET_UP, EXPAND, ICONS};
 pub use list::{ListEvent, ListRowInfo, ListSource, ListView};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry, OpenAppMenu, OpenContextMenu};
 pub use modal::{DismissReason, FocusReturn, FormRow, Modal, fit_label_width, form_row, modal};
@@ -102,8 +102,8 @@ pub use scale::{TextSize, scaled, set_ui_scale, ui_scale};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scroll::SmoothScrollExt;
 pub use scrollbar::{
-    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarState, hide_later, hide_now, scroll_to,
-    scrolled,
+    DraggedThumb, Scrollbar, ScrollbarAxis, ScrollbarExt, ScrollbarState, hide_later, hide_now,
+    scroll_to, scrolled,
 };
 pub use segmented::Segmented;
 pub use select::{Select, SelectOption};
