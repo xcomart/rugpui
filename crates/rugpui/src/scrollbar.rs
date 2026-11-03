@@ -918,25 +918,40 @@ fn the_bar(state: &mut ScrollbarState) -> &mut ScrollbarState {
 ///             .overflow_y_scroll()
 ///             .children(rows),
 ///     )
-///     .with_scrollbar("hosts-scrollbar", &self.scroll, window, cx)
+///     .with_scrollbar("hosts-scrollbar", &self.scroll)
 /// ```
-pub trait ScrollbarExt: ParentElement + InteractiveElement + Sized {
-    /// Draws the bar for `handle` over this box's right edge, and has the box
-    /// answer drags of it.
+pub trait ScrollbarExt: ParentElement + Sized {
+    /// Draws the bar for `handle` over this box's right edge.
     ///
     /// The box is the one the bar is positioned against, so it must be
     /// `relative()` and cover the scroll container `handle` tracks — usually
     /// its parent. `id` names the bar and keys its state, so it must be unique
     /// among the bars the view draws; the state lives as long as the box is
     /// drawn, and a box drawn again after a gap starts with the bar down.
-    fn with_scrollbar(
-        self,
-        id: impl Into<ElementId>,
-        handle: &ScrollHandle,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Self {
-        let id = id.into();
+    ///
+    /// Nothing is looked up until the box is drawn, so building the box needs
+    /// no window, and a test may build one outside a frame.
+    fn with_scrollbar(self, id: impl Into<ElementId>, handle: &ScrollHandle) -> Self {
+        self.child(OwnScrollbar {
+            id: id.into(),
+            handle: handle.clone(),
+        })
+    }
+}
+
+impl<E: ParentElement> ScrollbarExt for E {}
+
+/// The bar [`ScrollbarExt::with_scrollbar`] adds: a layer over the whole box
+/// that draws the bar and answers drags of it.
+#[derive(IntoElement)]
+struct OwnScrollbar {
+    id: ElementId,
+    handle: ScrollHandle,
+}
+
+impl RenderOnce for OwnScrollbar {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Self { id, handle } = self;
         let state = window.use_keyed_state(
             ElementId::from((id.clone(), "own-scrollbar")),
             cx,
@@ -947,7 +962,7 @@ pub trait ScrollbarExt: ParentElement + InteractiveElement + Sized {
             the_bar,
             id.clone(),
             ScrollbarAxis::Vertical,
-            handle,
+            &handle,
             cx,
         );
         let theme = crate::theme::theme(cx).clone();
@@ -968,13 +983,17 @@ pub trait ScrollbarExt: ParentElement + InteractiveElement + Sized {
         )
         .absolute()
         .size_0();
-        answer_own_scrollbar(self, &state, the_bar, id, ScrollbarAxis::Vertical, handle)
+        // Laid over the whole box, so the bar inside it is placed against the
+        // box's edge. It neither draws nor occludes: the content underneath
+        // answers every press but the thumb's, and a drag reaches the listener
+        // here wherever the pointer has gone, since gpui hands a drag to every
+        // listener of its type.
+        let layer = div().absolute().top_0().left_0().size_full();
+        answer_own_scrollbar(layer, &state, the_bar, id, ScrollbarAxis::Vertical, &handle)
             .children(bar.render(&theme))
             .child(remeasure)
     }
 }
-
-impl<E: ParentElement + InteractiveElement> ScrollbarExt for E {}
 
 #[cfg(test)]
 mod tests {
@@ -1396,7 +1415,7 @@ mod tests {
     }
 
     impl gpui::Render for Pane {
-        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
             div().size_full().child(
                 div()
                     .relative()
@@ -1410,7 +1429,7 @@ mod tests {
                             .overflow_y_scroll()
                             .child(div().h(px(1000.))),
                     )
-                    .with_scrollbar("rows-scrollbar", &self.scroll, window, cx),
+                    .with_scrollbar("rows-scrollbar", &self.scroll),
             )
         }
     }
@@ -1452,6 +1471,20 @@ mod tests {
         assert!(
             pane.read_with(&cx, |pane, _| pane.scroll.offset().y) < px(0.),
             "dragging the thumb scrolled nothing"
+        );
+
+        // The layer the bar rides in covers the box, and the wheel still
+        // reaches the content under it.
+        let before = pane.read_with(&cx, |pane, _| pane.scroll.offset().y);
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: rows.center(),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-40.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert!(
+            pane.read_with(&cx, |pane, _| pane.scroll.offset().y) < before,
+            "the wheel over the content scrolled nothing"
         );
     }
 }

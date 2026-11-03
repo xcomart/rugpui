@@ -205,7 +205,7 @@ The [`TabBar`](./tab-bar.md) and [`Select`](./select.md) take a finished `Scroll
 
 ## A bar that runs itself
 
-A view that keeps no `ScrollbarState` of its own — a dialog's list, a side panel's body — gets the same bar, with the same fade, hover and drag, from `ScrollbarExt::with_scrollbar`. It is implemented for every element that is both `ParentElement` and `InteractiveElement`, and keeps the state, the hide timer and the drag listener in per-element state keyed by the bar's id:
+A view that keeps no `ScrollbarState` of its own — a dialog's list, a side panel's body — gets the same bar, with the same fade, hover and drag, from `ScrollbarExt::with_scrollbar`. It is implemented for every `ParentElement`, and keeps the state, the hide timer and the drag listener in per-element state keyed by the bar's id:
 
 ```rust
 use rugpui::ScrollbarExt as _;
@@ -223,10 +223,10 @@ div()
             .restrict_scroll_to_axis()
             .children(rows),
     )
-    .with_scrollbar("hosts-scrollbar", &self.scroll, window, cx)
+    .with_scrollbar("hosts-scrollbar", &self.scroll)
 ```
 
-The box must be `relative()` and cover the container the handle tracks, and the id must be unique among the bars the view draws. The state lives as long as the box is drawn in consecutive frames. Because a bar is measured off the last layout, the box asks its view for one more frame whenever the container's bounds or scrollable extent moved since the render — the first frame it is drawn in, a pane resized, rows that arrived — so the bar never waits for an unrelated redraw to catch up. Widgets that already take a `.scrollbar(..)` (`Select`, `SchemeSelect`, `TabBar`) do the same thing internally when they are given none.
+The box must be `relative()` and cover the container the handle tracks, and the id must be unique among the bars the view draws. The bar is a child laid over the whole box, which looks its state up only when it is drawn — so building the box needs no `window`, and a test may call a render helper outside a frame. The state lives as long as the box is drawn in consecutive frames. Because a bar is measured off the last layout, the box asks its view for one more frame whenever the container's bounds or scrollable extent moved since the render — the first frame it is drawn in, a pane resized, rows that arrived — so the bar never waits for an unrelated redraw to catch up. Widgets that already take a `.scrollbar(..)` (`Select`, `SchemeSelect`, `TabBar`) do the same thing internally when they are given none.
 
 ## Hit testing, and why a hidden bar steals nothing
 
