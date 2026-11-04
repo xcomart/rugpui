@@ -11,6 +11,15 @@ revision past it.
 
 ### Added
 
+- A menu row can be taken out of the list it stands for.
+  `MenuEntry::on_remove(handler)` — and `MenuRow::on_remove` in
+  `rugpui-shell`, with `is_removable()` and `remove()` for tests — gives the
+  row a × at its right end while the pointer or the keys rest on it, and
+  `Delete` on the highlighted row does the same. The menu stays open and runs
+  nothing else; the handler takes the row out of the caller's list, and the
+  highlight stays on the row that took its place. `Delete` on a row without a
+  handler passes through as before. Nothing changes for a caller that does
+  not ask for it.
 - A menu taller than its window marks the edges with rows past them. While a
   `MenuButton` or `ContextMenu` panel has rows scrolled past its top or
   bottom, an arrow band lies over that edge: resting the pointer on it scrolls

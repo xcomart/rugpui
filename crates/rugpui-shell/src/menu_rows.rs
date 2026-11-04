@@ -8,10 +8,10 @@
 //! at a computed pixel to find out would be testing the menu's line height.
 //!
 //! So each surface builds a [`MenuRow`] list — label, hint, whether it is live,
-//! whether it is ticked, and what it does — and [`entries`] turns the list into
-//! the widget's own rows on the way to being drawn. The description is what the
-//! tests read, and it is the same list the user sees, not a second account of
-//! it.
+//! whether it is ticked, what it does and what removing it does — and
+//! [`entries`] turns the list into the widget's own rows on the way to being
+//! drawn. The description is what the tests read, and it is the same list the
+//! user sees, not a second account of it.
 //!
 //! [`labels`], [`grayed`] and [`row`] are the reading half, and they are
 //! compiled into the library rather than gated behind `cfg(test)`: a test of an
@@ -54,6 +54,9 @@ pub struct MenuRow {
     checked: bool,
     /// What running it does.
     run: Option<Activate>,
+    /// What taking it out of the list it stands for does, for a row that can
+    /// be.
+    remove: Option<Activate>,
 }
 
 impl MenuRow {
@@ -65,6 +68,7 @@ impl MenuRow {
             enabled: true,
             checked: false,
             run: None,
+            remove: None,
         }
     }
 
@@ -76,6 +80,7 @@ impl MenuRow {
             enabled: true,
             checked: false,
             run: None,
+            remove: None,
         }
     }
 
@@ -106,6 +111,13 @@ impl MenuRow {
         self
     }
 
+    /// Lets the row be taken out of the list it stands for, as
+    /// [`MenuEntry::on_remove`] describes: a × on the row, and `Delete`.
+    pub fn on_remove(mut self, remove: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.remove = Some(Rc::new(remove));
+        self
+    }
+
     /// The row's words, or the empty string for a separator.
     pub fn label(&self) -> &str {
         self.label.as_ref().map_or("", SharedString::as_ref)
@@ -126,6 +138,11 @@ impl MenuRow {
         self.label.is_none()
     }
 
+    /// Whether the row offers a ×: it can be removed, and is not grayed out.
+    pub fn is_removable(&self) -> bool {
+        self.enabled && self.remove.is_some()
+    }
+
     /// Runs the row, as clicking it would.
     ///
     /// # Panics
@@ -137,6 +154,23 @@ impl MenuRow {
         assert!(self.enabled, "the row {:?} is grayed out", self.label());
         if let Some(run) = &self.run {
             run(window, cx);
+        }
+    }
+
+    /// Takes the row out, as its × would.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a row that offers no ×, for the reason
+    /// [`MenuRow::activate`] panics on a grayed one.
+    pub fn remove(&self, window: &mut Window, cx: &mut App) {
+        assert!(
+            self.is_removable(),
+            "the row {:?} offers no ×",
+            self.label()
+        );
+        if let Some(remove) = &self.remove {
+            remove(window, cx);
         }
     }
 }
@@ -156,6 +190,9 @@ pub fn entries(rows: Vec<MenuRow>) -> Vec<MenuEntry> {
             }
             if let Some(run) = row.run {
                 entry = entry.on_activate(move |window, cx| run(window, cx));
+            }
+            if let Some(remove) = row.remove {
+                entry = entry.on_remove(move |window, cx| remove(window, cx));
             }
             entry
         })
@@ -241,5 +278,17 @@ mod tests {
     #[test]
     fn every_row_becomes_one_entry() {
         assert_eq!(entries(menu()).len(), 4);
+    }
+
+    #[test]
+    fn only_a_live_row_given_a_remover_offers_a_cross() {
+        assert!(MenuRow::new("orders").on_remove(|_, _| {}).is_removable());
+        assert!(!MenuRow::new("orders").is_removable());
+        assert!(
+            !MenuRow::new("orders")
+                .on_remove(|_, _| {})
+                .enabled(false)
+                .is_removable()
+        );
     }
 }

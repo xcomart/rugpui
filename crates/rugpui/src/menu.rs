@@ -14,8 +14,9 @@
 //!
 //! An open menu holds the keyboard, wherever the focus is: `Up`, `Down`,
 //! `Home` and `End` move a highlight over the rows that can be run, `Enter` and
-//! `Space` run it, a typed letter jumps to the next row starting with it, and
-//! `Escape` or `Tab` closes the menu. Neither menu takes the focus from the
+//! `Space` run it, a typed letter jumps to the next row starting with it,
+//! `Delete` takes a [removable](MenuEntry::on_remove) row out, and `Escape` or
+//! `Tab` closes the menu. Neither menu takes the focus from the
 //! surface it was opened over — a field's edit is not committed by a blur, and
 //! a command acts on the surface it was opened for — so the keys are caught
 //! ahead of that surface's own bindings rather than at the menu, and closing
@@ -162,6 +163,14 @@ pub(crate) fn color_swatch(color: Hsla, theme: &Theme, size: Pixels) -> Div {
 /// take the row's color, which is what a character does for free.
 const CHECK_MARK: &str = "\u{2713}";
 
+/// Edge length of the × a removable row carries, at the default UI scale: a
+/// tab's close button, which it is the menu's counterpart of.
+const REMOVE_SIZE: f32 = 16.;
+
+/// Prefix of the debug selector of the × on row `n`, `rugpui-menu-remove-n`,
+/// which the tests find it by.
+const REMOVE_SELECTOR: &str = "rugpui-menu-remove";
+
 /// Key a test looks a drawn panel's bounds up by.
 ///
 /// gpui compiles the call that records it away outside a test build, so this
@@ -230,6 +239,8 @@ pub struct MenuEntry {
     checked: bool,
     /// The color square drawn before the label, if any.
     swatch: Option<Hsla>,
+    /// Invoked when the row is taken out of the list it stands for.
+    on_remove: Option<ActivateHandler>,
 }
 
 impl MenuEntry {
@@ -243,6 +254,7 @@ impl MenuEntry {
             disabled: false,
             checked: false,
             swatch: None,
+            on_remove: None,
         }
     }
 
@@ -266,6 +278,7 @@ impl MenuEntry {
             disabled: false,
             checked: false,
             swatch: None,
+            on_remove: None,
         }
     }
 
@@ -324,6 +337,24 @@ impl MenuEntry {
         self.swatch = Some(color);
         self
     }
+
+    /// Lets the row be taken out of the list it stands for: a history, a list
+    /// of recent files — rows the user put there by using them, and may want
+    /// gone without emptying the rest.
+    ///
+    /// The row then carries a × at its right end while the pointer or the
+    /// keys rest on it, and `Delete` on the highlighted row does the same as
+    /// clicking it. Either way the menu stays open, so that several rows can
+    /// go in one visit, and the handler is what takes the row out: the menu
+    /// is drawn from the caller's list, and is drawn again without the row
+    /// once the caller's view redraws. The highlight stays where it was,
+    /// which is now on the row that took the removed one's place.
+    ///
+    /// A disabled row offers no ×, as it offers no click.
+    pub fn on_remove(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_remove = Some(Rc::new(handler));
+        self
+    }
 }
 
 /// How wide a dropdown panel draws itself.
@@ -361,6 +392,8 @@ struct KeyRow {
     enabled: bool,
     /// The row's callback.
     on_activate: Option<ActivateHandler>,
+    /// What `Delete` runs on the row, when it can be removed.
+    on_remove: Option<ActivateHandler>,
 }
 
 impl KeyRow {
@@ -370,6 +403,7 @@ impl KeyRow {
             label: entry.label.clone(),
             enabled: !entry.separator && !entry.disabled,
             on_activate: entry.on_activate.clone(),
+            on_remove: entry.on_remove.clone(),
         }
     }
 }
@@ -509,6 +543,20 @@ fn next_enabled(rows: &[KeyRow], from: Option<usize>, forward: bool) -> Option<u
         .find(|&index| rows[index].enabled)
 }
 
+/// Where the highlight goes once the rows under it change: it stays on
+/// `index` while that is a row it may rest on, and otherwise moves to the
+/// nearest such row before it — the removed row was the last of its group,
+/// and the one above is what the user was walking towards — or after it when
+/// there is none above.
+fn settle_highlight(rows: &[KeyRow], index: usize) -> Option<usize> {
+    let last = rows.len().checked_sub(1)?;
+    let from = index.min(last);
+    (0..=from)
+        .rev()
+        .chain(from + 1..rows.len())
+        .find(|&at| rows[at].enabled)
+}
+
 /// The parts of [`MenuKeys`] the interceptor answers a key with.
 #[derive(Clone)]
 struct KeyHandles {
@@ -575,6 +623,21 @@ impl KeyHandles {
                     }
                 }
             }
+            "delete" => {
+                let remove = self.highlight.get().and_then(|index| {
+                    let target = self.target.borrow();
+                    let row = target.rows.get(index)?;
+                    row.enabled.then(|| row.on_remove.clone()).flatten()
+                });
+                // A row that cannot be removed leaves the key to the surface
+                // under the menu, as it was before rows could be.
+                let Some(remove) = remove else {
+                    return false;
+                };
+                search.clear();
+                remove(window, cx);
+                window.refresh();
+            }
             _ => {
                 let Some(text) = keystroke
                     .key_char
@@ -623,8 +686,10 @@ impl KeyHandles {
 /// acts on the surface it was opened for — and the menu takes the keys ahead of
 /// that surface's own bindings instead. `Up`, `Down`, `Home` and `End` move the
 /// highlight over the rows that can be run, `Enter` and `Space` run the
-/// highlighted one, a typed letter moves to the next row starting with it, and
-/// `Escape` and `Tab` close the menu. Any chord with a command modifier passes
+/// highlighted one, a typed letter moves to the next row starting with it,
+/// `Delete` removes the highlighted row when it can be removed and otherwise
+/// passes through, and `Escape` and `Tab` close the menu. Any chord with a
+/// command modifier passes
 /// through, so the application's shortcuts still work with a menu open. Only
 /// keys pressed in the menu's own window count.
 ///
@@ -671,6 +736,13 @@ fn menu_keys(
         }
     });
     let handles = &state.read(cx).handles;
+    // A row removed from under the highlight — or any change to the rows of an
+    // open menu — must not leave it on a separator, or past the end.
+    if let Some(index) = handles.highlight.get()
+        && rows.get(index).is_none_or(|row| !row.enabled)
+    {
+        handles.highlight.set(settle_highlight(&rows, index));
+    }
     *handles.target.borrow_mut() = KeyTarget { rows, on_dismiss };
     PanelKeys {
         highlight: handles.highlight.clone(),
@@ -743,6 +815,8 @@ fn menu_panel(
     let swatch_size = scaled(SWATCH_SIZE, cx);
     let row_text = TextSize::Body.size(cx);
     let shortcut_text = TextSize::Xs.size(cx);
+    let remove_size = scaled(REMOVE_SIZE, cx);
+    let remove_text = TextSize::Sm.size(cx);
     let highlight = keys.highlight.clone();
     let rows = entries.into_iter().enumerate().map(move |(index, entry)| {
         let theme = &row_theme;
@@ -764,13 +838,45 @@ fn menu_panel(
             disabled,
             checked,
             swatch,
+            on_remove,
             ..
         } = entry;
         let swatch = swatch.map(|color| color_swatch(color, theme, swatch_size));
+        let group = SharedString::from(format!("rugpui-menu-entry-{index}"));
+        let remove = on_remove.filter(|_| !disabled).map(|remove| {
+            div()
+                .id(ElementId::from(("menu-entry-remove", index)))
+                // Not occluding, for the reason a tab's close button is not:
+                // the row's hitbox would drop out from under the pointer, the
+                // group hover would read false, and the × would hide itself
+                // before the click that was meant for it.
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .size(remove_size)
+                .rounded_sm()
+                .text_size(remove_text)
+                .text_color(theme.icon)
+                .invisible()
+                .group_hover(group.clone(), |style| style.visible())
+                .when(highlighted == Some(index), |this| this.visible())
+                .hover(|style| style.bg(theme.surface_active).text_color(theme.text))
+                .debug_selector(move || format!("{REMOVE_SELECTOR}-{index}"))
+                // Keep the press from also running the row.
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    remove(window, cx);
+                    window.refresh();
+                })
+                .child("\u{00d7}")
+        });
 
         let highlight = highlight.clone();
         div()
             .id(ElementId::from(("menu-entry", index)))
+            .group(group)
             .flex()
             .flex_row()
             .flex_none()
@@ -855,6 +961,7 @@ fn menu_panel(
                     .whitespace_nowrap()
                     .child(shortcut)
             }))
+            .children(remove)
     });
 
     // The rows scroll inside the panel rather than the panel itself, so that the
@@ -2564,5 +2671,133 @@ mod tests {
         // F10 is the application's to answer, and here it opens this menu.
         press(&mut cx, "f10");
         assert_eq!(cx.update(|_, cx| trigger.read(cx).opened_by_action), 1);
+    }
+
+    /// A list the menu shows whose rows can be taken out of it — a history —
+    /// and a last row that cannot, after a rule.
+    struct History {
+        rows: Vec<&'static str>,
+        ran: Vec<&'static str>,
+        dismissed: usize,
+    }
+
+    /// The row after the rule, which offers no ×.
+    const FOREVER: &str = "Clear all";
+
+    impl Render for History {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity();
+            let mut entries: Vec<MenuEntry> = self
+                .rows
+                .iter()
+                .map(|&label| {
+                    let run = this.clone();
+                    let remove = this.clone();
+                    MenuEntry::new(label)
+                        .on_activate(move |_, cx| run.update(cx, |list, _| list.ran.push(label)))
+                        .on_remove(move |_, cx| {
+                            remove.update(cx, |list, cx| {
+                                list.rows.retain(|row| *row != label);
+                                cx.notify();
+                            });
+                        })
+                })
+                .collect();
+            entries.push(MenuEntry::separator());
+            let run = this.clone();
+            entries.push(
+                MenuEntry::new(FOREVER)
+                    .on_activate(move |_, cx| run.update(cx, |list, _| list.ran.push(FOREVER))),
+            );
+            div().size_full().child(
+                ContextMenu::new("menu")
+                    .position(point(px(MENU_X), px(MENU_Y)))
+                    .entries(entries)
+                    .on_dismiss(move |_, cx| this.update(cx, |list, _| list.dismissed += 1)),
+            )
+        }
+    }
+
+    /// Opens a window on a history of `rows`.
+    fn open_history(
+        rows: Vec<&'static str>,
+        cx: &mut TestAppContext,
+    ) -> (gpui::Entity<History>, VisualTestContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(move |_, _| History {
+            rows,
+            ran: Vec::new(),
+            dismissed: 0,
+        });
+        let history = window.root(cx).expect("the history is the root");
+        let cx = VisualTestContext::from_window(*window.deref(), cx);
+        cx.run_until_parked();
+        (history, cx)
+    }
+
+    /// What the history holds, what of it ran, and how often the menu asked
+    /// to close.
+    fn read_history(
+        history: &gpui::Entity<History>,
+        cx: &mut VisualTestContext,
+    ) -> (Vec<&'static str>, Vec<&'static str>, usize) {
+        cx.update(|_, cx| {
+            let list = history.read(cx);
+            (list.rows.clone(), list.ran.clone(), list.dismissed)
+        })
+    }
+
+    /// `Delete` takes the highlighted row out and leaves the menu open, the
+    /// highlight on the row that took its place — or, for the last row of
+    /// the list, on the one above it rather than on the rule.
+    #[gpui::test]
+    fn delete_takes_the_highlighted_row_out_and_keeps_the_menu_open(cx: &mut TestAppContext) {
+        let (history, mut cx) = open_history(vec!["orders", "cust*", "!tmp"], cx);
+        press(&mut cx, "down delete");
+        assert_eq!(
+            read_history(&history, &mut cx),
+            (vec!["cust*", "!tmp"], vec![], 0),
+            "taken out, nothing run, still open"
+        );
+        press(&mut cx, "down delete");
+        assert_eq!(read_history(&history, &mut cx).0, vec!["cust*"]);
+        press(&mut cx, "enter");
+        assert_eq!(
+            read_history(&history, &mut cx),
+            (vec!["cust*"], vec!["cust*"], 1),
+            "the highlight stepped back over the rule onto the row above"
+        );
+    }
+
+    /// A row with no × leaves `Delete` alone.
+    #[gpui::test]
+    fn delete_on_a_row_that_cannot_go_does_nothing(cx: &mut TestAppContext) {
+        let (history, mut cx) = open_history(vec!["orders"], cx);
+        press(&mut cx, "end delete");
+        assert_eq!(read_history(&history, &mut cx), (vec!["orders"], vec![], 0));
+        // Nothing highlighted at all is the same.
+        let (history, mut cx) = open_history(vec!["orders"], &mut cx);
+        press(&mut cx, "delete");
+        assert_eq!(read_history(&history, &mut cx).0, vec!["orders"]);
+    }
+
+    /// The × on the row under the pointer takes that row out, without running
+    /// it and without closing the menu; a click on the row itself still runs
+    /// it.
+    #[gpui::test]
+    fn a_click_on_the_cross_removes_the_row_without_running_it(cx: &mut TestAppContext) {
+        let (history, mut cx) = open_history(vec!["orders", "cust*", "!tmp"], cx);
+        move_pointer(&mut cx, row_middle(1));
+        let cross = cx
+            .debug_bounds("rugpui-menu-remove-1")
+            .expect("the row under the pointer offers its ×");
+        click(&mut cx, cross.center());
+        assert_eq!(
+            read_history(&history, &mut cx),
+            (vec!["orders", "!tmp"], vec![], 0)
+        );
+
+        click(&mut cx, row_middle(1));
+        assert_eq!(read_history(&history, &mut cx).1, vec!["!tmp"]);
     }
 }
