@@ -9,6 +9,31 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-05
+
+### Added
+
+- A menu row can be taken out of the list it stands for.
+  `MenuEntry::on_remove(handler)` — and `MenuRow::on_remove` in
+  `rugpui-shell`, with `is_removable()` and `remove()` for tests — gives the
+  row a × at its right end while the pointer or the keys rest on it, and
+  `Delete` on the highlighted row does the same. The menu stays open and runs
+  nothing else; the handler takes the row out of the caller's list, and the
+  highlight stays on the row that took its place. `Delete` on a row without a
+  handler passes through as before. Nothing changes for a caller that does
+  not ask for it.
+- A menu taller than its window marks the edges with rows past them. While a
+  `MenuButton` or `ContextMenu` panel has rows scrolled past its top or
+  bottom, an arrow band lies over that edge: resting the pointer on it scrolls
+  that way until the pointer leaves or the list ends, a click turns a page,
+  and the wheel goes through it to the list. A row the keys move to is
+  scrolled clear of the bands. Nothing changes for a caller.
+- `ScrollbarExt::with_scrollbar(id, &handle)` gives a box an
+  overlay scrollbar that keeps its own state, timer and drag listener, for a
+  scroll container whose view runs no `ScrollbarState` of its own. The box
+  must be `relative()` and cover the container the handle tracks.
+- `rugpui::CARET_UP`, the up-pointing chevron, in `ICONS`.
+
 ## [0.1.14] - 2026-11-01
 
 ### Added
@@ -430,7 +455,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.14...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.15...dev
+[0.1.15]: https://github.com/xcomart/rugpui/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/xcomart/rugpui/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12

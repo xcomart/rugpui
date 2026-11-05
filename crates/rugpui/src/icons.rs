@@ -43,6 +43,10 @@ pub const CARET_RIGHT: &str = "icons/rugpui/caret-right.svg";
 /// chevron always points down.
 pub const CARET_DOWN: &str = "icons/rugpui/caret-down.svg";
 
+/// The same chevron, pointing up: the mark of a menu that has rows scrolled
+/// past its top edge.
+pub const CARET_UP: &str = "icons/rugpui/caret-up.svg";
+
 /// The trigger [`crate::menu::MenuButton`] draws when it is given neither an
 /// [`crate::menu::MenuButton::icon`] nor a
 /// [`crate::menu::MenuButton::glyph`]: three horizontal bars, evenly spaced.
@@ -73,6 +77,7 @@ pub const ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/caret-right.svg"),
     ),
     (CARET_DOWN, include_bytes!("../assets/icons/caret-down.svg")),
+    (CARET_UP, include_bytes!("../assets/icons/caret-up.svg")),
     (MENU, include_bytes!("../assets/icons/menu.svg")),
     (EXPAND, include_bytes!("../assets/icons/expand.svg")),
 ];

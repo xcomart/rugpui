@@ -80,6 +80,14 @@ pub const SHOTS: &[Shot] = &[
         build: menu_context,
     },
     Shot {
+        name: "menu/overflow",
+        width: 330.,
+        height: 220.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: menu_overflow,
+    },
+    Shot {
         name: "tab-bar/tabs",
         width: 620.,
         height: 60.,
@@ -287,6 +295,39 @@ fn menu_context(_window: &mut Window, cx: &mut App) -> AnyView {
         ContextMenu::new("context")
             .position(point(px(24.), px(24.)))
             .entries(menu_entries())
+            .into_any_element()
+    })
+}
+
+/// A menu with more rows than the window has room for: capped at the window,
+/// with the band over its foot saying there is more below.
+fn menu_overflow(_window: &mut Window, cx: &mut App) -> AnyView {
+    bare(cx, |_window, _cx| {
+        ContextMenu::new("context")
+            .position(point(px(24.), px(12.)))
+            .entries(
+                [
+                    "Plain text",
+                    "Bash",
+                    "C",
+                    "C++",
+                    "CSS",
+                    "Go",
+                    "HTML",
+                    "Java",
+                    "JavaScript",
+                    "JSON",
+                    "Markdown",
+                    "Python",
+                    "Rust",
+                    "SQL",
+                    "TOML",
+                    "YAML",
+                ]
+                .into_iter()
+                .map(|name| MenuEntry::new(name).checked(name == "SQL"))
+                .collect(),
+            )
             .into_any_element()
     })
 }

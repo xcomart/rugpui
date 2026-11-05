@@ -147,6 +147,18 @@ Both draw two `deferred` layers over the window, so a menu opened inside a scrol
 
 The panel scrolls vertically once it is taller than the window minus the margins, with the wheel locked to that one axis; the rows stay `flex_none` so they scroll past rather than being squeezed.
 
+While there are rows past an edge, an **arrow band** — 18 px, with a chevron pointing that way — lies over that edge of the panel, the way a native menu too tall for the screen marks it:
+
+- resting the pointer on a band scrolls the rows that way, about ten rows a second, until the pointer leaves or the list ends;
+- a click on a band turns a page;
+- the wheel goes through a band to the list underneath.
+
+A band covers the row partly scrolled under it, and that row takes no click or hover through it; once the list reaches that end the band goes away and the row shows whole. A row the keys move to is scrolled clear of the bands, not just into the panel. The bands need nothing from the caller: both menus draw them.
+
+![A menu taller than its window, with the band over its foot](../screenshots/menu/overflow.png)
+
+*Sixteen rows in a window with room for six: the panel is capped at the window, and the band at its foot says there is more below.*
+
 ## The keyboard
 
 An open menu holds the keyboard, wherever the focus is:
