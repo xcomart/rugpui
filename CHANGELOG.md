@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-05
+
 ### Added
 
 - A menu row can be taken out of the list it stands for.
@@ -453,7 +455,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.14...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.15...dev
+[0.1.15]: https://github.com/xcomart/rugpui/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/xcomart/rugpui/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/xcomart/rugpui/compare/v0.1.11...v0.1.12
