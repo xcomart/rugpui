@@ -9,6 +9,18 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- A `TreeView` can take several rows at once. `TreeView::multi_select(true)`
+  turns on `Ctrl`-click (`Cmd` on macOS) to add or remove a row, and
+  `Shift`-click and `Shift+Up`/`Shift+Down` to select a run of rows; a plain
+  click or arrow narrows it back to one, and a right-click on a selected row
+  keeps the others so that a menu can act on all of them.
+  `TreeView::selection()` lists every selected node in row order and
+  `TreeView::is_selected(id)` asks about one; `selected()` stays the row the
+  keyboard is on. Rows a collapse or a reload takes off the screen leave the
+  selection. Nothing changes for a tree that does not ask for it.
+
 ## [0.1.15] - 2026-11-05
 
 ### Added
