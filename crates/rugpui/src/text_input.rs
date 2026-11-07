@@ -317,6 +317,8 @@ impl TextInput {
 
         let mut bindings = vec![
             KeyBinding::new("backspace", Backspace, Some(KEY_CONTEXT)),
+            // `Shift` held over from a capital must not turn the key off.
+            KeyBinding::new("shift-backspace", Backspace, Some(KEY_CONTEXT)),
             KeyBinding::new("delete", Delete, Some(KEY_CONTEXT)),
             KeyBinding::new("left", Left, Some(KEY_CONTEXT)),
             KeyBinding::new("right", Right, Some(KEY_CONTEXT)),

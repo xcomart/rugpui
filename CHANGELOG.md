@@ -21,6 +21,13 @@ revision past it.
   keyboard is on. Rows a collapse or a reload takes off the screen leave the
   selection. Nothing changes for a tree that does not ask for it.
 
+### Fixed
+
+- `Shift+Backspace` deletes backwards in `EditorView` and `TextInput`, as
+  `Backspace` does. It was bound to nothing, and reached the buffer only
+  through whatever the platform's input method made of it, which while a
+  host's completion popup was open over the editor was nothing at all.
+
 ## [0.1.15] - 2026-11-05
 
 ### Added
