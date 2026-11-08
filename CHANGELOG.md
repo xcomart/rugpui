@@ -9,6 +9,8 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-11-08
+
 ### Added
 
 - A `TreeView` can take several rows at once. `TreeView::multi_select(true)`
@@ -19,7 +21,8 @@ revision past it.
   `TreeView::selection()` lists every selected node in row order and
   `TreeView::is_selected(id)` asks about one; `selected()` stays the row the
   keyboard is on. Rows a collapse or a reload takes off the screen leave the
-  selection. Nothing changes for a tree that does not ask for it.
+  selection. A tree that does not ask for it still takes one row, and there
+  `Shift+Up`/`Shift+Down` move like the plain arrows.
 
 ### Fixed
 
@@ -474,7 +477,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.15...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.16...dev
+[0.1.16]: https://github.com/xcomart/rugpui/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/xcomart/rugpui/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/xcomart/rugpui/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/xcomart/rugpui/compare/v0.1.12...v0.1.13
