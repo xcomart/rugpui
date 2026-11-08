@@ -187,6 +187,23 @@ fn backspace_and_delete_step_by_grapheme(cx: &mut TestAppContext) {
     assert_eq!(editor.text(&mut cx), "");
 }
 
+/// `Shift` held from typing a capital still lets the key delete, with a host
+/// intercepting the navigation keys as much as without.
+#[gpui::test]
+fn shift_backspace_deletes_like_backspace(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("SELect", cx);
+    editor.update(&mut cx, |editor, cx| {
+        let end = editor.text().len();
+        editor.move_to(end, cx);
+    });
+    cx.simulate_keystrokes("shift-backspace");
+    assert_eq!(editor.text(&mut cx), "SELec");
+
+    editor.update(&mut cx, |editor, _cx| editor.set_intercept(true));
+    cx.simulate_keystrokes("shift-backspace backspace");
+    assert_eq!(editor.text(&mut cx), "SEL");
+}
+
 #[gpui::test]
 fn the_arrows_move_by_grapheme_not_by_byte(cx: &mut TestAppContext) {
     let (editor, mut cx) = open("한글", cx);

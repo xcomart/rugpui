@@ -82,6 +82,12 @@ actions!(
         SelectFirst,
         /// Move the selection to the last row.
         SelectLast,
+        /// Grow the selection one row up from where it was started, on a tree
+        /// that takes several rows; move it like [`SelectPrev`] on one that
+        /// does not.
+        ExtendPrev,
+        /// Grow the selection one row down, likewise.
+        ExtendNext,
     ]
 );
 
@@ -139,6 +145,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("space", Activate, Some(KEY_CONTEXT)),
         KeyBinding::new("home", SelectFirst, Some(KEY_CONTEXT)),
         KeyBinding::new("end", SelectLast, Some(KEY_CONTEXT)),
+        KeyBinding::new("shift-up", ExtendPrev, Some(KEY_CONTEXT)),
+        KeyBinding::new("shift-down", ExtendNext, Some(KEY_CONTEXT)),
     ]);
 }
 
@@ -346,6 +354,15 @@ pub trait TreeSource: 'static {
 /// click on the arrow opens or closes without disturbing the selection. A
 /// right-click anywhere on a row — the arrow included — selects it and asks the
 /// host for a menu.
+///
+/// A tree built with [`TreeView::multi_select`] takes several rows at once:
+/// `Ctrl`-click (`Cmd` on macOS) adds a row to the selection or takes it out,
+/// `Shift`-click and `Shift+Up`/`Shift+Down` select the run of rows from where
+/// the selection was started, and a right-click on a row that is already
+/// selected keeps the others with it, so that a menu can act on all of them.
+/// Every other gesture — a plain click, the arrow keys — narrows it back to
+/// one. [`TreeView::selected`] stays the row the keyboard is on;
+/// [`TreeView::selection`] is all of them.
 pub struct TreeView<S: TreeSource> {
     source: S,
     focus_handle: FocusHandle,
@@ -359,6 +376,16 @@ pub struct TreeView<S: TreeSource> {
     /// The selected node, which may be one no visible row carries; see
     /// [`TreeView::selected_index`].
     selected: Option<S::Id>,
+    /// Whether several rows can be selected; see [`TreeView::multi_select`].
+    multi: bool,
+    /// The rows selected alongside [`TreeView::selected`], never including it.
+    ///
+    /// Only ever ids some row carries: a rebuild drops the ones no row does
+    /// any more, because a selection the user cannot see is one they would
+    /// act on without knowing.
+    extra: HashSet<S::Id>,
+    /// Where a `Shift` range starts: the row last picked on its own.
+    anchor: Option<S::Id>,
     rows: Vec<TreeRow<S::Id>>,
     /// Whether [`TreeView::rows`] still describes the source.
     dirty: bool,
@@ -386,6 +413,9 @@ impl<S: TreeSource> TreeView<S> {
             expanded: HashSet::new(),
             requested: HashSet::new(),
             selected: None,
+            multi: false,
+            extra: HashSet::new(),
+            anchor: None,
             rows: Vec::new(),
             dirty: true,
             scroll: UniformListScrollHandle::new(),
@@ -409,6 +439,15 @@ impl<S: TreeSource> TreeView<S> {
         open: impl Into<SharedString>,
     ) -> Self {
         self.arrow_icons = Some((closed.into(), open.into()));
+        self
+    }
+
+    /// Lets the tree take several rows at once; see [`TreeView`].
+    ///
+    /// Off by default, so that a host whose commands act on one node never
+    /// meets a selection it cannot answer.
+    pub fn multi_select(mut self, enabled: bool) -> Self {
+        self.multi = enabled;
         self
     }
 
@@ -457,8 +496,40 @@ impl<S: TreeSource> TreeView<S> {
     }
 
     /// The selected node, whether or not a row is currently carrying it.
+    ///
+    /// With several rows selected, the one the keyboard is on: the row last
+    /// clicked or reached with the keys.
     pub fn selected(&self) -> Option<&S::Id> {
         self.selected.as_ref()
+    }
+
+    /// Every selected node, in the order the rows are drawn.
+    ///
+    /// One node, or none, on a tree without [`TreeView::multi_select`] — the
+    /// same one [`TreeView::selected`] names, carried by a row or not.
+    pub fn selection(&self) -> Vec<S::Id> {
+        let Some(selected) = self.selected.as_ref() else {
+            return Vec::new();
+        };
+        if self.extra.is_empty() {
+            return vec![selected.clone()];
+        }
+        let mut ids: Vec<S::Id> = self
+            .rows
+            .iter()
+            .filter_map(TreeRow::id)
+            .filter(|id| *id == selected || self.extra.contains(*id))
+            .cloned()
+            .collect();
+        if !ids.contains(selected) {
+            ids.insert(0, selected.clone());
+        }
+        ids
+    }
+
+    /// Whether `id` is one of the selected nodes.
+    pub fn is_selected(&self, id: &S::Id) -> bool {
+        self.selected.as_ref() == Some(id) || self.extra.contains(id)
     }
 
     /// Opens `id`, asking the host for its children if they are missing.
@@ -559,6 +630,10 @@ impl<S: TreeSource> TreeView<S> {
 
         self.rows = rows;
         self.dirty = false;
+        if !self.extra.is_empty() {
+            let shown: HashSet<&S::Id> = self.rows.iter().filter_map(TreeRow::id).collect();
+            self.extra.retain(|id| shown.contains(id));
+        }
         for parent in answered {
             self.requested.remove(&parent);
         }
@@ -661,13 +736,92 @@ impl<S: TreeSource> TreeView<S> {
         self.scroll.scroll_to_item(ix, ScrollStrategy::Top);
     }
 
-    /// Records a new selection, announcing it only when it really changed.
+    /// Records a new selection of one node, announcing it only when it really
+    /// changed.
+    ///
+    /// Narrows a selection of several rows back to `id`, and starts the next
+    /// `Shift` range there.
     fn set_selection(&mut self, id: Option<S::Id>, cx: &mut Context<Self>) {
-        if self.selected == id {
+        let narrowed = !self.extra.is_empty();
+        self.extra.clear();
+        self.anchor = id.clone();
+        if self.selected == id && !narrowed {
             return;
         }
         self.selected = id.clone();
         cx.emit(TreeEvent::SelectionChanged(id));
+        cx.notify();
+    }
+
+    /// Moves the keyboard's row to `id` without narrowing the selection.
+    fn set_cursor(&mut self, id: S::Id, cx: &mut Context<Self>) {
+        self.extra.remove(&id);
+        if let Some(previous) = self.selected.replace(id.clone())
+            && previous != id
+        {
+            self.extra.insert(previous);
+        }
+        cx.emit(TreeEvent::SelectionChanged(Some(id)));
+        cx.notify();
+    }
+
+    /// `Ctrl`-click: adds `id` to the selection, or takes it out.
+    ///
+    /// The last selected row cannot be taken out this way: a tree with nothing
+    /// selected has nothing for its keys to start from.
+    fn toggle_selected(&mut self, id: S::Id, cx: &mut Context<Self>) {
+        if self.selected.as_ref() == Some(&id) {
+            let next = self
+                .rows
+                .iter()
+                .filter_map(TreeRow::id)
+                .find(|row| self.extra.contains(*row))
+                .cloned();
+            let Some(next) = next else {
+                return;
+            };
+            self.extra.remove(&next);
+            self.selected = Some(next.clone());
+            self.anchor = Some(next.clone());
+            cx.emit(TreeEvent::SelectionChanged(Some(next)));
+            cx.notify();
+        } else if self.extra.remove(&id) {
+            cx.emit(TreeEvent::SelectionChanged(self.selected.clone()));
+            cx.notify();
+        } else {
+            if self.selected.is_some() {
+                self.set_cursor(id.clone(), cx);
+            } else {
+                self.set_selection(Some(id.clone()), cx);
+            }
+            self.anchor = Some(id);
+        }
+    }
+
+    /// `Shift`: selects the rows from the anchor to row `ix`, and puts the
+    /// keyboard on `ix`.
+    fn select_through(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(id) = self.rows[ix].id().cloned() else {
+            return;
+        };
+        let from = self
+            .anchor
+            .as_ref()
+            .and_then(|anchor| self.index_of(anchor))
+            .or_else(|| self.selected_index())
+            .unwrap_or(ix);
+        let anchor = self.rows[from].id().cloned();
+        let (low, high) = (from.min(ix), from.max(ix));
+        self.extra = self.rows[low..=high]
+            .iter()
+            .filter_map(TreeRow::id)
+            .filter(|row| **row != id)
+            .cloned()
+            .collect();
+        self.selected = Some(id.clone());
+        self.anchor = anchor;
+        self.scroll.scroll_to_item(ix, ScrollStrategy::Top);
+        cx.emit(TreeEvent::SelectionChanged(Some(id)));
         cx.notify();
     }
 
@@ -691,6 +845,35 @@ impl<S: TreeSource> TreeView<S> {
         };
         if let Some(ix) = next {
             self.select_row(ix, cx);
+        }
+    }
+
+    fn extend_prev(&mut self, _: &ExtendPrev, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.multi {
+            return self.select_prev(&SelectPrev, window, cx);
+        }
+        self.ensure_rows(cx);
+        let next = match self.selected_index() {
+            Some(0) => None,
+            Some(ix) => self.selectable(ix - 1, -1),
+            None => self.selectable(self.rows.len().saturating_sub(1), -1),
+        };
+        if let Some(ix) = next {
+            self.select_through(ix, cx);
+        }
+    }
+
+    fn extend_next(&mut self, _: &ExtendNext, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.multi {
+            return self.select_next(&SelectNext, window, cx);
+        }
+        self.ensure_rows(cx);
+        let next = match self.selected_index() {
+            Some(ix) => self.selectable(ix + 1, 1),
+            None => self.selectable(0, 1),
+        };
+        if let Some(ix) = next {
+            self.select_through(ix, cx);
         }
     }
 
@@ -831,7 +1014,7 @@ impl<S: TreeSource> TreeView<S> {
         };
 
         let expanded = self.expanded.contains(&id);
-        let selected = self.selected.as_ref() == Some(&id);
+        let selected = self.is_selected(&id);
         let info = TreeRowInfo {
             index: ix,
             depth,
@@ -895,6 +1078,20 @@ impl<S: TreeSource> TreeView<S> {
             .hover(|style| style.bg(theme.surface_hover))
             .on_click(cx.listener(move |tree, event: &ClickEvent, window, cx| {
                 tree.focus_handle.focus(window, cx);
+                let modifiers = event.modifiers();
+                if tree.multi && (modifiers.secondary() || modifiers.shift) {
+                    // Adding to the selection is not opening anything, so a
+                    // double click with a modifier held stays a selection.
+                    if modifiers.shift {
+                        tree.ensure_rows(cx);
+                        if let Some(ix) = tree.index_of(&id) {
+                            tree.select_through(ix, cx);
+                        }
+                    } else {
+                        tree.toggle_selected(id.clone(), cx);
+                    }
+                    return;
+                }
                 tree.set_selected(Some(id.clone()), cx);
                 if event.click_count() >= 2 {
                     // A double click means "open what I aimed at", and what
@@ -926,8 +1123,14 @@ impl<S: TreeSource> TreeView<S> {
                     // The menu's commands act on the selection — the host has
                     // no other handle on a row — so the right-click has to move
                     // it first, or "drop table" would name whatever the user
-                    // last clicked instead of what they just aimed at.
-                    tree.set_selected(Some(menu_id.clone()), cx);
+                    // last clicked instead of what they just aimed at. A row
+                    // that is already one of several selected keeps the others
+                    // with it: the menu is about all of them.
+                    if tree.extra.contains(&menu_id) {
+                        tree.set_cursor(menu_id.clone(), cx);
+                    } else if tree.extra.is_empty() || tree.selected.as_ref() != Some(&menu_id) {
+                        tree.set_selected(Some(menu_id.clone()), cx);
+                    }
                     cx.emit(TreeEvent::ContextMenu {
                         id: menu_id.clone(),
                         position: event.position,
@@ -998,6 +1201,8 @@ impl<S: TreeSource> Render for TreeView<S> {
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_first))
             .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(Self::extend_prev))
+            .on_action(cx.listener(Self::extend_next))
             .on_action(cx.listener(Self::expand_selected))
             .on_action(cx.listener(Self::collapse_selected))
             .on_action(cx.listener(Self::activate_selected))
@@ -1775,5 +1980,159 @@ mod tests {
 
         click(&mut cx, on_the_second, 2);
         assert_eq!(tree.drain(), vec![TreeEvent::Activated("b")]);
+    }
+
+    /// The middle of row `ix`, on its label.
+    fn row(ix: usize) -> Point<Pixels> {
+        point(
+            px(ON_THE_LABEL),
+            px(ROW_HEIGHT * ix as f32 + ROW_HEIGHT / 2.),
+        )
+    }
+
+    /// A left click with `modifiers` held.
+    fn click_with(cx: &mut VisualTestContext, position: Point<Pixels>, modifiers: Modifiers) {
+        cx.simulate_event(MouseDownEvent {
+            position,
+            modifiers,
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            position,
+            modifiers,
+            button: MouseButton::Left,
+            click_count: 1,
+        });
+        cx.run_until_parked();
+    }
+
+    /// [`open`], with several rows allowed and `a` open:
+    /// `a`, `a1`, `a2`, `b`.
+    fn open_multi(cx: &mut TestAppContext) -> (Handles, VisualTestContext) {
+        let (tree, mut cx) = open(three_deep(), cx);
+        cx.update(|_, cx| {
+            tree.tree.update(cx, |tree, cx| {
+                tree.multi = true;
+                tree.expand(&"a", cx);
+            })
+        });
+        cx.run_until_parked();
+        tree.drain();
+        (tree, cx)
+    }
+
+    impl Handles {
+        /// Every selected node, in row order.
+        fn selection(&self, cx: &mut VisualTestContext) -> Vec<Id> {
+            cx.update(|_, cx| self.tree.read(cx).selection())
+        }
+    }
+
+    /// `Ctrl`-click picks rows one by one and puts them back, and a plain click
+    /// narrows the selection to the row it lands on.
+    #[gpui::test]
+    fn a_secondary_click_adds_and_removes_rows(cx: &mut TestAppContext) {
+        let (tree, mut cx) = open_multi(cx);
+        let secondary = Modifiers::secondary_key();
+
+        click(&mut cx, row(1), 1);
+        click_with(&mut cx, row(3), secondary);
+        click_with(&mut cx, row(0), secondary);
+        assert_eq!(tree.selection(&mut cx), vec!["a", "a1", "b"]);
+        assert_eq!(
+            tree.selected(&mut cx),
+            Some("a"),
+            "the keyboard follows the click"
+        );
+
+        click_with(&mut cx, row(1), secondary);
+        assert_eq!(tree.selection(&mut cx), vec!["a", "b"]);
+
+        // Taking out the keyboard's own row hands it to another selected one.
+        click_with(&mut cx, row(0), secondary);
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
+        assert_eq!(tree.selected(&mut cx), Some("b"));
+        // And the last one stays.
+        click_with(&mut cx, row(3), secondary);
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
+
+        click_with(&mut cx, row(2), secondary);
+        click(&mut cx, row(1), 1);
+        assert_eq!(tree.selection(&mut cx), vec!["a1"]);
+    }
+
+    /// `Shift` selects the run of rows from where the selection was started,
+    /// by the pointer and by the keys alike, and a plain arrow narrows it.
+    #[gpui::test]
+    fn shift_selects_a_run_of_rows(cx: &mut TestAppContext) {
+        let (tree, mut cx) = open_multi(cx);
+        let shift = Modifiers::shift();
+
+        click(&mut cx, row(1), 1);
+        click_with(&mut cx, row(3), shift);
+        assert_eq!(tree.selection(&mut cx), vec!["a1", "a2", "b"]);
+        assert_eq!(tree.selected(&mut cx), Some("b"));
+        // The run is measured from the same start again, not from its end.
+        click_with(&mut cx, row(0), shift);
+        assert_eq!(tree.selection(&mut cx), vec!["a", "a1"]);
+
+        click(&mut cx, row(2), 1);
+        cx.simulate_keystrokes("shift-down");
+        assert_eq!(tree.selection(&mut cx), vec!["a2", "b"]);
+        cx.simulate_keystrokes("shift-up shift-up shift-up");
+        assert_eq!(tree.selection(&mut cx), vec!["a", "a1", "a2"]);
+        assert_eq!(tree.selected(&mut cx), Some("a"));
+
+        cx.simulate_keystrokes("down");
+        assert_eq!(tree.selection(&mut cx), vec!["a1"]);
+    }
+
+    /// A right-click on one of several selected rows keeps the others, so that
+    /// the menu can act on all of them; anywhere else it narrows to its row.
+    #[gpui::test]
+    fn a_right_click_on_the_selection_keeps_it(cx: &mut TestAppContext) {
+        let (tree, mut cx) = open_multi(cx);
+        click(&mut cx, row(1), 1);
+        click_with(&mut cx, row(2), Modifiers::shift());
+
+        right_click(&mut cx, row(1));
+        assert_eq!(tree.selection(&mut cx), vec!["a1", "a2"]);
+        assert_eq!(tree.selected(&mut cx), Some("a1"));
+        right_click(&mut cx, row(1));
+        assert_eq!(tree.selection(&mut cx), vec!["a1", "a2"]);
+
+        right_click(&mut cx, row(3));
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
+    }
+
+    /// Rows a closed node takes off the screen leave the selection with them.
+    #[gpui::test]
+    fn closing_a_node_drops_the_rows_it_hid_from_the_selection(cx: &mut TestAppContext) {
+        let (tree, mut cx) = open_multi(cx);
+        click(&mut cx, row(3), 1);
+        click_with(&mut cx, row(2), Modifiers::secondary_key());
+        click_with(&mut cx, row(3), Modifiers::secondary_key());
+        click_with(&mut cx, row(3), Modifiers::secondary_key());
+        assert_eq!(tree.selection(&mut cx), vec!["a2", "b"]);
+
+        cx.update(|_, cx| tree.tree.update(cx, |tree, cx| tree.collapse(&"a", cx)));
+        cx.run_until_parked();
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
+    }
+
+    /// A tree that was not asked for several rows treats the modifiers as a
+    /// plain click and the shifted arrows as plain arrows.
+    #[gpui::test]
+    fn a_single_selection_tree_ignores_the_modifiers(cx: &mut TestAppContext) {
+        let (tree, mut cx) = open(three_deep(), cx);
+        click(&mut cx, row(0), 1);
+        click_with(&mut cx, row(1), Modifiers::secondary_key());
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
+        click_with(&mut cx, row(0), Modifiers::shift());
+        assert_eq!(tree.selection(&mut cx), vec!["a"]);
+        cx.simulate_keystrokes("shift-down");
+        assert_eq!(tree.selection(&mut cx), vec!["b"]);
     }
 }

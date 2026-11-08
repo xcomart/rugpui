@@ -460,6 +460,11 @@ pub fn init(cx: &mut App) {
 
     let mut bindings = vec![
         KeyBinding::new("backspace", Backspace, editor),
+        // With `Shift` still held from a capital, the key has to keep deleting:
+        // left unbound, it reached the editor only by whatever the platform
+        // made of the stray `\b` — on Windows nothing at all while a completion
+        // popup was open over the buffer.
+        KeyBinding::new("shift-backspace", Backspace, editor),
         KeyBinding::new("delete", Delete, editor),
         KeyBinding::new(&format!("{word}-backspace"), DeleteWordLeft, editor),
         KeyBinding::new(&format!("{word}-delete"), DeleteWordRight, editor),
