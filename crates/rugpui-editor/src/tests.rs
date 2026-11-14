@@ -309,6 +309,164 @@ fn the_comment_toggle_takes_the_whole_selection(cx: &mut TestAppContext) {
     assert_eq!(editor.text(&mut cx), "select 1\n  from t\n\nwhere x");
 }
 
+/// Presses the comment toggle, whichever platform's chord it is bound to.
+fn toggle_comment(cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("cmd-/ ctrl-/");
+}
+
+/// The selection and whether the caret is at its start.
+fn selection(editor: &Handles, cx: &mut VisualTestContext) -> (std::ops::Range<usize>, bool) {
+    editor.read(cx, |editor| {
+        let range = editor.selection();
+        let reversed = !range.is_empty() && editor.caret() == range.start;
+        (range, reversed)
+    })
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_the_caret_beside_its_character(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\nfrom t", cx);
+
+    // In the middle of a word: three bytes went in before it.
+    editor.update(&mut cx, |editor, cx| editor.move_to(3, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\nfrom t");
+    assert_eq!(selection(&editor, &mut cx), (6..6, false));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\nfrom t");
+    assert_eq!(selection(&editor, &mut cx), (3..3, false));
+
+    // At the head of the line the prefix goes in before the caret, not after.
+    editor.update(&mut cx, |editor, cx| editor.move_to(9, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n-- from t");
+    assert_eq!(selection(&editor, &mut cx), (12..12, false));
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (9..9, false));
+
+    // At the end of the line.
+    editor.update(&mut cx, |editor, cx| editor.move_to(8, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (11..11, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_a_selection_that_starts_and_ends_mid_line(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t\nwhere x", cx);
+    // `sel|ect 1` to `  fr|om t`.
+    editor.update(&mut cx, |editor, cx| editor.select_range(3..13, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (6..19, false));
+    assert_eq!(&editor.text(&mut cx)[6..19], "ect 1\n--   fr");
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (3..13, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_whole_lines_whole(cx: &mut TestAppContext) {
+    // From the head of the first line to the head of the line after the last,
+    // with a blank line in between that takes no prefix.
+    let (editor, mut cx) = open("select 1\n\n  from t\nwhere x", cx);
+    editor.update(&mut cx, |editor, cx| editor.select_range(0..19, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n\n--   from t\nwhere x");
+    assert_eq!(
+        selection(&editor, &mut cx),
+        (0..25, false),
+        "the prefix of the first line is selected with the rest of it"
+    );
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (0..19, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_a_backwards_selection_backwards(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t\nwhere x", cx);
+    // The anchor at `  fr|om t`, the caret dragged up to `sele|ct 1`.
+    editor.update(&mut cx, |editor, cx| editor.move_to(13, cx));
+    cx.simulate_keystrokes("shift-up");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+    assert_eq!(editor.caret(&mut cx), 7, "still beside the `c` of `select`");
+
+    // Extending it moves the caret, not the anchor.
+    cx.simulate_keystrokes("shift-left");
+    assert_eq!(selection(&editor, &mut cx), (6..19, true));
+    cx.simulate_keystrokes("shift-right");
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+}
+
+#[gpui::test]
+fn the_comment_toggle_takes_either_prefix_off_an_indented_line(cx: &mut TestAppContext) {
+    // One comment without its space, one with; both four bytes into the line.
+    let (editor, mut cx) = open("  --select 1\n  -- from t", cx);
+    // `  --|select 1` to `  -- fr|om t`.
+    editor.update(&mut cx, |editor, cx| editor.select_range(4..20, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "  select 1\n  from t");
+    assert_eq!(selection(&editor, &mut cx), (2..15, false));
+    assert_eq!(&editor.text(&mut cx)[2..15], "select 1\n  fr");
+
+    // Back in at the indent, which the selection starts at: the prefix goes
+    // inside it.
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "  -- select 1\n  -- from t");
+    assert_eq!(selection(&editor, &mut cx), (2..21, false));
+    assert_eq!(&editor.text(&mut cx)[2..21], "-- select 1\n  -- fr");
+}
+
+#[gpui::test]
+fn the_comment_toggle_leaves_a_caret_in_the_indent_alone(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("    select 1", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(6, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    -- select 1");
+    assert_eq!(selection(&editor, &mut cx), (9..9, false));
+
+    // A caret between the dashes lands where the comment was.
+    editor.update(&mut cx, |editor, cx| editor.move_to(5, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    select 1");
+    assert_eq!(selection(&editor, &mut cx), (4..4, false));
+
+    // Inside the indent, before where the prefix goes.
+    editor.update(&mut cx, |editor, cx| editor.move_to(2, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    -- select 1");
+    assert_eq!(selection(&editor, &mut cx), (2..2, false));
+}
+
+#[gpui::test]
+fn undoing_a_comment_toggle_puts_the_selection_back(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(13, cx));
+    cx.simulate_keystrokes("shift-up");
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t");
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+}
+
 #[gpui::test]
 fn a_read_only_editor_refuses_every_change(cx: &mut TestAppContext) {
     let (editor, mut cx) = open("select 1", cx);
@@ -865,6 +1023,220 @@ fn run_statement_emits_the_span_statement_at_would_cut(cx: &mut TestAppContext) 
             "the event carries what the query answers"
         );
     }
+}
+
+/// SQL colors, and statements cut the way a language with bodies cuts them:
+/// here, crudely, a statement is a paragraph — the blank line between two is
+/// what ends one, and the semicolons inside it end nothing.
+struct ParagraphHighlighter;
+
+impl Highlighter for ParagraphHighlighter {
+    fn line(
+        &self,
+        text: &str,
+        state: crate::highlight::LineState,
+    ) -> (Vec<crate::highlight::Span>, crate::highlight::LineState) {
+        SqlHighlighter.line(text, state)
+    }
+
+    fn statements(&self) -> bool {
+        true
+    }
+
+    fn split_statements(&self, text: &str) -> Option<Vec<crate::StatementSpan>> {
+        let mut spans = Vec::new();
+        let mut at = 0;
+        for paragraph in text.split("\n\n") {
+            let lead = paragraph.len() - paragraph.trim_start().len();
+            let body = paragraph.trim();
+            if !body.is_empty() {
+                let start = at + lead;
+                let end = start + body.len();
+                let sql_end = start + body.trim_end_matches(';').len();
+                spans.push(crate::StatementSpan {
+                    start,
+                    end,
+                    sql_end,
+                });
+            }
+            at += paragraph.len() + 2;
+        }
+        Some(spans)
+    }
+}
+
+#[gpui::test]
+fn a_highlighter_that_cuts_statements_itself_is_the_one_asked(cx: &mut TestAppContext) {
+    let script = "begin\n  update t set a = 1;\n  commit;\nend;\n\nselect 1;\n";
+    let (editor, mut cx) = open_with_highlighter(script, Some(Arc::new(ParagraphHighlighter)), cx);
+
+    for offset in [0, 12, 30, 40] {
+        editor.update(&mut cx, |editor, cx| editor.move_to(offset, cx));
+        let span = editor
+            .read(&mut cx, EditorView::statement_at_caret)
+            .expect("a statement");
+        assert_eq!(
+            span.sql(script),
+            "begin\n  update t set a = 1;\n  commit;\nend",
+            "at {offset}: the semicolons inside the block end nothing"
+        );
+    }
+    editor.update(&mut cx, |editor, cx| editor.move_to(script.len() - 2, cx));
+    editor.drain_events();
+    cx.dispatch_action(crate::editor::RunStatement);
+    cx.run_until_parked();
+    let ran = editor
+        .drain_events()
+        .into_iter()
+        .find_map(|event| match event {
+            EditorEvent::RunStatement { span } => Some(span.sql(script).to_owned()),
+            _ => None,
+        });
+    assert_eq!(ran.as_deref(), Some("select 1"));
+
+    // Asked once for all of that, and once more after an edit.
+    let calls = |editor: &Handles, cx: &mut VisualTestContext| {
+        editor.read(cx, |editor| editor.syntax().split_calls())
+    };
+    draw(&mut cx);
+    assert_eq!(calls(&editor, &mut cx), 1);
+    editor.with_window(&mut cx, |editor, window, cx| {
+        editor.move_to(0, cx);
+        editor.replace_text_in_range(None, "-- ", window, cx);
+    });
+    draw(&mut cx);
+    draw(&mut cx);
+    assert_eq!(calls(&editor, &mut cx), 2);
+}
+
+#[gpui::test]
+fn a_long_document_keeps_the_windowed_rule(cx: &mut TestAppContext) {
+    let mut script = long_script(crate::syntax::MAX_SPLIT / 16);
+    script.insert_str(0, "begin\n  a;\nend;\n\n");
+    assert!(script.len() > crate::syntax::MAX_SPLIT);
+    let (editor, mut cx) = open_with_highlighter(&script, Some(Arc::new(ParagraphHighlighter)), cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(2, cx));
+    let span = editor
+        .read(&mut cx, EditorView::statement_at_caret)
+        .expect("a statement");
+    assert_eq!(
+        span.sql(&script),
+        "begin\n  a",
+        "the semicolon rule answered"
+    );
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.syntax().split_calls()),
+        0
+    );
+}
+
+/// Where the run button beside line `line` is, in window coordinates, as the
+/// last frame laid it out.
+fn run_button_at(editor: &Handles, cx: &mut VisualTestContext, line: usize) -> gpui::Point<Pixels> {
+    cx.update(|_, cx| {
+        let editor = editor.editor.read(cx);
+        let layout = &editor.layout;
+        let bounds = layout.bounds.expect("drawn");
+        let top = bounds.top() + layout.line_height * (editor.wrap.first_row(line) as f32)
+            - editor.scroll_offset().y;
+        gpui::point(
+            bounds.left() + layout.gutter - px(4.) - layout.line_height / 2.,
+            top + layout.line_height / 2.,
+        )
+    })
+}
+
+/// Presses the left button at `position` and lets it go.
+fn click(cx: &mut VisualTestContext, position: gpui::Point<Pixels>) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent};
+    cx.simulate_mouse_move(position, None, Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_event(MouseDownEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_run_button_runs_the_statement_it_sits_beside(cx: &mut TestAppContext) {
+    let script = "select 1; select 2;\n-- the third\nselect\n  3;\n\nselect 4\n";
+    let (editor, mut cx) = open(script, cx);
+    draw(&mut cx);
+    let plain_gutter = editor.read(&mut cx, |editor| editor.layout.gutter);
+
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_run_buttons(Some(crate::RunButtons::new(|_| "Run".into())), cx);
+    });
+    draw(&mut cx);
+    assert!(editor.read(&mut cx, EditorView::has_run_buttons));
+    assert!(
+        editor.read(&mut cx, |editor| editor.layout.gutter) > plain_gutter,
+        "the buttons get a column of their own"
+    );
+
+    // One button per line a statement starts on: the first of the two on
+    // line 0, the comment that opens the third, the fourth.
+    let heads: Vec<_> = editor
+        .read(&mut cx, |editor| editor.statement_heads(0..6))
+        .into_iter()
+        .map(|(line, span)| (line, span.sql(script).to_owned()))
+        .collect();
+    assert_eq!(
+        heads,
+        [
+            (0, "select 1".to_owned()),
+            (1, "-- the third\nselect\n  3".to_owned()),
+            (5, "select 4".to_owned()),
+        ]
+    );
+
+    editor.update(&mut cx, |editor, cx| editor.move_to(3, cx));
+    editor.drain_events();
+    let position = run_button_at(&editor, &mut cx, 1);
+    click(&mut cx, position);
+    let ran: Vec<_> = editor
+        .drain_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::RunStatement { span } => Some(span.sql(script).to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ran, ["-- the third\nselect\n  3"]);
+    assert_eq!(editor.caret(&mut cx), 3, "the caret stays where it was");
+
+    // Taken away, the column goes with them, and the press is an ordinary
+    // click in the gutter again.
+    editor.update(&mut cx, |editor, cx| editor.set_run_buttons(None, cx));
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.layout.gutter),
+        plain_gutter
+    );
+}
+
+#[gpui::test]
+fn run_buttons_are_only_for_a_language_with_statements(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open_with_highlighter("int a = 1;\n", None, cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_run_buttons(Some(crate::RunButtons::new(|_| "Run".into())), cx);
+    });
+    assert!(!editor.read(&mut cx, EditorView::has_run_buttons));
+    assert!(
+        editor
+            .read(&mut cx, |editor| editor.statement_heads(0..1))
+            .is_empty()
+    );
 }
 
 #[gpui::test]

@@ -91,7 +91,7 @@ pub use editor_theme::{
     EditorThemeRegistry, editor_theme, set_editor_theme,
 };
 pub use editor_theme_picker::{EditorThemePicker, EditorThemeSwatch};
-pub use icons::{CARET_DOWN, CARET_RIGHT, CARET_UP, EXPAND, ICONS};
+pub use icons::{CARET_DOWN, CARET_RIGHT, CARET_UP, EXPAND, ICONS, PLAY};
 pub use list::{ListEvent, ListRowInfo, ListSource, ListView};
 pub use menu::{Anchor, ContextMenu, MenuButton, MenuEntry, OpenAppMenu, OpenContextMenu};
 pub use modal::{DismissReason, FocusReturn, FormRow, Modal, fit_label_width, form_row, modal};

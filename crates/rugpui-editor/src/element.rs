@@ -39,7 +39,7 @@
 //! 5. the bracket pair;
 //! 6. the text, with the composing run underlined;
 //! 7. the caret;
-//! 8. the line numbers, in the gutter.
+//! 8. the line numbers, in the gutter, and the run buttons beside them.
 //!
 //! Layers 1 to 7 are drawn under a content mask that stops at the gutter's inner
 //! edge. Horizontally scrolled text — and a selection over it — runs left past
@@ -60,15 +60,17 @@
 //! layout's indices directly.
 
 use gpui::{
-    App, Bounds, ContentMask, CursorStyle, Element, ElementId, ElementInputHandler, Entity, Font,
-    GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, LayoutId, PaintQuad, Pixels,
-    Point, ShapedLine, SharedString, Style, TextAlign, TextRun, UnderlineStyle, Window,
-    WindowTextSystem, WrappedLine, black, fill, point, prelude::*, px, relative, size,
+    AnyElement, App, Bounds, ContentMask, CursorStyle, Element, ElementId, ElementInputHandler,
+    Entity, Font, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId, LayoutId,
+    MouseButton, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style, TextAlign, TextRun,
+    UnderlineStyle, Window, WindowTextSystem, WrappedLine, black, div, fill, point, prelude::*, px,
+    relative, size, svg,
 };
 use rugpui::EditorTheme;
 
-use crate::editor::EditorView;
+use crate::editor::{EditorView, RunButtons};
 use crate::highlight::{plain_run, runs_for_spans};
+use crate::syntax::StatementSpan;
 use crate::tabs::{Snap, TabMap};
 
 /// Space between the line numbers and the text.
@@ -76,6 +78,15 @@ const GUTTER_PADDING: f32 = 12.;
 
 /// Space to the left of the line numbers.
 const GUTTER_LEAD: f32 = 8.;
+
+/// Space between the line numbers and the run buttons, when there are any.
+const RUN_LEAD: f32 = 2.;
+
+/// Space between the run buttons and the text.
+const RUN_TRAIL: f32 = 4.;
+
+/// How much of its square button the run icon takes.
+const RUN_ICON: f32 = 0.62;
 
 /// Width of the caret.
 const CARET_WIDTH: f32 = 2.;
@@ -134,6 +145,11 @@ pub struct PrepaintState {
     caret: Option<PaintQuad>,
     /// The bars of the gutter marks, which are painted outside the text mask.
     marks: Vec<PaintQuad>,
+    /// The run buttons, laid out and prepainted, beside the line numbers.
+    run_buttons: Vec<AnyElement>,
+    /// How far left of the gutter's inner edge the line numbers end: the
+    /// padding before the text, and the run buttons when there are any.
+    numbers_inset: Pixels,
     /// Lines whose breaks came out of the shaper differently from what the wrap
     /// map holds, so that the map can be put right in `paint`. Empty in every
     /// ordinary frame; see [`EditorElement::prepaint`].
@@ -204,7 +220,7 @@ impl Element for EditorElement {
         // Read first and on its own, because the wrap width is measured in this
         // font and the measuring has to happen before anything asks which row a
         // line begins on.
-        let (font, font_size, line_height, palette, digits, wrapping, tab_width) = {
+        let (font, font_size, line_height, palette, digits, wrapping, tab_width, run_buttons) = {
             let editor = self.editor.read(cx);
             let palette = editor.palette(cx);
             let (font, font_size, line_height) = match editor.font_override() {
@@ -226,6 +242,7 @@ impl Element for EditorElement {
                 digit_count(editor.buffer().line_count()),
                 editor.is_word_wrap(),
                 editor.tab_width(),
+                editor.run_buttons_in_force().cloned(),
             )
         };
 
@@ -240,7 +257,14 @@ impl Element for EditorElement {
                 None,
             )
             .width;
-        let gutter = digit_width + px(GUTTER_PADDING + GUTTER_LEAD);
+        // With run buttons, the space between the numbers and the text is where
+        // they sit, a row high and a row wide.
+        let numbers_inset = if run_buttons.is_some() {
+            px(RUN_LEAD + RUN_TRAIL) + line_height
+        } else {
+            px(GUTTER_PADDING)
+        };
+        let gutter = digit_width + px(GUTTER_LEAD) + numbers_inset;
 
         // The width a row is broken at, and the one thing that says whether a
         // line is one row or five. `None` is the unwrapped shape: one row per
@@ -290,6 +314,15 @@ impl Element for EditorElement {
             .map(|span| span.range())
             .unwrap_or(0..0);
         let current_match = editor.current_match();
+        let heads: Vec<(Pixels, StatementSpan)> = if run_buttons.is_some() {
+            editor
+                .statement_heads(first_line..last_line + 1)
+                .into_iter()
+                .map(|(line, span)| (top_of(line), span))
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let mut lines = Vec::with_capacity(last_line - first_line + 1);
         let mut numbers = Vec::with_capacity(last_line - first_line + 1);
@@ -487,11 +520,30 @@ impl Element for EditorElement {
             HitboxBehavior::Normal,
         );
 
+        // 8b. the run buttons, as elements of their own: each is a pressable
+        // thing with a tooltip and a pointer, which a quad is not.
+        let mut run_elements = Vec::with_capacity(heads.len());
+        if let Some(buttons) = &run_buttons {
+            let left = bounds.left() + gutter - px(RUN_TRAIL) - line_height;
+            for (top, span) in heads {
+                let mut button = run_button(&self.editor, span, buttons, line_height, &palette);
+                button.prepaint_as_root(
+                    point(left, top),
+                    size(line_height, line_height).into(),
+                    window,
+                    cx,
+                );
+                run_elements.push(button);
+            }
+        }
+
         PrepaintState {
             lines,
             numbers,
             below,
             marks,
+            run_buttons: run_elements,
+            numbers_inset,
             corrections,
             caret,
             gutter,
@@ -599,7 +651,7 @@ impl Element for EditorElement {
             // behind them — the editor's own surface has already done that — which
             // is the whole economy of clipping instead of covering.
             for (top, number) in &prepaint.numbers {
-                let left = bounds.left() + gutter - px(GUTTER_PADDING) - number.width;
+                let left = bounds.left() + gutter - prepaint.numbers_inset - number.width;
                 number
                     .paint(
                         point(left, *top),
@@ -610,6 +662,10 @@ impl Element for EditorElement {
                         cx,
                     )
                     .ok();
+            }
+
+            for button in &mut prepaint.run_buttons {
+                button.paint(window, cx);
             }
         });
 
@@ -630,6 +686,54 @@ impl Element for EditorElement {
             }
         });
     }
+}
+
+/// One run button: `buttons`' icon in a square `side` wide, which asks the
+/// editor to run `span` when it is pressed.
+///
+/// The id is the statement's first byte, which is what keeps a hovered
+/// button's tooltip open while the rows around it are redrawn — and what
+/// moves it on, rather than leaving it over the wrong statement, when an edit
+/// moves the statement.
+fn run_button(
+    editor: &Entity<EditorView>,
+    span: StatementSpan,
+    buttons: &RunButtons,
+    side: Pixels,
+    palette: &EditorTheme,
+) -> AnyElement {
+    let editor = editor.clone();
+    let tooltip = buttons.tooltip.clone();
+    // The selection's color rather than the line wash, which is what the
+    // caret's own line is already painted in.
+    let hover: Hsla = palette.selection;
+    div()
+        .id(ElementId::NamedInteger(
+            "rugpui-editor-run".into(),
+            span.start as u64,
+        ))
+        .size(side)
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover))
+        .child(
+            svg()
+                .path(buttons.icon.clone())
+                .size(side * RUN_ICON)
+                .flex_none()
+                .text_color(palette.gutter_active),
+        )
+        .tooltip(move |window, cx| rugpui::tooltip_label(tooltip(cx))(window, cx))
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            // Ahead of the editor's own press, which would put the caret
+            // here and start a selection.
+            cx.stop_propagation();
+            editor.update(cx, |editor, cx| editor.press_run_button(span, window, cx));
+        })
+        .into_any_element()
 }
 
 /// Measures every line whose breaks are not known, and no others.

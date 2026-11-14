@@ -81,7 +81,7 @@ use crate::buffer::Buffer;
 use crate::element::{DrawnLine, EditorElement};
 use crate::find::FindState;
 use crate::highlight::{Highlighter, SyntaxCache};
-use crate::history::{Edit, EditKind, History, HistoryLimits, SelectionState};
+use crate::history::{self, Edit, EditKind, History, HistoryLimits, SelectionState};
 use crate::syntax::{self, StatementSpan};
 use crate::tabs::{self, DEFAULT_TAB_WIDTH};
 use crate::wrap::WrapMap;
@@ -218,7 +218,8 @@ pub enum EditorEvent {
     Changed,
     /// The caret or the selection moved.
     SelectionChanged,
-    /// Execute the statement the caret is in.
+    /// Execute one statement: the one the caret is in, or the one whose run
+    /// button in the gutter was pressed ([`EditorView::set_run_buttons`]).
     RunStatement {
         /// Where that statement is, exactly as [`syntax::statement_at`] cuts
         /// it: `sql_range` is what to send, `range` is what to highlight.
@@ -298,6 +299,47 @@ pub enum MarkKind {
     Warning,
     /// Something that does not parse at all.
     Error,
+}
+
+/// The run buttons the gutter draws beside the first line of each statement,
+/// for a host that runs statements. See [`EditorView::set_run_buttons`].
+///
+/// The editor holds no strings, so the tooltip is the host's: a function
+/// rather than a string, asked each time a tooltip opens, so that a language
+/// switched while the editor is open is the language the next tooltip is in.
+#[derive(Clone)]
+pub struct RunButtons {
+    /// The icon, as a path the application's asset source serves.
+    pub(crate) icon: SharedString,
+    /// What a button's tooltip says.
+    pub(crate) tooltip: Rc<dyn Fn(&App) -> SharedString>,
+}
+
+impl RunButtons {
+    /// Run buttons wearing [`rugpui::PLAY`], whose tooltip says what
+    /// `tooltip` answers.
+    pub fn new(tooltip: impl Fn(&App) -> SharedString + 'static) -> Self {
+        Self {
+            icon: rugpui::PLAY.into(),
+            tooltip: Rc::new(tooltip),
+        }
+    }
+
+    /// Draws them with the host's own `icon` instead, so that they match the
+    /// run button of its toolbar.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Into<SharedString>) -> Self {
+        self.icon = icon.into();
+        self
+    }
+}
+
+impl std::fmt::Debug for RunButtons {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunButtons")
+            .field("icon", &self.icon)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How much a drag selects at a time.
@@ -426,6 +468,9 @@ pub struct EditorView {
     font: Option<FontOverride>,
     /// How many columns apart the tab stops are. See [`EditorView::set_tab_width`].
     tab_width: usize,
+    /// The gutter's run buttons, when the host runs statements. See
+    /// [`EditorView::set_run_buttons`].
+    run_buttons: Option<RunButtons>,
 }
 
 /// A font pushed into one editor, in place of the window's text style.
@@ -580,12 +625,21 @@ impl EditorView {
             palette: None,
             font: None,
             tab_width: DEFAULT_TAB_WIDTH,
+            run_buttons: None,
         }
     }
 
     /// Sets the highlighter, which decides what every color in the buffer is.
     pub fn highlighter(mut self, highlighter: Arc<dyn Highlighter>) -> Self {
         self.syntax.set_highlighter(Some(highlighter), &self.buffer);
+        self
+    }
+
+    /// Draws a run button beside the first line of each statement. See
+    /// [`EditorView::set_run_buttons`].
+    #[must_use]
+    pub fn run_buttons(mut self, buttons: RunButtons) -> Self {
+        self.run_buttons = Some(buttons);
         self
     }
 
@@ -890,6 +944,72 @@ impl EditorView {
         cx.notify();
     }
 
+    // --- run buttons --------------------------------------------------------
+
+    /// Draws a run button in the gutter beside the first line of each
+    /// statement, to the right of its line number, or takes them away with
+    /// [`None`].
+    ///
+    /// Pressing one emits [`EditorEvent::RunStatement`] for that statement —
+    /// the event the [`RunStatement`] action emits for the statement under
+    /// the caret, so the host runs it down the same path, its confirmations
+    /// and its refusals included. The caret stays where it was. A line where
+    /// two statements start gets one button, for the first of them.
+    ///
+    /// Only drawn while the highlighter's language has statements
+    /// ([`Highlighter::statements`]); the statements are the ones
+    /// [`syntax::statement_at`] cuts.
+    pub fn set_run_buttons(&mut self, buttons: Option<RunButtons>, cx: &mut Context<Self>) {
+        self.run_buttons = buttons;
+        cx.notify();
+    }
+
+    /// The run buttons the gutter draws, when it draws any.
+    pub(crate) fn run_buttons_in_force(&self) -> Option<&RunButtons> {
+        let statements = self
+            .syntax
+            .highlighter()
+            .is_some_and(|highlighter| highlighter.statements());
+        self.run_buttons.as_ref().filter(|_| statements)
+    }
+
+    /// Whether the gutter draws run buttons.
+    pub fn has_run_buttons(&self) -> bool {
+        self.run_buttons_in_force().is_some()
+    }
+
+    /// The statements whose first line is one of `lines`, as `(line,
+    /// statement)` and at most one per line: what the gutter puts a run
+    /// button beside.
+    pub fn statement_heads(&self, lines: Range<usize>) -> Vec<(usize, StatementSpan)> {
+        if lines.is_empty() || self.syntax.highlighter().is_none_or(|h| !h.statements()) {
+            return Vec::new();
+        }
+        let last = (lines.end - 1).min(self.buffer.line_count().saturating_sub(1));
+        let start = self.buffer.line_start(lines.start.min(last));
+        let end = self.buffer.line_start(last) + self.buffer.line_text(last).len();
+        let mut heads: Vec<(usize, StatementSpan)> = Vec::new();
+        for span in syntax::statements_starting_in(&self.buffer, &self.syntax, start..end) {
+            let line = self.buffer.line_of(span.start);
+            if heads.last().is_none_or(|(previous, _)| *previous != line) {
+                heads.push((line, span));
+            }
+        }
+        heads
+    }
+
+    /// What a run button does: take the focus, as a click in the editor
+    /// would, and ask the host to run `span`.
+    pub(crate) fn press_run_button(
+        &mut self,
+        span: StatementSpan,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus_handle.focus(window, cx);
+        cx.emit(EditorEvent::RunStatement { span });
+    }
+
     // --- gutter marks -------------------------------------------------------
 
     /// Replaces the gutter marks.
@@ -1144,6 +1264,24 @@ impl EditorView {
     /// valid at the moment it is applied; building them from the bottom of the
     /// buffer upwards is what makes that true without any bookkeeping.
     fn transact(&mut self, edits: Vec<Edit>, after: Range<usize>, cx: &mut Context<Self>) {
+        self.transact_selecting(
+            edits,
+            SelectionState {
+                range: after,
+                reversed: false,
+            },
+            cx,
+        );
+    }
+
+    /// [`Self::transact`], leaving the selection `after` describes, caret end
+    /// and all.
+    fn transact_selecting(
+        &mut self,
+        edits: Vec<Edit>,
+        after: SelectionState,
+        cx: &mut Context<Self>,
+    ) {
         if self.read_only || edits.is_empty() {
             return;
         }
@@ -1152,8 +1290,8 @@ impl EditorView {
         for edit in &edits {
             self.splice(edit.old_range(), &edit.inserted);
         }
-        self.selected_range = self.clamp(after.start)..self.clamp(after.end);
-        self.selection_reversed = false;
+        self.selected_range = self.clamp(after.range.start)..self.clamp(after.range.end);
+        self.selection_reversed = after.reversed && !self.selected_range.is_empty();
         self.marked_range = None;
         self.goal_column = None;
         self.history
@@ -1797,13 +1935,18 @@ impl EditorView {
                 });
             }
         }
-        let after = self.selected_range.clone();
-        self.transact(edits, after, cx);
-        // The selection offsets moved with the text; recompute rather than
-        // guess, by putting the caret back on the same line and column it was.
-        let caret = self.clamp(self.caret());
-        self.selected_range = caret..caret;
-        cx.notify();
+        // The selection keeps its lines and the caret its character: both ends
+        // move by the prefixes that went in or came out before them. The
+        // lower edge of a selection stays put at a prefix put in right where
+        // it is, so that a selection of whole lines is still whole lines.
+        let range = self.selected_range.clone();
+        let selecting = !range.is_empty();
+        let after = SelectionState {
+            range: history::carry_offset(range.start, &edits, selecting)
+                ..history::carry_offset(range.end, &edits, false),
+            reversed: self.selection_reversed,
+        };
+        self.transact_selecting(edits, after, cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
