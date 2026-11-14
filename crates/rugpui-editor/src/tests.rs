@@ -309,6 +309,164 @@ fn the_comment_toggle_takes_the_whole_selection(cx: &mut TestAppContext) {
     assert_eq!(editor.text(&mut cx), "select 1\n  from t\n\nwhere x");
 }
 
+/// Presses the comment toggle, whichever platform's chord it is bound to.
+fn toggle_comment(cx: &mut VisualTestContext) {
+    cx.simulate_keystrokes("cmd-/ ctrl-/");
+}
+
+/// The selection and whether the caret is at its start.
+fn selection(editor: &Handles, cx: &mut VisualTestContext) -> (std::ops::Range<usize>, bool) {
+    editor.read(cx, |editor| {
+        let range = editor.selection();
+        let reversed = !range.is_empty() && editor.caret() == range.start;
+        (range, reversed)
+    })
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_the_caret_beside_its_character(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\nfrom t", cx);
+
+    // In the middle of a word: three bytes went in before it.
+    editor.update(&mut cx, |editor, cx| editor.move_to(3, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\nfrom t");
+    assert_eq!(selection(&editor, &mut cx), (6..6, false));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\nfrom t");
+    assert_eq!(selection(&editor, &mut cx), (3..3, false));
+
+    // At the head of the line the prefix goes in before the caret, not after.
+    editor.update(&mut cx, |editor, cx| editor.move_to(9, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n-- from t");
+    assert_eq!(selection(&editor, &mut cx), (12..12, false));
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (9..9, false));
+
+    // At the end of the line.
+    editor.update(&mut cx, |editor, cx| editor.move_to(8, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (11..11, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_a_selection_that_starts_and_ends_mid_line(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t\nwhere x", cx);
+    // `sel|ect 1` to `  fr|om t`.
+    editor.update(&mut cx, |editor, cx| editor.select_range(3..13, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (6..19, false));
+    assert_eq!(&editor.text(&mut cx)[6..19], "ect 1\n--   fr");
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (3..13, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_whole_lines_whole(cx: &mut TestAppContext) {
+    // From the head of the first line to the head of the line after the last,
+    // with a blank line in between that takes no prefix.
+    let (editor, mut cx) = open("select 1\n\n  from t\nwhere x", cx);
+    editor.update(&mut cx, |editor, cx| editor.select_range(0..19, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n\n--   from t\nwhere x");
+    assert_eq!(
+        selection(&editor, &mut cx),
+        (0..25, false),
+        "the prefix of the first line is selected with the rest of it"
+    );
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (0..19, false));
+}
+
+#[gpui::test]
+fn the_comment_toggle_keeps_a_backwards_selection_backwards(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t\nwhere x", cx);
+    // The anchor at `  fr|om t`, the caret dragged up to `sele|ct 1`.
+    editor.update(&mut cx, |editor, cx| editor.move_to(13, cx));
+    cx.simulate_keystrokes("shift-up");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+    assert_eq!(editor.caret(&mut cx), 7, "still beside the `c` of `select`");
+
+    // Extending it moves the caret, not the anchor.
+    cx.simulate_keystrokes("shift-left");
+    assert_eq!(selection(&editor, &mut cx), (6..19, true));
+    cx.simulate_keystrokes("shift-right");
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t\nwhere x");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+}
+
+#[gpui::test]
+fn the_comment_toggle_takes_either_prefix_off_an_indented_line(cx: &mut TestAppContext) {
+    // One comment without its space, one with; both four bytes into the line.
+    let (editor, mut cx) = open("  --select 1\n  -- from t", cx);
+    // `  --|select 1` to `  -- fr|om t`.
+    editor.update(&mut cx, |editor, cx| editor.select_range(4..20, cx));
+
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "  select 1\n  from t");
+    assert_eq!(selection(&editor, &mut cx), (2..15, false));
+    assert_eq!(&editor.text(&mut cx)[2..15], "select 1\n  fr");
+
+    // Back in at the indent, which the selection starts at: the prefix goes
+    // inside it.
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "  -- select 1\n  -- from t");
+    assert_eq!(selection(&editor, &mut cx), (2..21, false));
+    assert_eq!(&editor.text(&mut cx)[2..21], "-- select 1\n  -- fr");
+}
+
+#[gpui::test]
+fn the_comment_toggle_leaves_a_caret_in_the_indent_alone(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("    select 1", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(6, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    -- select 1");
+    assert_eq!(selection(&editor, &mut cx), (9..9, false));
+
+    // A caret between the dashes lands where the comment was.
+    editor.update(&mut cx, |editor, cx| editor.move_to(5, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    select 1");
+    assert_eq!(selection(&editor, &mut cx), (4..4, false));
+
+    // Inside the indent, before where the prefix goes.
+    editor.update(&mut cx, |editor, cx| editor.move_to(2, cx));
+    toggle_comment(&mut cx);
+    assert_eq!(editor.text(&mut cx), "    -- select 1");
+    assert_eq!(selection(&editor, &mut cx), (2..2, false));
+}
+
+#[gpui::test]
+fn undoing_a_comment_toggle_puts_the_selection_back(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open("select 1\n  from t", cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(13, cx));
+    cx.simulate_keystrokes("shift-up");
+    toggle_comment(&mut cx);
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+
+    cx.simulate_keystrokes("cmd-z ctrl-z");
+    assert_eq!(editor.text(&mut cx), "select 1\n  from t");
+    assert_eq!(selection(&editor, &mut cx), (4..13, true));
+
+    cx.simulate_keystrokes("cmd-shift-z ctrl-shift-z");
+    assert_eq!(editor.text(&mut cx), "-- select 1\n--   from t");
+    assert_eq!(selection(&editor, &mut cx), (7..19, true));
+}
+
 #[gpui::test]
 fn a_read_only_editor_refuses_every_change(cx: &mut TestAppContext) {
     let (editor, mut cx) = open("select 1", cx);

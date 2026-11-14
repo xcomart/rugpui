@@ -9,6 +9,16 @@ revision past it.
 
 ## [Unreleased]
 
+### Fixed
+
+- The comment toggle in `EditorView` keeps the selection. The same lines stay
+  selected, a backwards selection stays backwards, and the caret stays beside
+  the character it was next to, moving by the prefix that went in or came out
+  before it. A selection that starts where a prefix goes in keeps the prefix
+  inside it, so a selection of whole lines is still whole lines. Undo and redo
+  bring back the same selections. Before this, the selection collapsed to a
+  caret at the old offset, which the edit had moved. Consumers need no changes.
+
 ## [0.1.16] - 2026-11-08
 
 ### Added

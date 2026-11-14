@@ -114,6 +114,38 @@ impl Edit {
     }
 }
 
+/// Where `offset` lands once every one of `edits` is applied.
+///
+/// The edits are all given in the offsets of the buffer before any of them
+/// is, and none overlaps another: a set built bottom upwards, the way the
+/// editor builds a transaction. That is what lets each be weighed against the
+/// offset on its own.
+///
+/// An offset inside removed text lands where the removal was, beside the text
+/// that followed it. An offset at an insertion point moves past what goes in,
+/// so it stays beside the character it was beside, unless `stay` holds: then
+/// it keeps its place and the inserted text ends up after it -- what the
+/// lower edge of a selection wants, so that text put in at its edge is
+/// selected with the rest.
+pub fn carry_offset(offset: usize, edits: &[Edit], stay: bool) -> usize {
+    let (mut grown, mut shrunk) = (0, 0);
+    for edit in edits {
+        let old = edit.old_range();
+        let inserting_here = offset == old.start && edit.removed.is_empty() && !stay;
+        if offset < old.start || (offset == old.start && !inserting_here) {
+            continue;
+        }
+        if offset < old.end {
+            shrunk += offset - old.start;
+        } else {
+            grown += edit.inserted.len();
+            shrunk += edit.removed.len();
+        }
+    }
+    // Only text before `offset` is ever taken off, so this cannot underflow.
+    offset + grown - shrunk
+}
+
 /// What kind of change an edit was, for the grouping rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditKind {
@@ -610,6 +642,32 @@ mod tests {
             removed: text.to_owned(),
             inserted: String::new(),
         }
+    }
+
+    #[test]
+    fn an_offset_is_carried_past_insertions_at_or_before_it() {
+        // Bottom upwards, as a block comment builds them: line two at 9, line
+        // one at 0, both in the offsets of the untouched buffer.
+        let edits = [typed(9, "-- "), typed(0, "-- ")];
+        assert_eq!(carry_offset(4, &edits, false), 7, "after the first only");
+        assert_eq!(carry_offset(12, &edits, false), 18, "after both");
+        assert_eq!(carry_offset(0, &edits, false), 3, "at one: past it");
+        assert_eq!(carry_offset(9, &edits, false), 15);
+        assert_eq!(carry_offset(0, &edits, true), 0, "at one, staying put");
+        assert_eq!(carry_offset(9, &edits, true), 12, "still past the other");
+    }
+
+    #[test]
+    fn an_offset_inside_removed_text_lands_where_it_was() {
+        let edits = [removed(12, "-- "), removed(0, "--")];
+        assert_eq!(carry_offset(0, &edits, false), 0, "at a removal: stays");
+        assert_eq!(carry_offset(1, &edits, false), 0, "inside it");
+        assert_eq!(carry_offset(2, &edits, false), 0, "just past it");
+        assert_eq!(carry_offset(8, &edits, false), 6);
+        assert_eq!(carry_offset(12, &edits, true), 10);
+        assert_eq!(carry_offset(14, &edits, false), 10);
+        assert_eq!(carry_offset(15, &edits, false), 10);
+        assert_eq!(carry_offset(20, &edits, false), 15);
     }
 
     /// Types `text` one character at a time, as the input handler would.

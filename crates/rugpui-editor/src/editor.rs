@@ -81,7 +81,7 @@ use crate::buffer::Buffer;
 use crate::element::{DrawnLine, EditorElement};
 use crate::find::FindState;
 use crate::highlight::{Highlighter, SyntaxCache};
-use crate::history::{Edit, EditKind, History, HistoryLimits, SelectionState};
+use crate::history::{self, Edit, EditKind, History, HistoryLimits, SelectionState};
 use crate::syntax::{self, StatementSpan};
 use crate::tabs::{self, DEFAULT_TAB_WIDTH};
 use crate::wrap::WrapMap;
@@ -1144,6 +1144,24 @@ impl EditorView {
     /// valid at the moment it is applied; building them from the bottom of the
     /// buffer upwards is what makes that true without any bookkeeping.
     fn transact(&mut self, edits: Vec<Edit>, after: Range<usize>, cx: &mut Context<Self>) {
+        self.transact_selecting(
+            edits,
+            SelectionState {
+                range: after,
+                reversed: false,
+            },
+            cx,
+        );
+    }
+
+    /// [`Self::transact`], leaving the selection `after` describes, caret end
+    /// and all.
+    fn transact_selecting(
+        &mut self,
+        edits: Vec<Edit>,
+        after: SelectionState,
+        cx: &mut Context<Self>,
+    ) {
         if self.read_only || edits.is_empty() {
             return;
         }
@@ -1152,8 +1170,8 @@ impl EditorView {
         for edit in &edits {
             self.splice(edit.old_range(), &edit.inserted);
         }
-        self.selected_range = self.clamp(after.start)..self.clamp(after.end);
-        self.selection_reversed = false;
+        self.selected_range = self.clamp(after.range.start)..self.clamp(after.range.end);
+        self.selection_reversed = after.reversed && !self.selected_range.is_empty();
         self.marked_range = None;
         self.goal_column = None;
         self.history
@@ -1797,13 +1815,18 @@ impl EditorView {
                 });
             }
         }
-        let after = self.selected_range.clone();
-        self.transact(edits, after, cx);
-        // The selection offsets moved with the text; recompute rather than
-        // guess, by putting the caret back on the same line and column it was.
-        let caret = self.clamp(self.caret());
-        self.selected_range = caret..caret;
-        cx.notify();
+        // The selection keeps its lines and the caret its character: both ends
+        // move by the prefixes that went in or came out before them. The
+        // lower edge of a selection stays put at a prefix put in right where
+        // it is, so that a selection of whole lines is still whole lines.
+        let range = self.selected_range.clone();
+        let selecting = !range.is_empty();
+        let after = SelectionState {
+            range: history::carry_offset(range.start, &edits, selecting)
+                ..history::carry_offset(range.end, &edits, false),
+            reversed: self.selection_reversed,
+        };
+        self.transact_selecting(edits, after, cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
