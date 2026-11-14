@@ -1025,6 +1025,220 @@ fn run_statement_emits_the_span_statement_at_would_cut(cx: &mut TestAppContext) 
     }
 }
 
+/// SQL colors, and statements cut the way a language with bodies cuts them:
+/// here, crudely, a statement is a paragraph — the blank line between two is
+/// what ends one, and the semicolons inside it end nothing.
+struct ParagraphHighlighter;
+
+impl Highlighter for ParagraphHighlighter {
+    fn line(
+        &self,
+        text: &str,
+        state: crate::highlight::LineState,
+    ) -> (Vec<crate::highlight::Span>, crate::highlight::LineState) {
+        SqlHighlighter.line(text, state)
+    }
+
+    fn statements(&self) -> bool {
+        true
+    }
+
+    fn split_statements(&self, text: &str) -> Option<Vec<crate::StatementSpan>> {
+        let mut spans = Vec::new();
+        let mut at = 0;
+        for paragraph in text.split("\n\n") {
+            let lead = paragraph.len() - paragraph.trim_start().len();
+            let body = paragraph.trim();
+            if !body.is_empty() {
+                let start = at + lead;
+                let end = start + body.len();
+                let sql_end = start + body.trim_end_matches(';').len();
+                spans.push(crate::StatementSpan {
+                    start,
+                    end,
+                    sql_end,
+                });
+            }
+            at += paragraph.len() + 2;
+        }
+        Some(spans)
+    }
+}
+
+#[gpui::test]
+fn a_highlighter_that_cuts_statements_itself_is_the_one_asked(cx: &mut TestAppContext) {
+    let script = "begin\n  update t set a = 1;\n  commit;\nend;\n\nselect 1;\n";
+    let (editor, mut cx) = open_with_highlighter(script, Some(Arc::new(ParagraphHighlighter)), cx);
+
+    for offset in [0, 12, 30, 40] {
+        editor.update(&mut cx, |editor, cx| editor.move_to(offset, cx));
+        let span = editor
+            .read(&mut cx, EditorView::statement_at_caret)
+            .expect("a statement");
+        assert_eq!(
+            span.sql(script),
+            "begin\n  update t set a = 1;\n  commit;\nend",
+            "at {offset}: the semicolons inside the block end nothing"
+        );
+    }
+    editor.update(&mut cx, |editor, cx| editor.move_to(script.len() - 2, cx));
+    editor.drain_events();
+    cx.dispatch_action(crate::editor::RunStatement);
+    cx.run_until_parked();
+    let ran = editor
+        .drain_events()
+        .into_iter()
+        .find_map(|event| match event {
+            EditorEvent::RunStatement { span } => Some(span.sql(script).to_owned()),
+            _ => None,
+        });
+    assert_eq!(ran.as_deref(), Some("select 1"));
+
+    // Asked once for all of that, and once more after an edit.
+    let calls = |editor: &Handles, cx: &mut VisualTestContext| {
+        editor.read(cx, |editor| editor.syntax().split_calls())
+    };
+    draw(&mut cx);
+    assert_eq!(calls(&editor, &mut cx), 1);
+    editor.with_window(&mut cx, |editor, window, cx| {
+        editor.move_to(0, cx);
+        editor.replace_text_in_range(None, "-- ", window, cx);
+    });
+    draw(&mut cx);
+    draw(&mut cx);
+    assert_eq!(calls(&editor, &mut cx), 2);
+}
+
+#[gpui::test]
+fn a_long_document_keeps_the_windowed_rule(cx: &mut TestAppContext) {
+    let mut script = long_script(crate::syntax::MAX_SPLIT / 16);
+    script.insert_str(0, "begin\n  a;\nend;\n\n");
+    assert!(script.len() > crate::syntax::MAX_SPLIT);
+    let (editor, mut cx) = open_with_highlighter(&script, Some(Arc::new(ParagraphHighlighter)), cx);
+    editor.update(&mut cx, |editor, cx| editor.move_to(2, cx));
+    let span = editor
+        .read(&mut cx, EditorView::statement_at_caret)
+        .expect("a statement");
+    assert_eq!(
+        span.sql(&script),
+        "begin\n  a",
+        "the semicolon rule answered"
+    );
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.syntax().split_calls()),
+        0
+    );
+}
+
+/// Where the run button beside line `line` is, in window coordinates, as the
+/// last frame laid it out.
+fn run_button_at(editor: &Handles, cx: &mut VisualTestContext, line: usize) -> gpui::Point<Pixels> {
+    cx.update(|_, cx| {
+        let editor = editor.editor.read(cx);
+        let layout = &editor.layout;
+        let bounds = layout.bounds.expect("drawn");
+        let top = bounds.top() + layout.line_height * (editor.wrap.first_row(line) as f32)
+            - editor.scroll_offset().y;
+        gpui::point(
+            bounds.left() + layout.gutter - px(4.) - layout.line_height / 2.,
+            top + layout.line_height / 2.,
+        )
+    })
+}
+
+/// Presses the left button at `position` and lets it go.
+fn click(cx: &mut VisualTestContext, position: gpui::Point<Pixels>) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent};
+    cx.simulate_mouse_move(position, None, Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_event(MouseDownEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        position,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_run_button_runs_the_statement_it_sits_beside(cx: &mut TestAppContext) {
+    let script = "select 1; select 2;\n-- the third\nselect\n  3;\n\nselect 4\n";
+    let (editor, mut cx) = open(script, cx);
+    draw(&mut cx);
+    let plain_gutter = editor.read(&mut cx, |editor| editor.layout.gutter);
+
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_run_buttons(Some(crate::RunButtons::new(|_| "Run".into())), cx);
+    });
+    draw(&mut cx);
+    assert!(editor.read(&mut cx, EditorView::has_run_buttons));
+    assert!(
+        editor.read(&mut cx, |editor| editor.layout.gutter) > plain_gutter,
+        "the buttons get a column of their own"
+    );
+
+    // One button per line a statement starts on: the first of the two on
+    // line 0, the comment that opens the third, the fourth.
+    let heads: Vec<_> = editor
+        .read(&mut cx, |editor| editor.statement_heads(0..6))
+        .into_iter()
+        .map(|(line, span)| (line, span.sql(script).to_owned()))
+        .collect();
+    assert_eq!(
+        heads,
+        [
+            (0, "select 1".to_owned()),
+            (1, "-- the third\nselect\n  3".to_owned()),
+            (5, "select 4".to_owned()),
+        ]
+    );
+
+    editor.update(&mut cx, |editor, cx| editor.move_to(3, cx));
+    editor.drain_events();
+    let position = run_button_at(&editor, &mut cx, 1);
+    click(&mut cx, position);
+    let ran: Vec<_> = editor
+        .drain_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::RunStatement { span } => Some(span.sql(script).to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ran, ["-- the third\nselect\n  3"]);
+    assert_eq!(editor.caret(&mut cx), 3, "the caret stays where it was");
+
+    // Taken away, the column goes with them, and the press is an ordinary
+    // click in the gutter again.
+    editor.update(&mut cx, |editor, cx| editor.set_run_buttons(None, cx));
+    draw(&mut cx);
+    assert_eq!(
+        editor.read(&mut cx, |editor| editor.layout.gutter),
+        plain_gutter
+    );
+}
+
+#[gpui::test]
+fn run_buttons_are_only_for_a_language_with_statements(cx: &mut TestAppContext) {
+    let (editor, mut cx) = open_with_highlighter("int a = 1;\n", None, cx);
+    editor.update(&mut cx, |editor, cx| {
+        editor.set_run_buttons(Some(crate::RunButtons::new(|_| "Run".into())), cx);
+    });
+    assert!(!editor.read(&mut cx, EditorView::has_run_buttons));
+    assert!(
+        editor
+            .read(&mut cx, |editor| editor.statement_heads(0..1))
+            .is_empty()
+    );
+}
+
 #[gpui::test]
 fn the_statement_under_the_caret_changes_at_a_semicolon(cx: &mut TestAppContext) {
     let script = "select 1;\nselect 2;\n";

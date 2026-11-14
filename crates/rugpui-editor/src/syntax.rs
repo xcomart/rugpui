@@ -26,6 +26,17 @@
 //! answer for plain text: it is also the only answer available, and nothing
 //! asks the question of a plain text document.
 //!
+//! # A highlighter that knows better
+//!
+//! A semicolon rule cannot see a body: the semicolons inside a
+//! `CREATE PROCEDURE … BEGIN … END` end statements of the body, not the
+//! `CREATE`, and a script read by a database's own client may end a
+//! statement with no semicolon at all. A highlighter that knows its language
+//! cuts the document itself ([`Highlighter::split_statements`]), and then
+//! every question here is answered from that cut, which the cache keeps until
+//! the next change. The window below is what answers for every other
+//! highlighter, and for a document longer than [`MAX_SPLIT`].
+//!
 //! # Why a window is sound
 //!
 //! A semicolon that terminates a statement resets the splitter completely, so a
@@ -52,6 +63,8 @@
 use std::ops::Range;
 
 use crate::buffer::Buffer;
+#[cfg(doc)]
+use crate::highlight::Highlighter;
 use crate::highlight::{SyntaxCache, Token};
 
 /// How far either way a statement window may grow, in bytes.
@@ -62,6 +75,16 @@ const MAX_WINDOW: usize = 2 * 1024 * 1024;
 
 /// How many lines the bracket scan will walk before giving up.
 const MAX_BRACKET_LINES: usize = 5_000;
+
+/// The longest document whose statements a highlighter is asked to cut
+/// itself ([`Highlighter::split_statements`]), in bytes.
+///
+/// The cut reads the whole document once per change. A megabyte of SQL is a
+/// few tens of milliseconds of that in a release build — a frame, at worst,
+/// after each keystroke — and far more than a script anyone types; a document
+/// past it is a file opened to be read, and gets the windowed semicolon rule,
+/// whose cost does not grow with it.
+pub const MAX_SPLIT: usize = 1024 * 1024;
 
 /// One statement's place in the document, in bytes.
 ///
@@ -229,11 +252,46 @@ fn runs(buffer: &Buffer, cache: &SyntaxCache, line: usize, out: &mut Vec<Run>) {
 /// So the answer is [`None`] only when the window holds no statement at all.
 pub fn statement_at(buffer: &Buffer, cache: &SyntaxCache, offset: usize) -> Option<StatementSpan> {
     let offset = offset.min(buffer.len());
+    if let Some(spans) = cache.statements(buffer) {
+        return pick(spans.iter().copied(), offset);
+    }
     let start = window_start(buffer, cache, offset);
     let end = window_end(buffer, cache, offset);
+    pick(statements_in(buffer, cache, start..end), offset)
+}
 
+/// The statements that start inside `range`, a byte range of the buffer, in
+/// order: what the gutter puts a run button beside.
+///
+/// Cut by the same rules as [`statement_at`], and over the same window — one
+/// that reaches one statement past `range` either way — when the highlighter
+/// does not cut the document itself.
+pub fn statements_starting_in(
+    buffer: &Buffer,
+    cache: &SyntaxCache,
+    range: Range<usize>,
+) -> Vec<StatementSpan> {
+    let range = range.start.min(buffer.len())..range.end.min(buffer.len());
+    if let Some(spans) = cache.statements(buffer) {
+        let first = spans.partition_point(|span| span.start < range.start);
+        return spans[first..]
+            .iter()
+            .take_while(|span| span.start <= range.end)
+            .copied()
+            .collect();
+    }
+    let start = window_start(buffer, cache, range.start);
+    let end = window_end(buffer, cache, range.end);
+    statements_in(buffer, cache, start..end)
+        .into_iter()
+        .filter(|span| range.start <= span.start && span.start <= range.end)
+        .collect()
+}
+
+/// Applies [`statement_at`]'s three rules to `spans`, which are in order.
+fn pick(spans: impl IntoIterator<Item = StatementSpan>, offset: usize) -> Option<StatementSpan> {
     let mut previous = None;
-    for span in statements_in(buffer, cache, start..end) {
+    for span in spans {
         if offset < span.start {
             // The cursor is in the gap ahead of this statement, so it belongs
             // to whatever came before — or to this one, if nothing did.
@@ -245,6 +303,30 @@ pub fn statement_at(buffer: &Buffer, cache: &SyntaxCache, offset: usize) -> Opti
         previous = Some(span);
     }
     previous
+}
+
+/// The spans of a highlighter's own cut that keep its promises: in order, not
+/// overlapping, inside `text` and on its character boundaries, with
+/// `sql_end` between `start` and `end`. The rest are dropped rather than
+/// trusted, for the same reason a span past the end of a line is clamped
+/// before it reaches the shaper.
+pub(crate) fn well_formed(spans: Vec<StatementSpan>, text: &str) -> Vec<StatementSpan> {
+    let mut out: Vec<StatementSpan> = Vec::with_capacity(spans.len());
+    for span in spans {
+        let after_previous = out.last().is_none_or(|previous| previous.end <= span.start);
+        let inside = span.start < span.end
+            && span.end <= text.len()
+            && span.start <= span.sql_end
+            && span.sql_end <= span.end;
+        let on_boundaries = inside
+            && [span.start, span.sql_end, span.end]
+                .iter()
+                .all(|at| text.is_char_boundary(*at));
+        if after_previous && on_boundaries {
+            out.push(span);
+        }
+    }
+    out
 }
 
 /// Every statement whose runs fall inside `window`, in order.
@@ -719,6 +801,58 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_statements_starting_in_a_range_are_the_whole_splits() {
+        let script = "select 1; select 2;\n-- three\nselect\n  3;\n\n;;\nselect 4\n";
+        let (buffer, cache) = open(script);
+        let all = statements_in(&buffer, &cache, 0..buffer.len());
+        for from in 0..=script.len() {
+            for to in from..=script.len() {
+                let expected: Vec<_> = all
+                    .iter()
+                    .filter(|span| from <= span.start && span.start <= to)
+                    .copied()
+                    .collect();
+                assert_eq!(
+                    statements_starting_in(&buffer, &cache, from..to),
+                    expected,
+                    "{from}..{to}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_highlighters_own_cut_is_kept_where_it_keeps_its_promises() {
+        let text = "ab;cd;ef";
+        let span = |start, sql_end, end| StatementSpan {
+            start,
+            end,
+            sql_end,
+        };
+        assert_eq!(
+            well_formed(
+                vec![
+                    span(0, 2, 3),
+                    // Overlaps the one before.
+                    span(2, 4, 5),
+                    span(3, 5, 6),
+                    // Ends before its SQL does.
+                    span(6, 8, 7),
+                    // Past the end of the text.
+                    span(6, 8, 9),
+                    span(6, 8, 8),
+                ],
+                text
+            ),
+            [span(0, 2, 3), span(3, 5, 6), span(6, 8, 8)]
+        );
+        assert!(
+            well_formed(vec![span(1, 2, 3)], "é;").is_empty(),
+            "inside a character"
+        );
     }
 
     #[test]

@@ -66,8 +66,15 @@ pub const MENU: &str = "icons/rugpui/menu.svg";
 /// `rugpui_grid::GridSource::cell_expandable`.
 pub const EXPAND: &str = "icons/rugpui/expand.svg";
 
-/// The disclosure marks, the menu trigger and the expand mark, paired with the
-/// bytes an asset source hands back for them.
+/// "Run this": a triangle pointing right, outlined like the carets.
+///
+/// What an editor's gutter wears beside each statement it can run on its own
+/// — see `rugpui_editor::RunButtons` — when the host does not hand it an icon
+/// of its own.
+pub const PLAY: &str = "icons/rugpui/play.svg";
+
+/// The disclosure marks, the menu trigger, the expand mark and the run mark,
+/// paired with the bytes an asset source hands back for them.
 ///
 /// A host concatenates this into its own table rather than copying these
 /// files: see the module docs.
@@ -80,6 +87,7 @@ pub const ICONS: &[(&str, &[u8])] = &[
     (CARET_UP, include_bytes!("../assets/icons/caret-up.svg")),
     (MENU, include_bytes!("../assets/icons/menu.svg")),
     (EXPAND, include_bytes!("../assets/icons/expand.svg")),
+    (PLAY, include_bytes!("../assets/icons/play.svg")),
 ];
 
 #[cfg(test)]

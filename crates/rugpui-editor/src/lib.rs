@@ -115,7 +115,7 @@ pub mod wrap;
 
 pub use buffer::Buffer;
 pub use composite::{CompositeHighlighter, Overlaid, Overlay};
-pub use editor::{EditorEvent, EditorScrollEvent, EditorView, MarkKind, NavKey, init};
+pub use editor::{EditorEvent, EditorScrollEvent, EditorView, MarkKind, NavKey, RunButtons, init};
 pub use element::EditorElement;
 pub use find::{FindState, find_all};
 pub use highlight::{Highlighter, LineState, Span, SyntaxCache, Token, color_for, runs_for_spans};

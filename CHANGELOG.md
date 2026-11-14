@@ -9,6 +9,26 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- A `Highlighter` can cut the editor's statements itself:
+  `Highlighter::split_statements` takes the whole document and answers with
+  its `StatementSpan`s, and the statement under the caret, the one
+  `RunStatement` sends and the gutter's run buttons are cut from that answer
+  rather than from the editor's own semicolon rule, which cannot see a body
+  (`CREATE PROCEDURE … BEGIN …; END`) or a client's `DELIMITER` or `GO`. The
+  answer is cached until the next edit, and a document longer than
+  `syntax::MAX_SPLIT` (1 MiB) keeps the windowed semicolon rule. The default
+  answers `None`, so consumers need no changes.
+- Run buttons in the editor's gutter. `EditorView::run_buttons` (or
+  `set_run_buttons`) with a `RunButtons` puts a ▶ to the right of the line
+  number on the first line of each statement; pressing one emits
+  `EditorEvent::RunStatement` for that statement without moving the caret.
+  The tooltip is a function the host supplies, asked each time it opens, and
+  the icon defaults to the new `rugpui::PLAY`. `syntax::statements_starting_in`
+  and `EditorView::statement_heads` answer which statements start where. Off
+  unless a host turns it on.
+
 ### Fixed
 
 - The comment toggle in `EditorView` keeps the selection. The same lines stay

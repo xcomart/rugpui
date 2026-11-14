@@ -45,7 +45,7 @@
 //! two claims above down: that drawing costs one call per visible line, and
 //! that an ordinary edit costs one call.
 
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
@@ -54,6 +54,7 @@ use gpui::{Font, Hsla, TextRun};
 use rugpui::EditorTheme;
 
 use crate::buffer::Buffer;
+use crate::syntax::{MAX_SPLIT, StatementSpan};
 
 /// One of the token colors an editor palette hands out.
 ///
@@ -331,6 +332,31 @@ pub trait Highlighter: Send + Sync + 'static {
     fn statements(&self) -> bool {
         false
     }
+
+    /// Cuts `text` — the whole document — into its statements, for a
+    /// language a `;` alone does not delimit.
+    ///
+    /// The editor's own rule ends a statement at every `;` this highlighter
+    /// did not paint as part of a string, a comment or a quoted identifier
+    /// (see [`crate::syntax`]). That is right until a statement has a body —
+    /// a `CREATE PROCEDURE … BEGIN …; …; END` holds semicolons of its own —
+    /// or a script ends one where there is no semicolon at all, as a client's
+    /// `DELIMITER` or `GO` does. A highlighter that knows the language better
+    /// answers here, and the statement under the caret, the one
+    /// [`crate::editor::RunStatement`] sends and the gutter's run buttons are
+    /// all cut from its answer. [`None`] — the default — keeps the editor's
+    /// rule.
+    ///
+    /// The spans must be in order, must not overlap and must lie inside
+    /// `text`; the editor drops any that do not. Called only when
+    /// [`Self::statements`] is `true`, at most once per change to the
+    /// document, and only while the document is no longer than
+    /// [`MAX_SPLIT`] bytes: past that, the editor's own rule — which reads a
+    /// window of the document rather than all of it — answers instead.
+    fn split_statements(&self, text: &str) -> Option<Vec<StatementSpan>> {
+        let _ = text;
+        None
+    }
 }
 
 /// Per-line syntax state, kept in step with a [`Buffer`].
@@ -345,6 +371,13 @@ pub struct SyntaxCache {
     /// A [`Cell`] so that [`SyntaxCache::spans`] can stay `&self` and be called
     /// from an element's prepaint, which holds the view by shared reference.
     lex_calls: Cell<usize>,
+    /// The highlighter's own cut of the whole document
+    /// ([`Highlighter::split_statements`]), worked out the first time it is
+    /// asked for after a change and dropped by the next change. Holds `None`
+    /// when the highlighter declined, or the document is too long to ask.
+    statements: OnceCell<Option<Vec<StatementSpan>>>,
+    /// How many times [`Highlighter::split_statements`] has been called.
+    split_calls: Cell<usize>,
 }
 
 impl fmt::Debug for SyntaxCache {
@@ -368,6 +401,8 @@ impl SyntaxCache {
             highlighter,
             ends: Vec::new(),
             lex_calls: Cell::new(0),
+            statements: OnceCell::new(),
+            split_calls: Cell::new(0),
         };
         this.reset(buffer);
         this
@@ -395,6 +430,7 @@ impl SyntaxCache {
 
     /// Discards the cache and rebuilds it from `buffer`.
     pub fn reset(&mut self, buffer: &Buffer) {
+        self.statements = OnceCell::new();
         let lines = buffer.line_count();
         self.ends.clear();
         self.ends.reserve(lines);
@@ -444,6 +480,9 @@ impl SyntaxCache {
     /// lines the replaced text spanned before it. Returns the number of lines
     /// that had to be re-lexed, which is what the performance tests read.
     pub fn edited(&mut self, buffer: &Buffer, first: usize, removed: usize, added: usize) -> usize {
+        // Wherever the edit was, it may have moved where every statement after
+        // it ends: a `BEGIN` opened, a `DELIMITER` changed.
+        self.statements = OnceCell::new();
         // Make the vector as long as the buffer again. When the edit changed no
         // line count -- typing inside a line, the common case -- this is a
         // no-op rather than a memmove.
@@ -475,6 +514,35 @@ impl SyntaxCache {
             }
         }
         relexed
+    }
+
+    /// The highlighter's own statements of the whole document, if it cuts
+    /// them itself ([`Highlighter::split_statements`]) and the document is
+    /// short enough to ask.
+    ///
+    /// Worked out on the first call after a change, from the whole text, and
+    /// answered from memory until the next change: the caret moving, the
+    /// statement under it repainting and the gutter's run buttons all read
+    /// the same answer.
+    pub fn statements(&self, buffer: &Buffer) -> Option<&[StatementSpan]> {
+        self.statements
+            .get_or_init(|| {
+                let highlighter = self.highlighter.as_ref()?;
+                if !highlighter.statements() || buffer.len() > MAX_SPLIT {
+                    return None;
+                }
+                let text = buffer.text();
+                self.split_calls.set(self.split_calls.get() + 1);
+                let spans = highlighter.split_statements(&text)?;
+                Some(crate::syntax::well_formed(spans, &text))
+            })
+            .as_deref()
+    }
+
+    /// How many times [`Highlighter::split_statements`] has been called
+    /// through this cache, for the tests that hold it to once per change.
+    pub fn split_calls(&self) -> usize {
+        self.split_calls.get()
     }
 
     /// How many times a line has been lexed through this cache.

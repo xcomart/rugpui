@@ -12,7 +12,7 @@ use gpui::{AnyElement, AnyView, App, Entity, Focusable, Window, div, prelude::*,
 use rugpui::{
     ChildState, ListRowInfo, ListSource, ListView, TreeRowInfo, TreeSource, TreeView, theme,
 };
-use rugpui_editor::{EditorView, MarkKind, highlighter_for_extension};
+use rugpui_editor::{EditorView, MarkKind, RunButtons, highlighter_for_extension};
 use rugpui_grid::{
     CellEditor, CellInfo, GridCell, GridColumn, GridColumnKind, GridSource, GridView, RowStatus,
 };
@@ -128,6 +128,14 @@ pub const SHOTS: &[Shot] = &[
         per_theme: "",
         motion: Motion::Still,
         build: editor_sql,
+    },
+    Shot {
+        name: "editor/run-buttons",
+        width: 560.,
+        height: 300.,
+        per_theme: "",
+        motion: Motion::Still,
+        build: editor_run_buttons,
     },
     Shot {
         name: "editor/json",
@@ -579,6 +587,39 @@ fn editor_sql(_window: &mut Window, cx: &mut App) -> AnyView {
     });
     editor_panel(cx, editor)
 }
+
+/// A ▶ beside the first line of each statement, which a host that runs
+/// statements turns on: pressing one emits `RunStatement` for that statement.
+fn editor_run_buttons(_window: &mut Window, cx: &mut App) -> AnyView {
+    let editor = cx.new(|cx| {
+        let mut editor = EditorView::new(cx)
+            .highlighter(highlighter_for_extension("sql").expect("sql"))
+            .run_buttons(RunButtons::new(|_| "Run this statement".into()));
+        editor.set_text(RUN_SQL, cx);
+        editor.move_to(RUN_CARET, cx);
+        editor
+    });
+    editor_panel(cx, editor)
+}
+
+/// The script the run-buttons shot draws: three statements, one of them over
+/// several lines under a comment, so that a button sits on each first line and
+/// none on the lines between.
+const RUN_SQL: &str = "\
+-- Orders that have not shipped.
+SELECT o.order_id, o.placed_at
+  FROM public.orders AS o
+ WHERE o.shipped_at IS NULL;
+
+UPDATE public.orders
+   SET status = 'late'
+ WHERE placed_at < now() - interval '30 days';
+
+SELECT count(*) FROM public.orders;
+";
+
+/// Where the caret sits: in the `UPDATE`, which the statement wash picks out.
+const RUN_CARET: usize = 130;
 
 /// The same editor over a second grammar.
 fn editor_json(_window: &mut Window, cx: &mut App) -> AnyView {
