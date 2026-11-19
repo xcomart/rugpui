@@ -3433,6 +3433,10 @@ mod tests {
 
     /// Only an executable inside the mount `APPDIR` names is running from the
     /// image; the variables alone are inherited by everything it starts.
+    ///
+    /// Unix only: the paths are Linux ones, and on Windows a path without a
+    /// drive is not absolute. AppImages exist on Linux alone anyway.
+    #[cfg(unix)]
     #[test]
     fn an_appimage_is_recognised_by_where_the_executable_runs_from() {
         let image = || OsString::from("/home/u/Apps/widget.AppImage");
