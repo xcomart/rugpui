@@ -9,6 +9,22 @@ revision past it.
 
 ## [Unreleased]
 
+### Added
+
+- The updater knows the three new release targets the applications publish,
+  `aarch64-pc-windows-msvc`, `x86_64-apple-darwin` and
+  `aarch64-unknown-linux-gnu`, beside the three it had. A copy built for one of
+  them installs its own build instead of opening the release page. Consumers
+  need no changes, but their release workflows have to publish those targets.
+- A copy running from an AppImage updates itself. It downloads the release's
+  `<name>-<tag>-<target>.AppImage` instead of the archive, renames it over the
+  image file (`APPIMAGE`), and `restart_path` answers that file, since the
+  executable inside the image's mount is gone by the time a restart runs. The
+  copy counts as an AppImage only when its executable sits under `APPDIR`, so a
+  copy started from a terminal inside one is not mistaken for it. Consumers
+  need no changes; an application that publishes no AppImage leaves such a copy
+  on the release-page fallback, as before.
+
 ## [0.1.17] - 2026-11-14
 
 ### Added
