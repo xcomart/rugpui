@@ -9,6 +9,24 @@ revision past it.
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-11-20
+
+### Added
+
+- The updater knows the three new release targets the applications publish,
+  `aarch64-pc-windows-msvc`, `x86_64-apple-darwin` and
+  `aarch64-unknown-linux-gnu`, beside the three it had. A copy built for one of
+  them installs its own build instead of opening the release page. Consumers
+  need no changes, but their release workflows have to publish those targets.
+- A copy running from an AppImage updates itself. It downloads the release's
+  `<name>-<tag>-<target>.AppImage` instead of the archive, renames it over the
+  image file (`APPIMAGE`), and `restart_path` answers that file, since the
+  executable inside the image's mount is gone by the time a restart runs. The
+  copy counts as an AppImage only when its executable sits under `APPDIR`, so a
+  copy started from a terminal inside one is not mistaken for it. Consumers
+  need no changes; an application that publishes no AppImage leaves such a copy
+  on the release-page fallback, as before.
+
 ## [0.1.17] - 2026-11-14
 
 ### Added
@@ -509,7 +527,8 @@ revision past it.
 - `rugpui-shell`: a NaN pane split ratio is refused.
 - rustls was updated to 0.23.46 for RUSTSEC-2026-0285, -0346, -0348 and -0349.
 
-[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.17...dev
+[Unreleased]: https://github.com/xcomart/rugpui/compare/v0.1.18...dev
+[0.1.18]: https://github.com/xcomart/rugpui/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/xcomart/rugpui/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/xcomart/rugpui/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/xcomart/rugpui/compare/v0.1.14...v0.1.15

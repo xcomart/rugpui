@@ -174,6 +174,19 @@
 //! failure into a failure on every launch — or, worse, apply a stale payload as
 //! a downgrade months later.
 //!
+//! # An AppImage is replaced as one file
+//!
+//! A copy started from an AppImage runs out of a read-only mount of the image,
+//! so there is no directory to unpack into and nothing inside it to rename.
+//! The image is the installation: the update downloads the release's AppImage
+//! for this target instead of its archive, beside the image, and renames it
+//! over the image — see [`install_appimage`]. The restart then opens the image
+//! by its path rather than the executable inside the mount, which is gone by
+//! the time a restart runs; see [`restart_path`]. The variables the AppImage
+//! runtime sets are inherited by everything the application starts, so a copy
+//! counts as running from an image only when its executable sits inside that
+//! image's mount.
+//!
 //! # What the install deliberately does not do
 //!
 //! No package manager is consulted, no installer is run, nothing is elevated,
@@ -185,6 +198,7 @@
 //! one action is the browser fallback. That is the honest outcome: an updater
 //! that starts asking for administrator rights is a different program.
 
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -328,20 +342,69 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// The release-asset target triple for the platform this binary was built for,
 /// or `None` where the project publishes no build.
 ///
-/// The three arms are the three builds the applications sharing this shell all
-/// publish, and they are the same three in each of their release workflows.
-/// An Intel Mac or an ARM Linux box runs a locally built copy, and there is
-/// nothing to hand it: those fall through to `None`, which makes "Update" open
-/// the release page instead.
+/// The arms are the builds the applications sharing this shell all publish,
+/// x86_64 and aarch64 on each of the three systems, and they are the same six
+/// in each of their release workflows. Anything else runs a locally built copy,
+/// and there is nothing to hand it: it falls through to `None`, which makes
+/// "Update" open the release page instead.
+///
+/// An x64 build running under emulation on ARM64 Windows reports
+/// `x86_64-pc-windows-msvc` and so keeps updating to the x64 build. That is
+/// what it was installed as, and moving it to the native one is the
+/// installer's business.
 const TARGET: Option<&str> = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
     Some("x86_64-pc-windows-msvc")
+} else if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
+    Some("aarch64-pc-windows-msvc")
 } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
     Some("aarch64-apple-darwin")
+} else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    Some("x86_64-apple-darwin")
 } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
     Some("x86_64-unknown-linux-gnu")
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    Some("aarch64-unknown-linux-gnu")
 } else {
     None
 };
+
+/// The `.AppImage` file this process runs from, when it runs from one.
+///
+/// Computed once: the environment it is read from is the runtime's, set before
+/// `main`, and nothing in the process changes it. See [`appimage_for`] for
+/// what counts.
+fn appimage() -> Option<&'static Path> {
+    static IMAGE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    IMAGE
+        .get_or_init(|| {
+            if !cfg!(target_os = "linux") {
+                return None;
+            }
+            let exe = std::env::current_exe().ok()?;
+            let image = appimage_for(
+                &exe,
+                std::env::var_os("APPIMAGE")?,
+                std::env::var_os("APPDIR")?,
+            )?;
+            image.is_file().then_some(image)
+        })
+        .as_deref()
+}
+
+/// The AppImage `exe` was started from, given the two variables an AppImage
+/// runtime sets: `APPIMAGE`, the image file, and `APPDIR`, where its contents
+/// are mounted.
+///
+/// Both are inherited by everything the program starts — a shell in a
+/// terminal tab, and from there a copy of the application installed some
+/// other way. So the variables alone prove nothing, and only an executable
+/// that actually sits under `APPDIR` is running from the image. Relative
+/// values are not the runtime's and are refused.
+fn appimage_for(exe: &Path, image: OsString, mount: OsString) -> Option<PathBuf> {
+    let image = PathBuf::from(image);
+    let mount = PathBuf::from(mount);
+    (image.is_absolute() && mount.is_absolute() && exe.starts_with(&mount)).then_some(image)
+}
 
 /// One thing the swap has to move: where it goes, and what goes there.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -645,8 +708,16 @@ pub fn release_url(release: &Release) -> &str {
 /// relaunches a `.app` bundle — handed the executable inside one, it opens
 /// nothing. [`restart_target_for`] answers with the bundle root in that case;
 /// see it for the exact shape it looks for.
+///
+/// # Why an AppImage restarts into the image
+///
+/// Run from an AppImage, the executable lives in a mount the image's runtime
+/// removes once this process exits, and gpui's restart waits for exactly that
+/// before it runs the path. So the answer is the `.AppImage` file instead,
+/// which is also what an update replaced.
 pub fn restart_path() -> Option<PathBuf> {
-    inject::recorded_exe().map(|exe| restart_target_for(&exe))
+    let exe = inject::recorded_exe()?;
+    Some(appimage().map_or_else(|| restart_target_for(&exe), Path::to_path_buf))
 }
 
 /// What to hand `cx.set_restart_path` for an executable recorded at `exe`.
@@ -715,6 +786,20 @@ pub fn remember_ignored(tag: &str, cx: &mut App) {
 /// removes nothing. It does not panic — a start-up housekeeping sweep is not
 /// worth a launch over.
 pub fn clean_leftovers() {
+    // An AppImage update renames over the image and displaces nothing; the
+    // only thing it can leave is a download a crash interrupted.
+    if let Some(image) = appimage() {
+        if let Ok(staged) = appimage_staging(image)
+            && staged.exists()
+            && let Err(error) = remove(&staged)
+        {
+            log::debug!(
+                "could not remove the unfinished update at {}: {error}",
+                staged.display()
+            );
+        }
+        return;
+    }
     let Ok(plan) = install_plan() else {
         return;
     };
@@ -771,6 +856,10 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<In
     };
     let expected = expected_digest(asset, signed)?;
 
+    if let Some(image) = appimage() {
+        return install_appimage(asset, &expected, image, report);
+    }
+
     let plan = install_plan()?;
     let parent = install_dir(&plan)
         .ok_or_else(|| "the installed copy has no parent directory".to_string())?
@@ -806,6 +895,61 @@ pub fn install(release: &Release, report: &mut dyn FnMut(Progress)) -> Result<In
     }
 
     outcome
+}
+
+/// [`install`] for a copy running from an AppImage.
+///
+/// The image is the whole installation, mounted read-only while it runs, so
+/// there is nothing to unpack and nothing inside it to swap: the new image is
+/// downloaded beside the old one and renamed over it. The running process
+/// keeps the old file open and is unaffected, and the restart opens the new
+/// one under the same name. One rename leaves no half-installed state to roll
+/// back.
+fn install_appimage(
+    asset: &Asset,
+    expected: &str,
+    image: &Path,
+    report: &mut dyn FnMut(Progress),
+) -> Result<Installed, String> {
+    let staged = appimage_staging(image)?;
+    // A download an interrupted run left would otherwise be appended to.
+    let _ = remove(&staged);
+    let outcome = download(asset, expected, &staged, report).and_then(|()| {
+        report(Progress::Installing);
+        put_appimage(&staged, image)
+    });
+    // Already gone when the rename succeeded; a refused download otherwise.
+    let _ = remove(&staged);
+    outcome.map(|()| Installed::Swapped)
+}
+
+/// Where an AppImage update is downloaded to: a hidden file beside the image,
+/// so the rename that installs it never crosses a file system.
+fn appimage_staging(image: &Path) -> Result<PathBuf, String> {
+    let name = image
+        .file_name()
+        .ok_or_else(|| format!("{} has no file name", image.display()))?;
+    let mut staged = OsString::from(".");
+    staged.push(name);
+    staged.push(".update");
+    Ok(image.with_file_name(staged))
+}
+
+/// Make the downloaded image as executable as the one it replaces, and rename
+/// it into its place.
+fn put_appimage(staged: &Path, image: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(image)
+            .map(|metadata| metadata.permissions().mode() & 0o777)
+            .unwrap_or(0o755)
+            | 0o100;
+        fs::set_permissions(staged, fs::Permissions::from_mode(mode))
+            .map_err(|error| format!("could not make {} executable: {error}", staged.display()))?;
+    }
+    fs::rename(staged, image)
+        .map_err(|error| format!("could not replace {}: {error}", image.display()))
 }
 
 /// The download-verify-unpack-swap sequence, with `staging` already prepared.
@@ -1075,6 +1219,10 @@ fn defer(payload: &Path, pending: &Path) -> Result<(), String> {
 /// starts the application on the build already on disk rather than taking the
 /// launch down over a mis-ordered `main`.
 pub fn apply_pending() -> bool {
+    // An AppImage's mount is read-only and its update is never staged.
+    if appimage().is_some() {
+        return false;
+    }
     let Ok(plan) = install_plan() else {
         return false;
     };
@@ -1821,7 +1969,7 @@ fn tag_from_location(location: &str) -> Option<String> {
 /// `None`, which is the dialog's browser fallback.
 fn checksummed_asset(tag: &str) -> Option<Asset> {
     let target = TARGET?;
-    let name = asset_name(tag, target);
+    let name = asset_name(tag, target, appimage().is_some());
     let url = format!(
         "{}/download/{tag}/{name}",
         inject::current_identity()
@@ -1914,7 +2062,7 @@ fn parse_release(body: &str) -> Option<Release> {
         .unwrap_or_default();
 
     let asset = TARGET
-        .map(|target| asset_name(tag, target))
+        .map(|target| asset_name(tag, target, appimage().is_some()))
         .and_then(|name| find_asset(&value, &name));
 
     let notes = value
@@ -1932,13 +2080,18 @@ fn parse_release(body: &str) -> Option<Release> {
     })
 }
 
-/// The file name the release workflow publishes for `tag` on `target`.
+/// The file name the release workflow publishes for `tag` on `target`, as an
+/// AppImage when `appimage` and as the archive otherwise.
 ///
 /// Mirrors `.github/workflows/release.yml`; the two have to be changed together,
 /// and a mismatch degrades to the browser fallback rather than to a wrong
-/// download, because nothing in the response would match this name.
-fn asset_name(tag: &str, target: &str) -> String {
-    let extension = if target.contains("windows") {
+/// download, because nothing in the response would match this name. A copy
+/// running from an AppImage asks for the AppImage, since an archive is not
+/// something it can install itself from.
+fn asset_name(tag: &str, target: &str, appimage: bool) -> String {
+    let extension = if appimage {
+        "AppImage"
+    } else if target.contains("windows") {
         "zip"
     } else {
         "tar.gz"
@@ -2280,59 +2433,102 @@ mod tests {
     #[test]
     fn an_asset_name_follows_the_release_workflow() {
         fake();
+        for (target, archive) in [
+            ("x86_64-pc-windows-msvc", "zip"),
+            ("aarch64-pc-windows-msvc", "zip"),
+            ("aarch64-apple-darwin", "tar.gz"),
+            ("x86_64-apple-darwin", "tar.gz"),
+            ("x86_64-unknown-linux-gnu", "tar.gz"),
+            ("aarch64-unknown-linux-gnu", "tar.gz"),
+        ] {
+            assert_eq!(
+                asset_name("v0.2.0", target, false),
+                format!("widget-v0.2.0-{target}.{archive}")
+            );
+        }
         assert_eq!(
-            asset_name("v0.2.0", "x86_64-pc-windows-msvc"),
-            "widget-v0.2.0-x86_64-pc-windows-msvc.zip"
+            asset_name("v0.2.0", "x86_64-unknown-linux-gnu", true),
+            "widget-v0.2.0-x86_64-unknown-linux-gnu.AppImage"
         );
         assert_eq!(
-            asset_name("v0.2.0", "aarch64-apple-darwin"),
-            "widget-v0.2.0-aarch64-apple-darwin.tar.gz"
-        );
-        assert_eq!(
-            asset_name("v0.2.0", "x86_64-unknown-linux-gnu"),
-            "widget-v0.2.0-x86_64-unknown-linux-gnu.tar.gz"
+            asset_name("v0.2.0", "aarch64-unknown-linux-gnu", true),
+            "widget-v0.2.0-aarch64-unknown-linux-gnu.AppImage"
         );
     }
 
-    /// A response carrying all three published assets, as the API shapes them.
-    fn three_assets(tag: &str) -> String {
-        let entries: Vec<String> = [
-            "x86_64-pc-windows-msvc",
-            "aarch64-apple-darwin",
-            "x86_64-unknown-linux-gnu",
-        ]
-        .iter()
-        .map(|target| {
-            let name = asset_name(tag, target);
-            format!(
-                r#"{{"name":"{name}",
+    /// The six targets every release workflow builds.
+    const PUBLISHED: [&str; 6] = [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+    ];
+
+    /// A response carrying every published asset, as the API shapes them: an
+    /// archive per target, and an AppImage beside each Linux one.
+    fn published_assets(tag: &str) -> String {
+        let archives = PUBLISHED
+            .iter()
+            .map(|target| asset_name(tag, target, false));
+        let images = PUBLISHED
+            .iter()
+            .filter(|target| target.contains("linux"))
+            .map(|target| asset_name(tag, target, true));
+        let entries: Vec<String> = archives
+            .chain(images)
+            .map(|name| {
+                format!(
+                    r#"{{"name":"{name}",
                     "size":1234,
                     "digest":"sha256:{hex}",
                     "browser_download_url":"https://example.invalid/{name}"}}"#,
-                hex = "ab".repeat(32)
-            )
-        })
-        .collect();
+                    hex = "ab".repeat(32)
+                )
+            })
+            .collect();
         format!(r#"{{"tag_name":"{tag}","assets":[{}]}}"#, entries.join(","))
     }
 
     #[test]
     fn the_asset_for_this_target_is_the_one_picked() {
         fake();
-        let release = parse_release(&three_assets("v9.9.9")).expect("a well-formed release");
+        let release = parse_release(&published_assets("v9.9.9")).expect("a well-formed release");
         match TARGET {
-            // The three targets the project publishes: exactly one entry of the
+            // A target the project publishes: exactly one entry of the
             // response is the right one, and it is chosen by name.
             Some(target) => {
+                assert!(
+                    PUBLISHED.contains(&target),
+                    "{target} is not built by the workflows"
+                );
                 let asset = release.asset.expect("a build for a published target");
-                assert_eq!(asset.name, asset_name("v9.9.9", target));
+                assert_eq!(asset.name, asset_name("v9.9.9", target, false));
                 assert!(asset.url.ends_with(&asset.name));
                 assert_eq!(asset.size, 1234);
                 assert_eq!(asset.digest.as_deref(), Some("ab".repeat(32).as_str()));
             }
-            // Everything else — an Intel Mac, an ARM Linux box — has no build
-            // to install and must fall back to the browser.
+            // Everything else — a 32-bit or a RISC-V build — has no build to
+            // install and must fall back to the browser.
             None => assert!(release.asset.is_none()),
+        }
+    }
+
+    /// The AppImage beside a Linux archive is a different entry, and the one a
+    /// copy running from an AppImage asks for.
+    #[test]
+    fn an_appimage_is_found_by_its_own_name() {
+        fake();
+        let value: serde_json::Value =
+            serde_json::from_str(&published_assets("v9.9.9")).expect("valid JSON");
+        for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
+            let image = find_asset(&value, &asset_name("v9.9.9", target, true))
+                .expect("an AppImage for every Linux target");
+            assert!(image.name.ends_with(".AppImage"), "{}", image.name);
+            let archive = find_asset(&value, &asset_name("v9.9.9", target, false))
+                .expect("an archive for every Linux target");
+            assert_ne!(image.url, archive.url);
         }
     }
 
@@ -2341,8 +2537,8 @@ mod tests {
         fake();
         // The name carries the tag, so a response whose assets were built for a
         // different one matches nothing and degrades to the browser fallback.
-        let body =
-            three_assets("v9.9.9").replace("\"tag_name\":\"v9.9.9\"", "\"tag_name\":\"v8.8.8\"");
+        let body = published_assets("v9.9.9")
+            .replace("\"tag_name\":\"v9.9.9\"", "\"tag_name\":\"v8.8.8\"");
         let release = parse_release(&body).expect("a well-formed release");
         assert_eq!(release.tag, "v8.8.8");
         assert!(release.asset.is_none());
@@ -2352,7 +2548,7 @@ mod tests {
     fn an_asset_without_a_download_url_is_no_asset() {
         fake();
         let Some(target) = TARGET else { return };
-        let name = asset_name("v9.9.9", target);
+        let name = asset_name("v9.9.9", target, false);
         for entry in [
             format!(r#"{{"name":"{name}","size":1}}"#),
             format!(r#"{{"name":"{name}","browser_download_url":""}}"#),
@@ -2368,7 +2564,7 @@ mod tests {
     fn an_asset_may_arrive_without_a_size_or_a_digest() {
         fake();
         let Some(target) = TARGET else { return };
-        let name = asset_name("v9.9.9", target);
+        let name = asset_name("v9.9.9", target, false);
         let body = format!(
             r#"{{"tag_name":"v9.9.9","assets":[
                 {{"name":"{name}","browser_download_url":"https://example.invalid/a"}}]}}"#
@@ -3233,6 +3429,97 @@ mod tests {
         assert!(apply(&plan, &pending));
         assert_eq!(mark_of(&install, "widget"), "new");
         assert!(!pending.exists());
+    }
+
+    /// Only an executable inside the mount `APPDIR` names is running from the
+    /// image; the variables alone are inherited by everything it starts.
+    ///
+    /// Unix only: the paths are Linux ones, and on Windows a path without a
+    /// drive is not absolute. AppImages exist on Linux alone anyway.
+    #[cfg(unix)]
+    #[test]
+    fn an_appimage_is_recognised_by_where_the_executable_runs_from() {
+        let image = || OsString::from("/home/u/Apps/widget.AppImage");
+        let mount = || OsString::from("/tmp/.mount_widgetAb12");
+        assert_eq!(
+            appimage_for(Path::new("/tmp/.mount_widgetAb12/widget"), image(), mount()),
+            Some(PathBuf::from("/home/u/Apps/widget.AppImage"))
+        );
+        // A trailing separator on the mount changes nothing.
+        assert!(
+            appimage_for(
+                Path::new("/tmp/.mount_widgetAb12/widget"),
+                image(),
+                OsString::from("/tmp/.mount_widgetAb12/")
+            )
+            .is_some()
+        );
+        // A tarball install started from a terminal inside the AppImage.
+        assert_eq!(
+            appimage_for(
+                Path::new("/home/u/.local/share/widget/widget"),
+                image(),
+                mount()
+            ),
+            None
+        );
+        // A mount whose name merely starts the same way.
+        assert_eq!(
+            appimage_for(
+                Path::new("/tmp/.mount_widgetAb12x/widget"),
+                image(),
+                mount()
+            ),
+            None
+        );
+        // Relative values are not what a runtime sets.
+        assert_eq!(
+            appimage_for(
+                Path::new("/tmp/.mount_widgetAb12/widget"),
+                OsString::from("widget.AppImage"),
+                mount()
+            ),
+            None
+        );
+        assert_eq!(
+            appimage_for(Path::new("mnt/widget"), image(), OsString::from("mnt")),
+            None
+        );
+    }
+
+    #[test]
+    fn an_appimage_update_is_downloaded_beside_the_image() {
+        assert_eq!(
+            appimage_staging(Path::new("/home/u/Apps/widget.AppImage")).expect("a file name"),
+            PathBuf::from("/home/u/Apps/.widget.AppImage.update")
+        );
+        assert!(appimage_staging(Path::new("/")).is_err());
+    }
+
+    /// The downloaded image takes the old one's name and stays executable.
+    #[cfg(unix)]
+    #[test]
+    fn a_downloaded_appimage_replaces_the_image_in_one_rename() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().expect("a temp directory");
+        let image = root.path().join("widget.AppImage");
+        let staged = appimage_staging(&image).expect("a file name");
+        fs::write(&image, "old").expect("an image");
+        fs::set_permissions(&image, fs::Permissions::from_mode(0o750)).expect("a mode");
+        fs::write(&staged, "new").expect("a download");
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o600)).expect("a mode");
+
+        put_appimage(&staged, &image).expect("the rename succeeds");
+
+        assert_eq!(fs::read_to_string(&image).expect("the image"), "new");
+        assert!(!staged.exists());
+        let mode = fs::metadata(&image)
+            .expect("the image")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o750);
     }
 
     /// The start-up check is a request, and a suite that builds windows must
