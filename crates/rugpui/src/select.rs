@@ -14,7 +14,8 @@ use std::rc::Rc;
 
 use gpui::{
     Anchor, AnchoredPositionMode, App, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
-    SharedString, Window, anchored, deferred, div, point, prelude::*, px, svg, transparent_black,
+    SharedString, Window, anchored, deferred, div, img, point, prelude::*, px, svg,
+    transparent_black,
 };
 
 use crate::icons::CARET_DOWN;
@@ -82,7 +83,8 @@ type SelectHandler = Rc<dyn Fn(usize, &str, &mut Window, &mut App)>;
 /// Callback fired when the list wants to open or close itself.
 type OpenChangeHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
-/// One row of a [`Select`]: a label, and up to two icons to flank it with.
+/// One row of a [`Select`]: a label, up to two icons to flank it with, and a
+/// full-color image before it.
 ///
 /// The label is still the option's identity — [`Select::selected`] matches on
 /// it and [`Select::on_select`] hands it back — so the icons are decoration
@@ -109,6 +111,9 @@ pub struct SelectOption {
     pub leading: Option<SharedString>,
     /// Asset path of the icon drawn after the label, at the row's right edge.
     pub trailing: Option<SharedString>,
+    /// Asset path of the image drawn before the label — and before the
+    /// leading icon, after the swatch — in its own colors.
+    pub image: Option<SharedString>,
     /// Color of the square drawn before the label — and before the leading
     /// icon, when there is one too.
     pub swatch: Option<Hsla>,
@@ -121,6 +126,7 @@ impl SelectOption {
             label: label.into(),
             leading: None,
             trailing: None,
+            image: None,
             swatch: None,
         }
     }
@@ -135,6 +141,15 @@ impl SelectOption {
     /// the row.
     pub fn trailing(mut self, path: impl Into<SharedString>) -> Self {
         self.trailing = Some(path.into());
+        self
+    }
+
+    /// Draws the image at `path` before the label, in its own colors: a
+    /// product's logo, say, where [`Self::leading`] would draw a one-color
+    /// mark. The icons are `svg`s, which gpui tints with a single color;
+    /// this is an `img`, which it draws as it is. Sized as the icons are.
+    pub fn image(mut self, path: impl Into<SharedString>) -> Self {
+        self.image = Some(path.into());
         self
     }
 
@@ -391,17 +406,18 @@ impl RenderOnce for Select {
         // something really is selected: the placeholder row may well be one of
         // the options, and repeating its mark would make an empty dropdown look
         // like a made choice.
-        let (trigger_swatch, trigger_leading, trigger_trailing) =
+        let (trigger_swatch, trigger_image, trigger_leading, trigger_trailing) =
             match current.filter(|_| selected.is_some()) {
                 Some(index) => {
                     let option = &options[index];
                     (
                         option.swatch,
+                        option.image.clone(),
                         option.leading.clone(),
                         option.trailing.clone(),
                     )
                 }
-                None => (None, None, None),
+                None => (None, None, None, None),
             };
 
         let trigger = div()
@@ -466,6 +482,7 @@ impl RenderOnce for Select {
                 }
             })
             .children(trigger_swatch.map(|color| color_swatch(color, &theme, swatch_size)))
+            .children(trigger_image.map(|path| img(path).size(icon_size).flex_none()))
             .children(trigger_leading.map(|path| {
                 svg()
                     .size(icon_size)
@@ -544,6 +561,7 @@ impl RenderOnce for Select {
                     label,
                     leading,
                     trailing,
+                    image,
                     swatch,
                 } = option;
                 let value = label.clone();
@@ -583,6 +601,7 @@ impl RenderOnce for Select {
                         }
                     })
                     .children(swatch.map(|color| color_swatch(color, theme, swatch_size)))
+                    .children(image.map(|path| img(path).size(icon_size).flex_none()))
                     .children(leading.map(|path| {
                         svg()
                             .size(icon_size)
@@ -712,7 +731,8 @@ mod tests {
     }
 
     /// The same list, but with the icon slots in play: the selected row wears
-    /// both, the second only a leading mark, the third none at all — the ragged
+    /// both, the second only a leading mark, the third none at all, the fourth
+    /// a full-color image — the ragged
     /// case [`SelectOption`] warns about, drawn on purpose so the row layout is
     /// exercised with and without each slot.
     struct IconHarness;
@@ -727,6 +747,7 @@ mod tests {
                             .trailing("icons/warning.svg"),
                         SelectOption::new("Two").leading("icons/database.svg"),
                         SelectOption::new("Three"),
+                        SelectOption::new("Four").image("icons/logo.png"),
                     ])
                     .selected(Some("One"))
                     .open(true),
@@ -747,8 +768,8 @@ mod tests {
         cx.run_until_parked();
     }
 
-    /// Options carrying a leading icon, a trailing icon, both, or neither lay
-    /// out and paint on the trigger and down the open list. As above, the test
+    /// Options carrying a leading icon, a trailing icon, both, an image, or
+    /// none of them lay out and paint on the trigger and down the open list. As above, the test
     /// `AssetSource` draws every path as nothing, so what this proves is that
     /// the extra children upset neither layout nor paint.
     #[gpui::test]
@@ -822,5 +843,6 @@ mod tests {
         assert_eq!(SelectOption::from("One".to_owned()), expected);
         assert!(expected.leading.is_none());
         assert!(expected.trailing.is_none());
+        assert!(expected.image.is_none());
     }
 }
