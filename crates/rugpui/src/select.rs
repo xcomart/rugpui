@@ -13,8 +13,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnchoredPositionMode, App, ElementId, Hsla, MouseButton, Pixels, ScrollHandle,
-    SharedString, Window, anchored, deferred, div, img, point, prelude::*, px, svg,
+    Anchor, AnchoredPositionMode, App, ElementId, Hsla, ImageSource, MouseButton, Pixels,
+    ScrollHandle, SharedString, Window, anchored, deferred, div, img, point, prelude::*, px, svg,
     transparent_black,
 };
 
@@ -22,6 +22,7 @@ use crate::icons::CARET_DOWN;
 use crate::menu::color_swatch;
 use crate::overlay;
 use crate::scale::{TextSize, scaled};
+use crate::scaled_image::scaled_image;
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
@@ -147,7 +148,9 @@ impl SelectOption {
     /// Draws the image at `path` before the label, in its own colors: a
     /// product's logo, say, where [`Self::leading`] would draw a one-color
     /// mark. The icons are `svg`s, which gpui tints with a single color;
-    /// this is an `img`, which it draws as it is. Sized as the icons are.
+    /// this is an `img`, which it draws as it is. Sized as the icons are, and
+    /// resampled to that size first ([`scaled_image`]), so a large image
+    /// does not come out stepped.
     pub fn image(mut self, path: impl Into<SharedString>) -> Self {
         self.image = Some(path.into());
         self
@@ -412,7 +415,10 @@ impl RenderOnce for Select {
                     let option = &options[index];
                     (
                         option.swatch,
-                        option.image.clone(),
+                        option
+                            .image
+                            .as_ref()
+                            .map(|path| scaled_image(path, icon_size, window, cx)),
                         option.leading.clone(),
                         option.trailing.clone(),
                     )
@@ -482,7 +488,7 @@ impl RenderOnce for Select {
                 }
             })
             .children(trigger_swatch.map(|color| color_swatch(color, &theme, swatch_size)))
-            .children(trigger_image.map(|path| img(path).size(icon_size).flex_none()))
+            .children(trigger_image.map(|image| img(image).size(icon_size).flex_none()))
             .children(trigger_leading.map(|path| {
                 svg()
                     .size(icon_size)
@@ -545,6 +551,17 @@ impl RenderOnce for Select {
                 })
             });
 
+        // Resampled here, where the window's scale is known, for the rows to
+        // draw one to one (see `scaled_image`).
+        let images: Vec<Option<ImageSource>> = options
+            .iter()
+            .map(|option| {
+                option
+                    .image
+                    .as_ref()
+                    .map(|path| scaled_image(path, icon_size, window, cx))
+            })
+            .collect();
         let row_theme = theme.clone();
         let row_height = scaled(ROW_HEIGHT, cx);
         let row_text = TextSize::Body.size(cx);
@@ -561,9 +578,10 @@ impl RenderOnce for Select {
                     label,
                     leading,
                     trailing,
-                    image,
+                    image: _,
                     swatch,
                 } = option;
+                let image = images[index].clone();
                 let value = label.clone();
 
                 // An svg takes no color from the box around it, so the row's own
@@ -601,7 +619,7 @@ impl RenderOnce for Select {
                         }
                     })
                     .children(swatch.map(|color| color_swatch(color, theme, swatch_size)))
-                    .children(image.map(|path| img(path).size(icon_size).flex_none()))
+                    .children(image.map(|image| img(image).size(icon_size).flex_none()))
                     .children(leading.map(|path| {
                         svg()
                             .size(icon_size)

@@ -211,6 +211,10 @@ serde_json = "1"
 # still receiving releases. The crate has no features at all, default or
 # otherwise, so there is nothing here to turn off.
 serde_norway = "0.9"
+# Decodes and resamples an image to the pixels it is drawn at (`rugpui::scaled_image`).
+# gpui already links it, with PNG decoding among its features; this adds no
+# second copy, and asks only for the format the applications' marks are in.
+image = { version = "0.25.1", default-features = false, features = ["png"] }
 # The text input and the editor caret move by grapheme cluster rather than by
 # `char`, so that a combining sequence or an emoji with a modifier is one step.
 unicode-segmentation = "1"

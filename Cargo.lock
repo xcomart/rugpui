@@ -4372,6 +4372,7 @@ version = "0.1.18"
 dependencies = [
  "anyhow",
  "gpui",
+ "image",
  "log",
  "serde",
  "serde_json",

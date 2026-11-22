@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
+image.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
