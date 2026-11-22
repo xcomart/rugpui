@@ -22,7 +22,7 @@ use crate::icons::CARET_DOWN;
 use crate::menu::color_swatch;
 use crate::overlay;
 use crate::scale::{TextSize, scaled};
-use crate::scaled_image::scaled_image;
+use crate::scaled_image::{ImagePath, scaled_image};
 use crate::scrollbar::Scrollbar;
 use crate::select_keyboard::SelectKeyboard;
 use crate::theme::theme;
@@ -112,9 +112,9 @@ pub struct SelectOption {
     pub leading: Option<SharedString>,
     /// Asset path of the icon drawn after the label, at the row's right edge.
     pub trailing: Option<SharedString>,
-    /// Asset path of the image drawn before the label — and before the
-    /// leading icon, after the swatch — in its own colors.
-    pub image: Option<SharedString>,
+    /// The image drawn before the label — and before the leading icon, after
+    /// the swatch — in its own colors: an asset, or a file.
+    pub image: Option<ImagePath>,
     /// Color of the square drawn before the label — and before the leading
     /// icon, when there is one too.
     pub swatch: Option<Hsla>,
@@ -151,7 +151,7 @@ impl SelectOption {
     /// this is an `img`, which it draws as it is. Sized as the icons are, and
     /// resampled to that size first ([`scaled_image`]), so a large image
     /// does not come out stepped.
-    pub fn image(mut self, path: impl Into<SharedString>) -> Self {
+    pub fn image(mut self, path: impl Into<ImagePath>) -> Self {
         self.image = Some(path.into());
         self
     }
@@ -418,7 +418,7 @@ impl RenderOnce for Select {
                         option
                             .image
                             .as_ref()
-                            .map(|path| scaled_image(path, icon_size, window, cx)),
+                            .and_then(|path| scaled_image(path, icon_size, window, cx)),
                         option.leading.clone(),
                         option.trailing.clone(),
                     )
@@ -559,7 +559,7 @@ impl RenderOnce for Select {
                 option
                     .image
                     .as_ref()
-                    .map(|path| scaled_image(path, icon_size, window, cx))
+                    .and_then(|path| scaled_image(path, icon_size, window, cx))
             })
             .collect();
         let row_theme = theme.clone();

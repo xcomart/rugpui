@@ -100,7 +100,7 @@ pub use progress::ProgressBar;
 pub use range_slider::{Knob, RangeSlider};
 pub use resize_handle::ResizeHandle;
 pub use scale::{TextSize, scaled, set_ui_scale, ui_scale};
-pub use scaled_image::scaled_image;
+pub use scaled_image::{ImagePath, image_loads, scaled_image};
 pub use scheme_select::{SchemePreview, SchemeSelect, SchemeSwatch};
 pub use scroll::SmoothScrollExt;
 pub use scrollbar::{
